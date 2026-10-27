@@ -1,0 +1,19 @@
+Argus 데모 영상 조립 매니페스트 (총 180초)
+컷 1 [00:00-00:08] simulator:terminal-simulator
+  Argus. 창고 재고실사 코파일럿
+컷 2 [00:08-00:30] capture:console-sessions.html
+  문제. 세는 시간과 오차
+컷 3 [00:30-00:50] pi-placeholder:pi-capture-pending
+  1. 촬영. Pi 도착 후 교체
+컷 4 [00:50-01:15] capture:api-report.json
+  2. SAM 계수. 현재 모의(mock)
+컷 5 [01:15-01:45] capture:console-home.html
+  3. 장부 대조. 일치 4와 불일치 2
+컷 6 [01:45-02:10] capture:console-home.html
+  차이 목록. 부족 1과 초과 1
+컷 7 [02:10-02:35] capture:console-home.html
+  조치 우선순위. 절대 차이 큰 순
+컷 8 [02:35-02:55] capture:api-report.json
+  리포트. QA 17개와 테스트 114개
+컷 9 [02:55-03:00] capture:console-home.html
+  데모 기준. 불일치 2건과 일치율 66.7%
