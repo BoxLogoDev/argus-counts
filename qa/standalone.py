@@ -22,6 +22,7 @@ SKIP_DIRS = {"__pycache__", ".git"}
 REQUIRED_FILES = [
     "README.md",
     "docs/submission-story.md",
+    "docs/submission-summary-en.md",
     "docs/demo-script.md",
     "terminal/sam_adapter.py",
     "terminal/reconcile.py",
@@ -49,6 +50,7 @@ SECRET_PATTERNS = [
 # 제출 서술에 반드시 있어야 하는 정직성 표기.
 HONESTY_MARKERS = {
     "docs/submission-story.md": ["모의", "데모 기준", "가안"],
+    "docs/submission-summary-en.md": ["mock", "Demo basis", "tentative"],
     "docs/demo-script.md": ["Pi", "모의"],
 }
 

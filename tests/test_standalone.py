@@ -25,6 +25,7 @@ def _minimal_root(root: Path) -> None:
     ):
         _write(root, rel, "ok\n")
     _write(root, "docs/submission-story.md", "모의 어댑터, 데모 기준 수치, 테마 가안\n")
+    _write(root, "docs/submission-summary-en.md", "mock adapter, Demo basis: figures, tentative theme\n")
     _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
 
 
