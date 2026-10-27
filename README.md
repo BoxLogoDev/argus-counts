@@ -21,8 +21,8 @@
 
 - 콘솔: 프로젝트 루트에서 `python3 -m console.server` (기본 http://127.0.0.1:8765, `/`는 화면, `/api/report`는 JSON)
 - 단말 시뮬레이터: 프로젝트 루트에서 `python3 -m terminal.simulator` (JSON 리포트 출력, `--out <경로>`로 저장 가능)
-- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 33개)
-- QA: `qa/` 하네스 실행, 실패 0이 통과 조건
+- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 42개)
+- QA 하네스: 프로젝트 루트에서 `python3 -m qa` (기준값 대조 체크 17개, 전부 통과 시 종료코드 0·실패 시 1)
 
 ## 일정
 
