@@ -1,0 +1,109 @@
+{
+  "title": "Argus 데모 영상 나레이션 대본",
+  "total_seconds": 180,
+  "cut_count": 9,
+  "total_chars": 449,
+  "pace_limit_cps": 4.0,
+  "honesty": [
+    "나레이션 대본 (음성 파일 아님)",
+    "모의 어댑터 동작 중",
+    "Pi 실촬영 컷은 도착 후 교체",
+    "수치는 데모 기준"
+  ],
+  "segments": [
+    {
+      "index": 1,
+      "start": 0,
+      "end": 8,
+      "duration": 8,
+      "caption": "Argus. 창고 재고실사 코파일럿",
+      "narration": "Argus는 창고 재고실사 코파일럿입니다. 기존 도구는 SAM 3.1과 Model API입니다. 이 저장소의 코드는 해커톤 기간에 새로 만들었습니다.",
+      "chars": 67,
+      "chars_per_second": 8.38
+    },
+    {
+      "index": 2,
+      "start": 8,
+      "end": 30,
+      "duration": 22,
+      "caption": "문제. 세는 시간과 오차",
+      "narration": "실사는 빈마다 세고 장부와 맞춰야 합니다. 사람이 세면 시간과 오차가 함께 늘어납니다.",
+      "chars": 37,
+      "chars_per_second": 1.68
+    },
+    {
+      "index": 3,
+      "start": 30,
+      "end": 50,
+      "duration": 20,
+      "caption": "1. 촬영. Pi 도착 후 교체",
+      "narration": "첫 단계는 촬영입니다. 이 컷은 Pi 도착 후 실촬영으로 교체합니다. 지금은 시뮬레이터로 흐름을 보여줍니다.",
+      "chars": 47,
+      "chars_per_second": 2.35
+    },
+    {
+      "index": 4,
+      "start": 50,
+      "end": 75,
+      "duration": 25,
+      "caption": "2. SAM 계수. 현재 모의(mock)",
+      "narration": "두 번째는 SAM 계수입니다. 지금은 모의 어댑터로 동작합니다. 실호출은 아직 하지 않았고 크레딧 입금 확인 후 전환합니다.",
+      "chars": 53,
+      "chars_per_second": 2.12
+    },
+    {
+      "index": 5,
+      "start": 75,
+      "end": 105,
+      "duration": 30,
+      "caption": "3. 장부 대조. 일치 4와 불일치 2",
+      "narration": "세 번째는 장부 대조입니다. 일치와 부족과 초과로 판정합니다. 데모 기준 빈 6개 중 일치 4건과 불일치 2건입니다.",
+      "chars": 49,
+      "chars_per_second": 1.63
+    },
+    {
+      "index": 6,
+      "start": 105,
+      "end": 130,
+      "duration": 25,
+      "caption": "차이 목록. 부족 1과 초과 1",
+      "narration": "차이 목록입니다. A-01-02는 장부 8에서 실측 5로 부족입니다. B-01-02는 장부 6에서 실측 9로 초과입니다.",
+      "chars": 54,
+      "chars_per_second": 2.16
+    },
+    {
+      "index": 7,
+      "start": 130,
+      "end": 155,
+      "duration": 25,
+      "caption": "조치 우선순위. 절대 차이 큰 순",
+      "narration": "리포트는 절대 차이 큰 순으로 조치 순서를 정합니다. 부족이면 재촬영과 입출고 기록 대조를 안내합니다. 초과이면 오적재 확인을 안내합니다.",
+      "chars": 60,
+      "chars_per_second": 2.4
+    },
+    {
+      "index": 8,
+      "start": 155,
+      "end": 175,
+      "duration": 20,
+      "caption": "리포트. QA 17개와 테스트 123개",
+      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 123개로 기준값을 지킵니다.",
+      "chars": 43,
+      "chars_per_second": 2.15
+    },
+    {
+      "index": 9,
+      "start": 175,
+      "end": 180,
+      "duration": 5,
+      "caption": "데모 기준. 불일치 2건과 일치율 66.7%",
+      "narration": "데모 기준 빈 6개 중 불일치 2건과 절대 차이 6개와 일치율 66.7%를 한 번에 정리합니다.",
+      "chars": 39,
+      "chars_per_second": 7.8
+    }
+  ],
+  "pace_warnings": [
+    1,
+    9
+  ]
+}
