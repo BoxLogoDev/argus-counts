@@ -1,6 +1,8 @@
 """시뮬레이터 리포트를 콘솔 화면용 뷰 모델로 바꾼다."""
 from __future__ import annotations
 
+from terminal.report import build_actions, impact_line
+
 
 def _verdict_label(verdict: str) -> str:
     if verdict == "match":
@@ -19,6 +21,10 @@ def build_view(report: dict) -> dict:
         for bin_ in report["bins"]
     ]
     differences = [bin_ for bin_ in bins if bin_["verdict"] != "match"]
+    actions = [
+        {**action, "verdict_label": _verdict_label(action["verdict"])}
+        for action in build_actions(report)
+    ]
 
     source = report["source"]
     is_mock = source == "mock"
@@ -40,4 +46,6 @@ def build_view(report: dict) -> dict:
         },
         "differences": differences,
         "bins": bins,
+        "actions": actions,
+        "impact_line": impact_line(report),
     }

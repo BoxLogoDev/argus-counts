@@ -106,6 +106,66 @@ class RenderHtmlTest(unittest.TestCase):
         self.assertNotIn("모의 데이터", render_html(view))
 
 
+class ConsoleActionsTest(unittest.TestCase):
+    def setUp(self):
+        self.view = run_mock_view()
+        self.html = render_html(self.view)
+
+    def test_view_actions(self):
+        actions = self.view["actions"]
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(actions[0]["bin_id"], "A-01-02")
+        self.assertEqual(actions[0]["priority"], 1)
+        self.assertEqual(actions[0]["verdict_label"], "부족")
+        self.assertEqual(actions[0]["diff"], -3)
+        self.assertIn("재촬영", actions[0]["action_hint"])
+        self.assertEqual(actions[1]["bin_id"], "B-01-02")
+        self.assertEqual(actions[1]["verdict_label"], "초과")
+        self.assertIn("오적재", actions[1]["action_hint"])
+
+    def test_view_impact_line_marked_demo(self):
+        self.assertTrue(self.view["impact_line"].startswith("데모 기준"))
+        self.assertIn("불일치 2건", self.view["impact_line"])
+        self.assertIn("66.7%", self.view["impact_line"])
+
+    def test_render_actions_section(self):
+        for text in ("조치 우선순위", "재촬영", "오적재", "데모 기준"):
+            self.assertIn(text, self.html)
+        # 조치 우선순위 섹션은 차이 목록 뒤, 전체 빈 앞
+        self.assertLess(self.html.index("차이 목록"), self.html.index("조치 우선순위"))
+        self.assertLess(self.html.index("조치 우선순위"), self.html.index("전체 빈"))
+
+    def test_render_no_actions(self):
+        fake_report = {
+            "session_id": "SIM-OK",
+            "generated_at": "2026-10-27T00:00:00+00:00",
+            "source": "mock",
+            "bins": [
+                {
+                    "bin_id": "A-01-01",
+                    "item_code": "ITM-001",
+                    "book_qty": 10,
+                    "counted_qty": 10,
+                    "diff": 0,
+                    "verdict": "match",
+                }
+            ],
+            "summary": {
+                "counted_bins": 1,
+                "matched": 1,
+                "mismatched": 0,
+                "match_rate": 1.0,
+                "abs_diff_total": 0,
+                "net_diff": 0,
+            },
+        }
+        view = build_view(fake_report)
+        self.assertEqual(view["actions"], [])
+        html_out = render_html(view)
+        actions_section = html_out.split("조치 우선순위", 1)[1].split("전체 빈", 1)[0]
+        self.assertIn("차이 없음", actions_section)
+
+
 class ConsoleServerTest(unittest.TestCase):
     def setUp(self):
         self._env = mock.patch.dict(os.environ, {}, clear=True)
@@ -129,6 +189,8 @@ class ConsoleServerTest(unittest.TestCase):
             body = response.read().decode("utf-8")
         self.assertIn("Argus 콘솔", body)
         self.assertIn("A-01-02", body)
+        self.assertIn("조치 우선순위", body)
+        self.assertIn("데모 기준", body)
 
     def test_api_report_returns_json(self):
         with urllib.request.urlopen(self.base_url + "/api/report") as response:

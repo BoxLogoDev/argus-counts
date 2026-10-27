@@ -54,6 +54,28 @@ def _table(rows: list[dict]) -> str:
     return f"<table>{header}{body}</table>"
 
 
+def _action_row(action: dict) -> str:
+    return (
+        "<tr>"
+        f"<td>{html.escape(str(action['priority']))}</td>"
+        f"<td>{html.escape(str(action['bin_id']))}</td>"
+        f"<td>{html.escape(str(action['item_code']))}</td>"
+        f"<td>{html.escape(str(action['verdict_label']))}</td>"
+        f"<td>{html.escape(_signed(action['diff']))}</td>"
+        f"<td>{html.escape(str(action['action_hint']))}</td>"
+        "</tr>"
+    )
+
+
+def _actions_table(actions: list[dict]) -> str:
+    header = (
+        "<tr><th>우선순위</th><th>빈</th><th>품목 코드</th>"
+        "<th>판정</th><th>차이</th><th>조치 힌트</th></tr>"
+    )
+    body = "".join(_action_row(action) for action in actions)
+    return f"<table>{header}{body}</table>"
+
+
 def _card(label: str, value: str) -> str:
     return (
         f'<div class="card"><div class="label">{html.escape(label)}</div>'
@@ -80,6 +102,16 @@ def render_html(view: dict) -> str:
     else:
         differences_html = "<p>차이 없음</p>"
 
+    actions = view.get("actions") or []
+    if actions:
+        actions_html = _actions_table(actions)
+    else:
+        actions_html = "<p>차이 없음</p>"
+
+    impact_html = (
+        f'<p class="meta">{html.escape(str(view.get("impact_line", "")))}</p>'
+    )
+
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -104,6 +136,11 @@ def render_html(view: dict) -> str:
 <section>
 <h2>차이 목록</h2>
 {differences_html}
+</section>
+<section>
+<h2>조치 우선순위</h2>
+{actions_html}
+{impact_html}
 </section>
 <section>
 <h2>전체 빈</h2>
