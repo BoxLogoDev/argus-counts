@@ -1,0 +1,79 @@
+{
+  "title": "Argus 콘솔 캡처 매니페스트",
+  "capture_count": 4,
+  "all_ok": true,
+  "honesty": [
+    "서버 응답 원문 캡처 (PNG 스크린샷 아님)",
+    "모의 어댑터 동작 중",
+    "수치는 데모 기준"
+  ],
+  "captures": [
+    {
+      "name": "console-home",
+      "path": "/",
+      "file": "console-home.html",
+      "kind": "html",
+      "status": 200,
+      "bytes": 3952,
+      "markers_found": {
+        "조치 우선순위": true,
+        "모의 데이터": true,
+        "66.7%": true
+      },
+      "all_markers_found": true,
+      "cut_ref": "컷 5~7 (대조·차이·조치)",
+      "purpose": "최신 세션 상세 — 요약 지표·차이 목록·조치 우선순위 화면"
+    },
+    {
+      "name": "console-sessions",
+      "path": "/sessions",
+      "file": "console-sessions.html",
+      "kind": "html",
+      "status": 200,
+      "bytes": 2063,
+      "markers_found": {
+        "DEMO-20261027-A": true,
+        "DEMO-20261026-A": true,
+        "모의 데이터": true
+      },
+      "all_markers_found": true,
+      "cut_ref": "컷 2 (문제·세션 목록)",
+      "purpose": "데모 세션 3개 목록 화면"
+    },
+    {
+      "name": "console-session-detail",
+      "path": "/sessions/DEMO-20261027-B",
+      "file": "console-session-detail.html",
+      "kind": "html",
+      "status": 200,
+      "bytes": 3208,
+      "markers_found": {
+        "DEMO-20261027-B": true,
+        "100.0%": true
+      },
+      "all_markers_found": true,
+      "cut_ref": "컷 5 (대조 — 전부 일치 세션)",
+      "purpose": "전부 일치 세션 상세 화면"
+    },
+    {
+      "name": "api-report",
+      "path": "/api/report",
+      "file": "api-report.json",
+      "kind": "json",
+      "status": 200,
+      "bytes": 924,
+      "markers_found": {
+        "\"source\": \"mock\"": true
+      },
+      "all_markers_found": true,
+      "cut_ref": "컷 4·8 (SAM 계수·리포트)",
+      "purpose": "시뮬레이션 리포트 JSON 원문 (source=mock 표기 확인용)"
+    }
+  ],
+  "files": [
+    "demo/assets/captures/console-home.html",
+    "demo/assets/captures/console-sessions.html",
+    "demo/assets/captures/console-session-detail.html",
+    "demo/assets/captures/api-report.json"
+  ]
+}
