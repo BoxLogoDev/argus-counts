@@ -22,9 +22,10 @@
 - 콘솔: 프로젝트 루트에서 `python3 -m console.server` (기본 http://127.0.0.1:8765, `/`는 화면 — 요약 지표·차이 목록·조치 우선순위·영향 수치 포함, `/api/report`는 JSON, `/sessions`는 데모 세션 3개 목록 화면, `/sessions/<id>`는 세션 상세, `/api/sessions`·`/api/sessions/<id>`는 JSON)
 - 단말 시뮬레이터: 프로젝트 루트에서 `python3 -m terminal.simulator` (JSON 리포트 출력, `--out <경로>`로 저장 가능)
 - 차이 리포트: 프로젝트 루트에서 `python3 -m terminal.report` (텍스트 리포트, `--json`으로 조치 우선순위 payload, `--out <경로>`로 저장 가능)
-- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 78개)
+- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 87개)
 - QA 하네스: 프로젝트 루트에서 `python3 -m qa` (기준값 대조 체크 17개, 전부 통과 시 종료코드 0·실패 시 1)
 - standalone 점검: 프로젝트 루트에서 `python3 -m qa.standalone` (필수 파일·회사 식별자/비밀 패턴·정직성 표기 체크 4개)
+- 데모 영상 자산: 프로젝트 루트에서 `python3 -m demo.captions` (대본 컷 표 9개를 `demo/assets/`에 captions.srt·captions.vtt·shot-list.json으로 생성)
 - 제출 문서: `docs/submission-story.md`(제출 스토리 초안), `docs/demo-script.md`(3분 데모 대본 초안)
 
 ## 일정
