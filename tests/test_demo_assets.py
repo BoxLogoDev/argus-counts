@@ -54,9 +54,9 @@ class TestBuilders(unittest.TestCase):
         srt = build_srt()
         blocks = [b for b in srt.strip().split("\n\n") if b.strip()]
         self.assertEqual(len(blocks), 9)
-        self.assertTrue(blocks[0].startswith("1\n00:00:00,000 --> 00:00:08,000"))
+        self.assertTrue(blocks[0].startswith("1\n00:00:00,000 --> 00:00:18,000"))
         self.assertIn("Argus", blocks[0])
-        self.assertIn("00:02:55,000 --> 00:03:00,000", blocks[-1])
+        self.assertIn("00:02:50,000 --> 00:03:00,000", blocks[-1])
 
     def test_vtt_structure(self):
         vtt = build_vtt()

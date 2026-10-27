@@ -55,14 +55,12 @@ class TestBuildNarration(unittest.TestCase):
             total += expected_chars
         self.assertEqual(narration["total_chars"], total)
 
-    def test_pace_warnings_are_short_cuts(self):
+    def test_no_pace_warnings_after_rebalance(self):
+        # 구간 재조정(컷 1: 0-18, 컷 9: 170-180) 뒤에는 전 컷이 기준 이내다
         narration = build_narration()
-        self.assertEqual(narration["pace_warnings"], [1, 9])
+        self.assertEqual(narration["pace_warnings"], [])
         for seg in narration["segments"]:
-            if seg["index"] in (1, 9):
-                self.assertGreater(seg["chars_per_second"], PACE_LIMIT_CPS)
-            else:
-                self.assertLessEqual(seg["chars_per_second"], PACE_LIMIT_CPS)
+            self.assertLessEqual(seg["chars_per_second"], PACE_LIMIT_CPS)
 
     def test_validate_clean(self):
         self.assertEqual(validate_narration(build_narration()), [])
@@ -105,10 +103,10 @@ class TestScriptsAndWrite(unittest.TestCase):
             )
             self.assertEqual(data["cut_count"], 9)
             self.assertEqual(data["total_seconds"], 180)
-            self.assertEqual(data["pace_warnings"], [1, 9])
+            self.assertEqual(data["pace_warnings"], [])
             text = (Path(tmp) / "narration.txt").read_text(encoding="utf-8")
-            self.assertIn("컷 1 [00:00-00:08]", text)
-            self.assertIn("컷 9 [02:55-03:00]", text)
+            self.assertIn("컷 1 [00:00-00:18]", text)
+            self.assertIn("컷 9 [02:50-03:00]", text)
             self.assertEqual(build_narration_text(build_narration()), text)
             full = (Path(tmp) / "narration-full.txt").read_text(encoding="utf-8")
             self.assertEqual(build_full_script(build_narration()), full)

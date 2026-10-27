@@ -28,7 +28,7 @@
 - 데모 영상 자산: 프로젝트 루트에서 `python3 -m demo.captions` (대본 컷 표 9개를 `demo/assets/`에 captions.srt·captions.vtt·shot-list.json으로 생성)
 - 콘솔 캡처 자산: 프로젝트 루트에서 `python3 -m demo.capture` (실제 콘솔 서버 응답 4종 — 홈·세션 목록·세션 상세 HTML과 리포트 JSON 원문 — 을 `demo/assets/captures/`에 저장하고 capture-manifest.json으로 상태·마커를 검증. PNG 스크린샷이 아닌 서버 응답 원문 캡처다)
 - 데모 영상 조립: 프로젝트 루트에서 `python3 -m demo.assemble` (자막 컷 9개와 캡처 자산을 컷별 소스로 묶은 조립 매니페스트를 `demo/assets/`에 assembly.json·assembly.txt로 생성. 실제 영상 파일이 아닌 편집 결정 목록이며, Pi 컷은 플레이스홀더로 표기)
-- 데모 나레이션 대본: 프로젝트 루트에서 `python3 -m demo.narration` (자막 컷 9개의 나레이션 문장을 `demo/assets/`에 narration.json·narration.txt·narration-full.txt로 생성. 실제 음성 파일이 아닌 대본 텍스트 자산이며, 공백 제외 글자수/초가 4.0을 넘는 컷 1·9는 속도 경고로 표기)
+- 데모 나레이션 대본: 프로젝트 루트에서 `python3 -m demo.narration` (자막 컷 9개의 나레이션 문장을 `demo/assets/`에 narration.json·narration.txt·narration-full.txt로 생성. 실제 음성 파일이 아닌 대본 텍스트 자산이며, 컷 구간 재조정으로 전 컷이 공백 제외 글자수/초 4.0 이하라 속도 경고가 없다)
 - 제출 문서: `docs/submission-story.md`(제출 스토리 초안), `docs/submission-summary-en.md`(영문 제출 요약), `docs/demo-script.md`(3분 데모 대본 초안)
 
 ## 일정

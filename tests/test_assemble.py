@@ -95,7 +95,7 @@ class TestWriteAssembly(unittest.TestCase):
             self.assertEqual(data["segment_count"], 9)
             self.assertEqual(data["total_seconds"], 180)
             text = (Path(tmp) / "assembly.txt").read_text(encoding="utf-8")
-            self.assertIn("컷 1 [00:00-00:08] simulator:terminal-simulator", text)
+            self.assertIn("컷 1 [00:00-00:18] simulator:terminal-simulator", text)
             self.assertIn("컷 3", text)
             self.assertIn("pi-capture-pending", text)
             built = build_assembly_text(build_assembly())

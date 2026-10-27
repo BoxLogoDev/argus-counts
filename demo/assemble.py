@@ -33,15 +33,15 @@ class AssemblySegment:
 
 
 SEGMENTS: tuple[AssemblySegment, ...] = (
-    AssemblySegment(1, 0, 8, "simulator", "terminal-simulator", False),
-    AssemblySegment(2, 8, 30, "capture", "console-sessions.html", False),
+    AssemblySegment(1, 0, 18, "simulator", "terminal-simulator", False),
+    AssemblySegment(2, 18, 30, "capture", "console-sessions.html", False),
     AssemblySegment(3, 30, 50, "pi-placeholder", "pi-capture-pending", True),
     AssemblySegment(4, 50, 75, "capture", "api-report.json", False),
     AssemblySegment(5, 75, 105, "capture", "console-home.html", False),
     AssemblySegment(6, 105, 130, "capture", "console-home.html", False),
     AssemblySegment(7, 130, 155, "capture", "console-home.html", False),
-    AssemblySegment(8, 155, 175, "capture", "api-report.json", False),
-    AssemblySegment(9, 175, 180, "capture", "console-home.html", False),
+    AssemblySegment(8, 155, 170, "capture", "api-report.json", False),
+    AssemblySegment(9, 170, 180, "capture", "console-home.html", False),
 )
 
 HONESTY = [

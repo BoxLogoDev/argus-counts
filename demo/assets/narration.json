@@ -14,22 +14,22 @@
     {
       "index": 1,
       "start": 0,
-      "end": 8,
-      "duration": 8,
+      "end": 18,
+      "duration": 18,
       "caption": "Argus. 창고 재고실사 코파일럿",
       "narration": "Argus는 창고 재고실사 코파일럿입니다. 기존 도구는 SAM 3.1과 Model API입니다. 이 저장소의 코드는 해커톤 기간에 새로 만들었습니다.",
       "chars": 67,
-      "chars_per_second": 8.38
+      "chars_per_second": 3.72
     },
     {
       "index": 2,
-      "start": 8,
+      "start": 18,
       "end": 30,
-      "duration": 22,
+      "duration": 12,
       "caption": "문제. 세는 시간과 오차",
       "narration": "실사는 빈마다 세고 장부와 맞춰야 합니다. 사람이 세면 시간과 오차가 함께 늘어납니다.",
       "chars": 37,
-      "chars_per_second": 1.68
+      "chars_per_second": 3.08
     },
     {
       "index": 3,
@@ -84,26 +84,23 @@
     {
       "index": 8,
       "start": 155,
-      "end": 175,
-      "duration": 20,
+      "end": 170,
+      "duration": 15,
       "caption": "리포트. QA 17개와 테스트 123개",
       "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 123개로 기준값을 지킵니다.",
       "chars": 43,
-      "chars_per_second": 2.15
+      "chars_per_second": 2.87
     },
     {
       "index": 9,
-      "start": 175,
+      "start": 170,
       "end": 180,
-      "duration": 5,
+      "duration": 10,
       "caption": "데모 기준. 불일치 2건과 일치율 66.7%",
       "narration": "데모 기준 빈 6개 중 불일치 2건과 절대 차이 6개와 일치율 66.7%를 한 번에 정리합니다.",
       "chars": 39,
-      "chars_per_second": 7.8
+      "chars_per_second": 3.9
     }
   ],
-  "pace_warnings": [
-    1,
-    9
-  ]
+  "pace_warnings": []
 }
