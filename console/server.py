@@ -2,6 +2,9 @@
 
 GET /는 요청마다 새 시뮬레이션을 돌려 HTML로 보여 주고,
 GET /api/report는 같은 시뮬레이션 리포트를 JSON으로 돌려준다.
+GET /sessions는 데모 세션 목록을 HTML로, GET /api/sessions는 JSON으로
+돌려준다. GET /sessions/<id>와 GET /api/sessions/<id>는 한 세션의
+상세를 돌려주고, 없는 세션이면 404다.
 """
 from __future__ import annotations
 
@@ -12,7 +15,8 @@ from urllib.parse import urlparse
 
 from terminal.simulator import run_simulation
 
-from .render import render_html
+from .render import render_html, render_sessions_html
+from .sessions import build_session_list_view, get_session_report
 from .view import build_view
 
 
@@ -28,6 +32,30 @@ def create_handler():
                     run_simulation(), ensure_ascii=False
                 ).encode("utf-8")
                 self._send(200, "application/json", body)
+            elif path == "/sessions":
+                body = render_sessions_html(
+                    build_session_list_view()
+                ).encode("utf-8")
+                self._send(200, "text/html; charset=utf-8", body)
+            elif path == "/api/sessions":
+                body = json.dumps(
+                    build_session_list_view(), ensure_ascii=False
+                ).encode("utf-8")
+                self._send(200, "application/json", body)
+            elif path.startswith("/api/sessions/"):
+                report = get_session_report(path[len("/api/sessions/"):])
+                if report is None:
+                    self.send_error(404)
+                else:
+                    body = json.dumps(report, ensure_ascii=False).encode("utf-8")
+                    self._send(200, "application/json", body)
+            elif path.startswith("/sessions/"):
+                report = get_session_report(path[len("/sessions/"):])
+                if report is None:
+                    self.send_error(404)
+                else:
+                    body = render_html(build_view(report)).encode("utf-8")
+                    self._send(200, "text/html; charset=utf-8", body)
             else:
                 self.send_error(404)
 

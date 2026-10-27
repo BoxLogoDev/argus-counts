@@ -21,11 +21,16 @@ def _default_session_id() -> str:
     return datetime.now(timezone.utc).strftime("SIM-%Y%m%d-%H%M%S")
 
 
-def run_simulation(session_id: str | None = None) -> dict:
+def run_simulation(
+    session_id: str | None = None,
+    counted_qty: dict[str, int] | None = None,
+) -> dict:
     session_id = session_id or _default_session_id()
     ledger = demo_ledger()
     session = CountSession(session_id=session_id, bin_ids=demo_bin_ids())
-    counter = build_counter(DEMO_COUNTED_QTY)
+    counter = build_counter(
+        counted_qty if counted_qty is not None else DEMO_COUNTED_QTY
+    )
 
     session.begin()
     for bin_id in session.bin_ids:

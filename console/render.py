@@ -147,6 +147,57 @@ def render_html(view: dict) -> str:
 {_table(view["bins"])}
 </section>
 <p class="note">MES · MW 모듈은 통합 관제판 골격만 표시합니다 (데모)</p>
+<p class="note"><a href="/sessions">실사 세션 목록 보기</a></p>
+</body>
+</html>
+"""
+
+
+def _session_row(session: dict) -> str:
+    sid = html.escape(str(session["session_id"]))
+    return (
+        "<tr>"
+        f'<td><a href="/sessions/{sid}">{sid}</a></td>'
+        f"<td>{html.escape(str(session['label']))}</td>"
+        f"<td>{html.escape(str(session['counted_bins']))}</td>"
+        f"<td>{html.escape(str(session['matched']))}</td>"
+        f"<td>{html.escape(str(session['mismatched']))}</td>"
+        f"<td>{html.escape(str(session['match_rate_pct']))}%</td>"
+        f"<td>{html.escape(str(session['abs_diff_total']))}</td>"
+        "</tr>"
+    )
+
+
+def render_sessions_html(list_view: dict) -> str:
+    sessions = list_view.get("sessions") or []
+    if sessions:
+        header = (
+            "<tr><th>세션</th><th>이름</th><th>실사 빈</th>"
+            "<th>일치</th><th>불일치</th><th>일치율</th><th>절대 차이</th></tr>"
+        )
+        body = "".join(_session_row(s) for s in sessions)
+        table_html = f"<table>{header}{body}</table>"
+    else:
+        table_html = "<p>세션 없음</p>"
+    any_mock = any(s.get("is_mock") for s in sessions)
+    badge = '<span class="badge">모의 데이터</span>' if any_mock else ""
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Argus 콘솔 — 실사 세션 목록</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<header>
+<h1>Argus 콘솔 — 실사 세션 목록{badge}</h1>
+</header>
+<section>
+<p class="meta">전체 세션: {html.escape(str(list_view.get("total_sessions", 0)))}</p>
+<p class="meta">전체 불일치: {html.escape(str(list_view.get("total_mismatched", 0)))}</p>
+{table_html}
+</section>
+<p class="note"><a href="/">최신 세션 상세로 돌아가기</a></p>
 </body>
 </html>
 """
