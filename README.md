@@ -19,9 +19,9 @@
 
 아직 골격 단계라 실행 명령은 구성 요소가 들어오는 대로 이 문서에 확정해 적는다.
 
-- 콘솔: `console/`에서 개발 서버 실행 (명령 확정 예정)
-- 단말 시뮬레이터: `terminal/`에서 실행 (명령 확정 예정)
-- 단말 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 24개)
+- 콘솔: 프로젝트 루트에서 `python3 -m console.server` (기본 http://127.0.0.1:8765, `/`는 화면, `/api/report`는 JSON)
+- 단말 시뮬레이터: 프로젝트 루트에서 `python3 -m terminal.simulator` (JSON 리포트 출력, `--out <경로>`로 저장 가능)
+- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 33개)
 - QA: `qa/` 하네스 실행, 실패 0이 통과 조건
 
 ## 일정
