@@ -10,7 +10,9 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 가짜 transport 주입으로만 구동하며 실제 API 호출은 하지 않는다
 (SAM 실호출 검증 전). SAM 실호출 전환 준비 점검(sam-readiness)은
 실제 API 호출 없이 CLI 서브프로세스와 프로세스 내 check_readiness로만
-구동한다(준비 완료는 실호출 성공이 아님). 응답 원문과 종료 판정을
+구동한다(준비 완료는 실호출 성공이 아님). 제출 런북(submission-runbook)은
+파일 원문을 읽어 절 순서·블로커·최종 점검 명령을 대조하고 변조 탐지를
+확인한다(제출 준비 완료가 아니다). 응답 원문과 종료 판정을
 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -21,7 +23,7 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
-pi-capture, pi-session, sam-live, sam-readiness,
+pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
@@ -56,7 +58,7 @@ SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
-            "sam-readiness")
+            "sam-readiness", "submission-runbook")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -75,6 +77,19 @@ EXPECTED_READINESS_BLOCKER_IDS = ("sam_credit_not_confirmed",
                                   "sam_api_key_missing")
 SAM_READINESS_FAKE_URL = "https://sentinel-readiness.example.invalid/sam"
 SAM_READINESS_FAKE_KEY_VALUE = "sentinel-readiness-key-not-real"
+RUNBOOK_REL = "docs/submission-runbook.md"
+RUNBOOK_SECTIONS = ("## 0. 현재 상태", "## 1. 크레딧 확인", "## 2. API 키",
+                    "## 3. SAM 전환", "## 4. Pi 촬영", "## 5. 최종 점검",
+                    "## 6. 제출")
+RUNBOOK_FINAL_COMMANDS = ("python3 -m unittest discover -s tests",
+                          "python3 -m qa", "python3 -m qa.standalone",
+                          "python3 -m qa.claims_audit",
+                          "python3 -m qa.pre_submission",
+                          "verify_argus.py --doctor",
+                          "verify_argus.py --feature all",
+                          "python3 -m demo.render_video")
+RUNBOOK_CREDIT_AT = "2026-10-29 09:30"
+RUNBOOK_DEADLINE_KST = "2026-11-05 11:00"
 
 
 def clean_env() -> dict:
@@ -1086,6 +1101,119 @@ def drive_sam_readiness(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def validate_runbook_text(text: str) -> list[str]:
+    problems: list[str] = []
+    positions = [text.find(section) for section in RUNBOOK_SECTIONS]
+    if any(position < 0 for position in positions):
+        missing = [section for section, position
+                   in zip(RUNBOOK_SECTIONS, positions) if position < 0]
+        problems.append(f"런북 절 누락 {missing}")
+    elif positions != sorted(positions):
+        problems.append(f"런북 절 순서 이상: 위치 {positions}")
+    blocker_positions = [text.find(blocker_id)
+                         for blocker_id in EXPECTED_BLOCKER_IDS]
+    if any(position < 0 for position in blocker_positions) \
+            or blocker_positions != sorted(blocker_positions):
+        problems.append(
+            f"런북 블로커 id 누락 또는 순서 이상: 위치 {blocker_positions}, "
+            f"기대 {list(EXPECTED_BLOCKER_IDS)}")
+    if "SUBMISSION_READY: false" not in text \
+            or "SUBMISSION_READY: true" in text:
+        problems.append(
+            "SUBMISSION_READY 표기 이상: SUBMISSION_READY: false가 없거나 "
+            "SUBMISSION_READY: true가 있다")
+    for needle in (RUNBOOK_CREDIT_AT, "--credit-confirmed", "Secure Vault",
+                   "SAM_API_BASE_URL", "SAM_API_KEY"):
+        if needle not in text:
+            problems.append(f"런북에 {needle!r} 없음")
+    for needle in ("모의", "검증 전", "미실시"):
+        if needle not in text:
+            problems.append(f"런북 정직성 표기 {needle!r} 없음")
+    for command in RUNBOOK_FINAL_COMMANDS:
+        if command not in text:
+            problems.append(f"런북 최종 점검 명령 {command!r} 없음")
+    for needle in ("2026-11-04 21:00", RUNBOOK_DEADLINE_KST,
+                   "BoxLogoDev/argus-counts"):
+        if needle not in text:
+            problems.append(f"런북에 {needle!r} 없음")
+    from qa.claims_audit import audit_text
+
+    audit_problems = audit_text(RUNBOOK_REL, text)
+    if audit_problems:
+        problems.append(f"런북 주장 감사 문제 {audit_problems}")
+    return problems
+
+
+def drive_submission_runbook(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    runbook_path = ROOT / RUNBOOK_REL
+    if runbook_path.is_file():
+        text = runbook_path.read_text(encoding="utf-8")
+        problems = validate_runbook_text(text)
+    else:
+        text = ""
+        problems.append(f"제출 런북 파일이 없다: {RUNBOOK_REL}")
+    ctx.note(f"제출 런북 읽기 -> {RUNBOOK_REL}, {len(text)}자")
+    tampered = text.replace("SUBMISSION_READY: false",
+                            "SUBMISSION_READY: true", 1)
+    tamper_problems = validate_runbook_text(tampered) if text else []
+    tamper_detected = bool(tamper_problems)
+    ctx.note(f"런북 변조 탐지 -> {tamper_detected}")
+    if not tamper_detected:
+        problems.append(
+            "변조 탐지 실패: SUBMISSION_READY를 true로 바꾼 텍스트에서 "
+            "문제를 찾지 못했다")
+    result = run_cli(["-m", "qa.pre_submission", "--json"])
+    ctx.note(
+        f"python3 -m qa.pre_submission --json -> 종료코드 {result.returncode}")
+    pre_blockers: list = []
+    report: dict = {}
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"qa.pre_submission --json 파싱 실패: {e}")
+    if report:
+        pre_blockers = [b.get("id") if isinstance(b, dict) else b
+                        for b in report.get("blockers", [])]
+        if pre_blockers != list(EXPECTED_BLOCKER_IDS):
+            problems.append(
+                f"pre_submission blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, "
+                f"실제 {pre_blockers}")
+        if report.get("submission_ready") is not False:
+            problems.append(
+                "pre_submission submission_ready 기대 False, 실제 "
+                f"{report.get('submission_ready')}")
+    claims_audit_clean = False
+    if text:
+        from qa.claims_audit import audit_text
+
+        claims_audit_clean = audit_text(RUNBOOK_REL, text) == []
+    ctx.note(f"런북 주장 감사 깨끗함 -> {claims_audit_clean}")
+    extracted = {"sections": list(RUNBOOK_SECTIONS),
+                 "blockers": list(EXPECTED_BLOCKER_IDS),
+                 "submission_ready": False,
+                 "credit_check_at": RUNBOOK_CREDIT_AT,
+                 "deadline_kst": RUNBOOK_DEADLINE_KST,
+                 "final_check_commands": list(RUNBOOK_FINAL_COMMANDS)}
+    summary = {"feature": "submission-runbook",
+               "sections": list(RUNBOOK_SECTIONS),
+               "section_count": len(RUNBOOK_SECTIONS),
+               "blockers": list(EXPECTED_BLOCKER_IDS),
+               "submission_ready": False,
+               "credit_check_at": RUNBOOK_CREDIT_AT,
+               "deadline_kst": RUNBOOK_DEADLINE_KST,
+               "final_check_command_count": len(RUNBOOK_FINAL_COMMANDS),
+               "claims_audit_clean": claims_audit_clean,
+               "tamper_detected": tamper_detected,
+               "pre_submission_blockers": pre_blockers,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"submission-runbook.json": json.dumps(
+                       extracted, ensure_ascii=False, indent=2) + "\n",
+                    "submission-runbook.md": text})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -1096,7 +1224,8 @@ DRIVERS = {"console-home": drive_console_home,
            "pi-capture": drive_pi_capture,
            "pi-session": drive_pi_session,
            "sam-live": drive_sam_live,
-           "sam-readiness": drive_sam_readiness}
+           "sam-readiness": drive_sam_readiness,
+           "submission-runbook": drive_submission_runbook}
 
 
 def main(argv: list[str] | None = None) -> int:
