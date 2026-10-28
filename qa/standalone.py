@@ -29,6 +29,8 @@ REQUIRED_FILES = [
     "terminal/report.py",
     "console/server.py",
     "qa/harness.py",
+    ".claude/skills/verify-argus/SKILL.md",
+    ".claude/skills/verify-argus/features/README.md",
 ]
 
 # 금지 식별자는 이 파일 자체가 스캔에 걸리지 않도록 조각으로 조립한다.

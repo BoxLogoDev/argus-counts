@@ -22,6 +22,8 @@ def _minimal_root(root: Path) -> None:
         "terminal/report.py",
         "console/server.py",
         "qa/harness.py",
+        ".claude/skills/verify-argus/SKILL.md",
+        ".claude/skills/verify-argus/features/README.md",
     ):
         _write(root, rel, "ok\n")
     _write(root, "docs/submission-story.md", "모의 어댑터, 데모 기준 수치, 테마 가안\n")

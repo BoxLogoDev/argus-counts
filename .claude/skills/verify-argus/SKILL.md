@@ -1,0 +1,52 @@
+---
+name: verify-argus
+description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CLI를 사용자처럼 구동해 검증하는 프로젝트 로컬 스킬. 콘솔 화면·세션·리포트·데모 영상의 동작을 실제 서버 응답과 CLI 출력으로 증명할 때 사용한다."
+---
+
+# Argus 검증 스킬
+
+이 스킬은 Argus를 내부 함수가 아니라 사용자가 닿는 표면으로 검증한다: 웹 콘솔은 HTTP로, 단말 흐름은 CLI로 직접 구동하고, 응답 원문과 종료 코드를 증거로 남긴다. 헬퍼는 `scripts/verify_argus.py`이며 표준 라이브러리만 쓴다.
+
+기준 상태: 상태가 없는(stateless) 앱이다. 데이터 디렉터리·마이그레이션·인증·시드 절차가 없다. 데모 데이터는 코드 안의 가상 데이터이며, 계수는 모의 어댑터라 응답의 `source`는 항상 `mock`이어야 한다.
+
+## Launch
+
+- 프로젝트 루트에서 헬퍼가 서버를 띄우는 것이 기본 경로다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 `console.server.create_handler`로 `ThreadingHTTPServer`를 127.0.0.1 포트 0(OS 배정 임시 포트)에 띄운다.
+- 손으로 띄울 때는 `python3 -m console.server --host 127.0.0.1 --port <빈 포트>`를 쓴다. 기본값은 127.0.0.1:8765이지만, 검증에서 8765의 상주 인스턴스를 구동 대상으로 삼지 않는다. 그 포트를 이미 다른 과정이 쓰고 있을 수 있고, 내가 띄운 서버가 아니면 종료할 권한도 없다.
+- 준비 완료 판정: 프로세스가 살아 있는 것이 아니라, `GET /api/report`가 200을 주고 JSON의 `source`가 `mock`이며 summary가 빈 6·일치 4·불일치 2일 때만 usable이다.
+- 환경변수 `SAM_API_BASE_URL`·`SAM_API_KEY`가 설정돼 있으면 실호출로 전환될 수 있어 검증이 오염된다. 검증 실행에서는 두 변수를 비우고, 응답 `source=mock`을 반드시 확인한다. 실호출은 이 스킬의 범위가 아니다.
+
+## Doctor
+
+- 한 번의 읽기 전용 점검: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`
+- 이 명령은 임시 포트로 서버를 띄워 `GET /api/report`의 상태 200, `source == "mock"`, summary matched 4·mismatched 2·counted_bins 6을 확인하고 `DOCTOR: PASS`와 종료코드 0을 낸다. 모듈 import 실패, 포트 바인드 실패, 수치 불일치가 있으면 `DOCTOR: FAIL`과 종료코드 1이다.
+- 무언가 이상해 보이면 기능 검증 전에 항상 doctor부터 돌린다. doctor가 실패하면 기능을 구동하지 말고 실패 지점을 그대로 보고한다.
+
+## Drive
+
+- 기본 구동은 헬퍼다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature console-home --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 `GET /`에서 마커 `조치 우선순위`·`모의 데이터`·`66.7%`를, `GET /api/report`에서 source와 요약 수치를 확인한다.
+- 콘솔 라우트(전부 GET): `/` 홈 화면, `/api/report` JSON 리포트, `/sessions` 세션 목록 화면, `/api/sessions` 세션 목록 JSON(세션 3개), `/sessions/<id>` 세션 상세, `/api/sessions/<id>` 세션 상세 JSON. 없는 세션 id는 두 경로 모두 404가 정답이다. 세션 id는 `DEMO-20261027-A`, `DEMO-20261027-B`(전부 일치, 일치율 100.0%), `DEMO-20261026-A`다.
+- 로컬 서버를 HTTP로 읽을 때는 환경 프록시를 우회해야 한다. urllib에 `ProxyHandler({})`를 명시한 전용 오프너를 쓴다. 전역 urlopen은 프록시 캐시 때문에 로컬 응답을 놓치거나 이후 테스트를 오염시킨다(`demo/capture.py`가 이미 겪은 결함이다).
+- 단말 CLI 구동: `python3 -m terminal.simulator`는 촬영→계수→대조 흐름의 JSON을 stdout으로 내고 종료코드 0이다. `python3 -m terminal.report`는 텍스트 리포트를 내며 말미에 `데모 기준` 영향 한 줄이 있고, `--json`이면 조치 우선순위 payload를 낸다.
+- 회귀 확인: `python3 -m unittest discover -s tests`, `python3 -m qa`(체크 17개), `python3 -m qa.standalone`(체크 5개). 셋 다 종료코드 0이어야 한다.
+- 기능별 상세 절차는 `features/` 아래 파일이 정본이다. 검증 전에 색인 `features/README.md`를 읽고 해당 기능 파일을 따른다.
+
+## Evidence
+
+- 증거 위치: `/tmp/argus-verify-evidence/<run-id>/` (run-id는 실행마다 새로 만든다).
+- 헬퍼 구동 증거: `transcript.txt`(명령·상태·마커 확인 과정), `home.html`(GET / 응답 원문), `api-report.json`(GET /api/report 응답 원문), `summary.json`(feature·상태 코드·markers_found·source·all_ok).
+- CLI 구동 증거: 명령, stdout, stderr, 종료 코드를 transcript에 함께 남긴다. 화면만 보지 말고 부수 결과(생성 파일, JSON 필드)를 두 번째 경로로 확인한다. 예: 시뮬레이터 JSON의 summary와 콘솔 `/api/report`의 summary가 같은 수치인지 대조한다.
+- 증거에서도 모의인 것을 구분한다: `source: "mock"`과 화면의 `모의 데이터` 표기가 증거에 그대로 있어야 하며, 이를 실호출 결과처럼 서술하지 않는다.
+- 증명 기준: 내부 setter나 테스트 전용 경로가 아니라 실제 사용자 경로(라우트·CLI 진입점)로 구동한다. 최종 화면만 캡처하지 말고 행동과 그 결과 상태를 같이 남긴다.
+
+## Cleanup
+
+- 종료는 헬퍼가 맡는다: 자기가 띄운 `ThreadingHTTPServer`만 `shutdown`/`server_close` 한다. 프로세스 이름으로 죽이지 않는다.
+- 손으로 띄운 서버는 그 터미널 세션에서 Ctrl+C로만 종료한다. 8765의 상주 인스턴스나 남이 띄운 서버는 건드리지 않는다.
+- 정리 뒤에도 증거 디렉터리(`/tmp/argus-verify-evidence/<run-id>/`)는 지우지 않는다. 종료 후 증거 파일이 그대로 있는지 확인하는 것까지가 cleanup이다.
+
+## Helpers
+
+- `scripts/verify_argus.py --doctor` — 구동 가능성 점검(종료코드 0/1).
+- `scripts/verify_argus.py --feature console-home --evidence-dir <dir>` — 콘솔 홈 기능을 구동하고 증거를 남긴다.
+- 유지보수는 pstack `maintain-verification-skill` 절차를 따른다: 라우트·마커·수치가 바뀌면 이 스킬과 `features/`를 같은 변경에서 함께 고친다.
