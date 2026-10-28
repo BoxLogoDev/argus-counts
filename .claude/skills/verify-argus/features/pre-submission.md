@@ -9,6 +9,7 @@
 - `pre-blockers` 블로커 2건 분리 보고: `pi_real_capture_pending`과 `sam_real_call_pending`을 종료코드와 별도 목록으로 보고한다.
 - `pre-not-ready` submission_ready false 확인: 기계적 통과와 무관하게 `submission_ready`가 false인지 확인한다.
 - `pre-honesty` honesty 표기: `honesty`에 '모의'를 포함한 줄과 '데모 기준'을 포함한 줄이 있는지 확인한다.
+- `pre-video-panel` 영상 데이터 패널 정합: `video_draft_present` 체크가 MP4 크기에 더해 컷 1~9 데이터 패널(컷 5 전체 빈 6줄·컷 6 불일치 2줄·컷 3 플레이스홀더 정직 표기·컷 9 '데모 기준')이 현재 시뮬레이션 리포트와 맞는지 확인하고, 통과 detail에 `data_panel_cuts=9`가 포함된다.
 
 ## How to get to it (user POV)
 

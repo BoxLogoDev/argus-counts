@@ -2,6 +2,7 @@
 
 기존 점검들(QA 기준값 대조, standalone 점검, 현재형 주장 감사)과
 데모 자산의 존재·정합을 한 번에 묶어 기계적으로 확인한다.
+video 체크는 MP4 크기와 함께 컷 1~9 데이터 패널 정합도 확인한다.
 기계적 체크가 전부 통과해도 제출 블로커가 남아 있으면 제출 가능
 상태가 아니다. 블로커는 종료코드가 아니라 별도 목록으로 보고한다:
 Pi 실촬영 검증과 SAM 3.1 실호출은 아직 하지 않은 일이다.
@@ -46,6 +47,8 @@ DEMO_ASSET_FILES = [
 ]
 
 VIDEO_MIN_BYTES = 100_000
+
+EXPECTED_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02", "A-03-01", "B-01-02", "B-02-02")
 
 HONESTY = [
     "기계적 체크 통과는 제출 가능을 뜻하지 않는다",
@@ -105,6 +108,108 @@ def _check_demo_consistency(root: Path) -> PreSubmissionCheck:
     return PreSubmissionCheck(name, True, "shot/assembly/narration/manifest consistent at 180s, 9 cuts")
 
 
+def validate_data_panel(panel) -> list[str]:
+    """컷 1~9 데이터 패널 줄이 데모 기준과 맞는지 검사한다.
+
+    panel은 컷 번호(int 또는 str 키) -> 줄 리스트 dict다.
+    키를 int로 정규화해 검사하고 문제 문자열 리스트를 반환한다.
+    """
+    problems: list[str] = []
+    if not isinstance(panel, dict):
+        return [f"panel is not a dict: {panel!r}"]
+    normalized: dict[int, object] = {}
+    for key, lines in panel.items():
+        try:
+            cut = int(key)
+        except (TypeError, ValueError):
+            problems.append(f"invalid cut key: {key!r}")
+            continue
+        normalized[cut] = lines
+
+    def _lines(cut: int) -> list[str] | None:
+        lines = normalized.get(cut)
+        if not isinstance(lines, (list, tuple)) or not lines:
+            return None
+        return [line if isinstance(line, str) else str(line) for line in lines]
+
+    for cut in range(1, 10):
+        if _lines(cut) is None:
+            problems.append(f"cut {cut}: missing or empty")
+
+    lines1 = _lines(1)
+    if lines1 is not None and not any("일치율 66.7%" in line for line in lines1):
+        problems.append("cut 1: missing '일치율 66.7%' line")
+
+    lines3 = _lines(3)
+    if lines3 is not None and lines3 != ["실촬영 데이터 없음 — Pi 도착 후 교체"]:
+        problems.append(f"cut 3: expected placeholder line only, got {lines3!r}")
+
+    lines5 = _lines(5)
+    if lines5 is not None:
+        if len(lines5) != 6:
+            problems.append(f"cut 5: expected 6 lines, got {len(lines5)}")
+        for bin_id in EXPECTED_BIN_IDS:
+            if not any(bin_id in line for line in lines5):
+                problems.append(f"cut 5: missing bin {bin_id}")
+        for line in lines5:
+            if "장부" not in line or "→ 실측" not in line:
+                problems.append(f"cut 5: line missing '장부' or '→ 실측': {line!r}")
+
+    lines6 = _lines(6)
+    if lines6 is not None:
+        if len(lines6) != 2:
+            problems.append(f"cut 6: expected 2 lines, got {len(lines6)}")
+        found: list[str] = []
+        for line in lines6:
+            in_line = [bin_id for bin_id in EXPECTED_BIN_IDS if bin_id in line]
+            in_line.sort(key=line.index)
+            found.extend(in_line)
+        if found != ["A-01-02", "B-01-02"]:
+            problems.append(f"cut 6: bin order {found} != ['A-01-02', 'B-01-02']")
+
+    lines9 = _lines(9)
+    if lines9 is not None:
+        if len(lines9) != 1:
+            problems.append(f"cut 9: expected 1 line, got {len(lines9)}")
+        if not any("데모 기준" in line for line in lines9):
+            problems.append("cut 9: missing '데모 기준'")
+
+    return problems
+
+
+def build_current_data_panel() -> dict[int, list[str]]:
+    """현재 시뮬레이션 리포트로 컷 1~9 데이터 패널 줄을 만든다."""
+    from demo.render_video import build_data_panel_lines
+    from terminal.simulator import run_simulation
+
+    report = run_simulation()
+    return {cut: build_data_panel_lines(cut, report=report) for cut in range(1, 10)}
+
+
+def _check_video_draft(root: Path) -> PreSubmissionCheck:
+    name = "video_draft_present"
+    video = root / "demo/assets/argus-demo-draft.mp4"
+    try:
+        size = video.stat().st_size if video.is_file() else 0
+    except OSError:
+        size = 0
+    if size <= VIDEO_MIN_BYTES:
+        return PreSubmissionCheck(
+            name, False, f"bytes={size}" if size else "video missing"
+        )
+    try:
+        problems = validate_data_panel(build_current_data_panel())
+    except Exception as exc:
+        return PreSubmissionCheck(
+            name, False, f"bytes={size}; data panel raised: {exc!r}"
+        )
+    if problems:
+        return PreSubmissionCheck(
+            name, False, f"bytes={size}; data panel problems: " + "; ".join(problems)
+        )
+    return PreSubmissionCheck(name, True, f"bytes={size}, data_panel_cuts=9")
+
+
 def run_pre_submission_checks(root: Path | None = None) -> dict:
     """전수 점검을 실행한다. 개별 예외는 그 체크만 실패로 기록한다."""
     root = Path(root) if root is not None else ROOT
@@ -146,18 +251,7 @@ def run_pre_submission_checks(root: Path | None = None) -> dict:
 
     checks.append(_check_demo_consistency(root))
 
-    video = root / "demo/assets/argus-demo-draft.mp4"
-    try:
-        size = video.stat().st_size if video.is_file() else 0
-    except OSError:
-        size = 0
-    checks.append(
-        PreSubmissionCheck(
-            "video_draft_present",
-            size > VIDEO_MIN_BYTES,
-            f"bytes={size}" if size else "video missing",
-        )
-    )
+    checks.append(_check_video_draft(root))
 
     passed = sum(1 for c in checks if c.passed)
     return {

@@ -8,9 +8,11 @@ from pathlib import Path
 
 from qa.pre_submission import (
     BLOCKERS,
+    build_current_data_panel,
     build_report,
     format_text_report,
     run_pre_submission_checks,
+    validate_data_panel,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -160,6 +162,30 @@ class MinimalRootTests(unittest.TestCase):
             result = run_pre_submission_checks(root)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["video_draft_present"])
+
+
+class DataPanelTests(unittest.TestCase):
+    def test_current_panel_is_valid(self):
+        self.assertEqual(validate_data_panel(build_current_data_panel()), [])
+
+    def test_validate_detects_cut3_tamper(self):
+        panel = build_current_data_panel()
+        panel[3] = ["가짜 실촬영 데이터"]
+        problems = validate_data_panel(panel)
+        self.assertTrue(any("cut 3" in p for p in problems), problems)
+
+    def test_validate_detects_cut5_missing_bin(self):
+        panel = build_current_data_panel()
+        panel[5] = [line for line in panel[5] if "A-01-01" not in line]
+        problems = validate_data_panel(panel)
+        self.assertTrue(any("cut 5" in p for p in problems), problems)
+
+    def test_video_check_detail_includes_data_panel(self):
+        result = run_pre_submission_checks(ROOT)
+        by_name = {c.name: c for c in result["checks"]}
+        video = by_name["video_draft_present"]
+        self.assertTrue(video.passed, video.detail)
+        self.assertIn("data_panel_cuts=9", video.detail)
 
 
 if __name__ == "__main__":
