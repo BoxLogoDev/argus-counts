@@ -75,6 +75,38 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("PASS", result.stdout)
 
+    def test_each_feature_drives_and_passes(self):
+        for feature in ("terminal-simulator", "session-list",
+                        "difference-report", "demo-video-draft"):
+            with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
+                evidence = Path(tmp) / "run"
+                result = self._run_helper("--feature", feature, evidence=evidence)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("VERIFY: PASS", result.stdout)
+                summary = json.loads((evidence / "summary.json").read_text(encoding="utf-8"))
+                self.assertEqual(summary["feature"], feature)
+                self.assertTrue(summary["all_ok"])
+                self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_all_features_writes_per_feature_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-all"
+            result = self._run_helper("--feature", "all", evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(encoding="utf-8"))
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(set(summary["features"]), {
+                "console-home", "terminal-simulator", "session-list",
+                "difference-report", "demo-video-draft"})
+            self.assertTrue(all(summary["features"].values()))
+            for name in summary["features"]:
+                self.assertTrue((evidence / name / "summary.json").is_file(), name)
+
+    def test_unknown_feature_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_helper("--feature", "nope", evidence=Path(tmp))
+            self.assertNotEqual(result.returncode, 0)
+
     def test_drive_writes_evidence_that_survives(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-1"

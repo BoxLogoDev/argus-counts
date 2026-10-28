@@ -25,6 +25,7 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 ## Drive
 
 - 기본 구동은 헬퍼다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature console-home --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 `GET /`에서 마커 `조치 우선순위`·`모의 데이터`·`66.7%`를, `GET /api/report`에서 source와 요약 수치를 확인한다.
+- 헬퍼는 기능 5종을 모두 구동한다: `--feature`에 `console-home`·`terminal-simulator`·`session-list`·`difference-report`·`demo-video-draft` 중 하나를 주거나, `all`을 주면 5종을 순서대로 구동해 증거를 기능별 하위 디렉터리에 남기고 최상위 `summary.json`에 기능별 `all_ok`를 모은다. 시뮬레이터와 리포트는 CLI 서브프로세스로(자식 환경에서도 SAM 환경변수를 제거), 세션은 임시 포트 HTTP로, 영상 초안은 ffprobe 탐침(렌더 아님)으로 구동한다.
 - 콘솔 라우트(전부 GET): `/` 홈 화면, `/api/report` JSON 리포트, `/sessions` 세션 목록 화면, `/api/sessions` 세션 목록 JSON(세션 3개), `/sessions/<id>` 세션 상세, `/api/sessions/<id>` 세션 상세 JSON. 없는 세션 id는 두 경로 모두 404가 정답이다. 세션 id는 `DEMO-20261027-A`, `DEMO-20261027-B`(전부 일치, 일치율 100.0%), `DEMO-20261026-A`다.
 - 로컬 서버를 HTTP로 읽을 때는 환경 프록시를 우회해야 한다. urllib에 `ProxyHandler({})`를 명시한 전용 오프너를 쓴다. 전역 urlopen은 프록시 캐시 때문에 로컬 응답을 놓치거나 이후 테스트를 오염시킨다(`demo/capture.py`가 이미 겪은 결함이다).
 - 단말 CLI 구동: `python3 -m terminal.simulator`는 촬영→계수→대조 흐름의 JSON을 stdout으로 내고 종료코드 0이다. `python3 -m terminal.report`는 텍스트 리포트를 내며 말미에 `데모 기준` 영향 한 줄이 있고, `--json`이면 조치 우선순위 payload를 낸다.
@@ -34,7 +35,7 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 ## Evidence
 
 - 증거 위치: `/tmp/argus-verify-evidence/<run-id>/` (run-id는 실행마다 새로 만든다).
-- 헬퍼 구동 증거: `transcript.txt`(명령·상태·마커 확인 과정), `home.html`(GET / 응답 원문), `api-report.json`(GET /api/report 응답 원문), `summary.json`(feature·상태 코드·markers_found·source·all_ok).
+- 헬퍼 구동 증거: `transcript.txt`(명령·상태·마커 확인 과정), `home.html`(GET / 응답 원문), `api-report.json`(GET /api/report 응답 원문), `summary.json`(feature·상태 코드·markers_found·source·all_ok). 다른 기능은 기능별 원문(예: `simulator-stdout.json`, `sessions.json`, `report.json`, `video-probe.json`)을 같은 방식으로 남기고, `all` 구동에서는 기능별 하위 디렉터리마다 이 증거가 쌓인다.
 - CLI 구동 증거: 명령, stdout, stderr, 종료 코드를 transcript에 함께 남긴다. 화면만 보지 말고 부수 결과(생성 파일, JSON 필드)를 두 번째 경로로 확인한다. 예: 시뮬레이터 JSON의 summary와 콘솔 `/api/report`의 summary가 같은 수치인지 대조한다.
 - 증거에서도 모의인 것을 구분한다: `source: "mock"`과 화면의 `모의 데이터` 표기가 증거에 그대로 있어야 하며, 이를 실호출 결과처럼 서술하지 않는다.
 - 증명 기준: 내부 setter나 테스트 전용 경로가 아니라 실제 사용자 경로(라우트·CLI 진입점)로 구동한다. 최종 화면만 캡처하지 말고 행동과 그 결과 상태를 같이 남긴다.
@@ -49,4 +50,6 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 
 - `scripts/verify_argus.py --doctor` — 구동 가능성 점검(종료코드 0/1).
 - `scripts/verify_argus.py --feature console-home --evidence-dir <dir>` — 콘솔 홈 기능을 구동하고 증거를 남긴다.
+- `scripts/verify_argus.py --feature <terminal-simulator|session-list|difference-report|demo-video-draft> --evidence-dir <dir>` — 해당 기능을 구동하고 증거를 남긴다.
+- `scripts/verify_argus.py --feature all --evidence-dir <dir>` — 기능 5종을 전부 구동하고 기능별 하위 디렉터리와 최상위 요약을 남긴다.
 - 유지보수는 pstack `maintain-verification-skill` 절차를 따른다: 라우트·마커·수치가 바뀌면 이 스킬과 `features/`를 같은 변경에서 함께 고친다.

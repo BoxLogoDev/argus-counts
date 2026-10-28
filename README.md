@@ -22,7 +22,7 @@
 - 콘솔: 프로젝트 루트에서 `python3 -m console.server` (기본 http://127.0.0.1:8765, `/`는 화면 — 요약 지표·차이 목록·조치 우선순위·영향 수치 포함, `/api/report`는 JSON, `/sessions`는 데모 세션 3개 목록 화면, `/sessions/<id>`는 세션 상세, `/api/sessions`·`/api/sessions/<id>`는 JSON)
 - 단말 시뮬레이터: 프로젝트 루트에서 `python3 -m terminal.simulator` (JSON 리포트 출력, `--out <경로>`로 저장 가능)
 - 차이 리포트: 프로젝트 루트에서 `python3 -m terminal.report` (텍스트 리포트, `--json`으로 조치 우선순위 payload, `--out <경로>`로 저장 가능)
-- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 139개)
+- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 142개)
 - QA 하네스: 프로젝트 루트에서 `python3 -m qa` (기준값 대조 체크 17개, 전부 통과 시 종료코드 0·실패 시 1)
 - standalone 점검: 프로젝트 루트에서 `python3 -m qa.standalone` (필수 파일·회사 식별자/비밀 패턴·정직성 표기 체크 5개)
 - 데모 영상 자산: 프로젝트 루트에서 `python3 -m demo.captions` (대본 컷 표 9개를 `demo/assets/`에 captions.srt·captions.vtt·shot-list.json으로 생성)
@@ -31,7 +31,7 @@
 - 데모 나레이션 대본: 프로젝트 루트에서 `python3 -m demo.narration` (자막 컷 9개의 나레이션 문장을 `demo/assets/`에 narration.json·narration.txt·narration-full.txt로 생성. 실제 음성 파일이 아닌 대본 텍스트 자산이며, 컷 구간 재조정으로 전 컷이 공백 제외 글자수/초 4.0 이하라 속도 경고가 없다)
 - 데모 영상 초안 렌더: 프로젝트 루트에서 `python3 -m demo.render_video` (자막 컷 9개를 슬라이드로 만들어 ffmpeg로 이어 붙인 180초 MP4 초안을 `demo/assets/argus-demo-draft.mp4`로 생성. 최종 제출본이 아닌 조립 초안이며, 컷 3은 Pi 도착 후 실촬영으로 교체할 플레이스홀더 슬라이드이고 전 컷에 '모의 데이터 · 데모 기준' 표기가 들어간다)
 - 제출 문서: `docs/submission-story.md`(제출 스토리 초안), `docs/submission-summary-en.md`(영문 제출 요약), `docs/demo-script.md`(3분 데모 대본 초안)
-- 검증 스킬: `.claude/skills/verify-argus/` — 콘솔·단말을 사용자처럼 구동해 검증하는 프로젝트 로컬 스킬. 점검은 `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`, 구동·증거 수집은 같은 스크립트에 `--evidence-dir /tmp/argus-verify-evidence/<run-id>`를 붙여 실행한다
+- 검증 스킬: `.claude/skills/verify-argus/` — 콘솔·단말을 사용자처럼 구동해 검증하는 프로젝트 로컬 스킬. 점검은 `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`, 구동·증거 수집은 같은 스크립트에 `--evidence-dir /tmp/argus-verify-evidence/<run-id>`를 붙여 실행한다. `--feature`로 기능 5종(console-home·terminal-simulator·session-list·difference-report·demo-video-draft)을 개별 구동하거나 `all`로 전부 구동할 수 있다
 
 ## 일정
 
