@@ -131,7 +131,12 @@ class AdapterSelectionTest(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=True):
             counter = build_counter(DEMO_COUNTED_QTY)
         self.assertIsInstance(counter, LiveSamCounter)
-        with self.assertRaises(NotImplementedError):
+        # 실호출 준비 단계: 실제 네트워크를 쓰지 않도록 가짜 transport를 주입하고,
+        # 실패가 모의로 폴백되지 않고 SamCountingError로 모이는지 확인한다.
+        from terminal.sam_adapter import SamCountingError
+
+        counter._transport = lambda url, headers, body, timeout: (503, {})
+        with self.assertRaises(SamCountingError):
             counter.count("A-01-01")
 
     def test_partial_env_falls_back_to_mock(self):

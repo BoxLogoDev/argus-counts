@@ -50,6 +50,7 @@ Switching is via environment variables `SAM_API_BASE_URL` and `SAM_API_KEY`.
 Unset means the mock adapter runs.
 
 A live SAM 3.1 call has NOT been made yet.
+The live adapter code path is prepared but has NOT been verified against the real API; it is exercised only with a fake transport in tests.
 Argus is currently running on the mock adapter.
 Live calling starts only after the Model API credit deposit is confirmed.
 Mock results are labelled as mock in the UI and reports.
