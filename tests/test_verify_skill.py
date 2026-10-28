@@ -22,6 +22,7 @@ FEATURES = [
     "demo-video-draft.md",
     "photo-intake.md",
     "pre-submission.md",
+    "pi-capture.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -60,7 +61,7 @@ class SkillFileTests(unittest.TestCase):
     def test_photo_intake_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("photo-intake", skill)
-        self.assertIn("기능 7종", skill)
+        self.assertIn("기능 8종", skill)
         feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
             encoding="utf-8")
         for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
@@ -70,11 +71,21 @@ class SkillFileTests(unittest.TestCase):
     def test_pre_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pre-submission", skill)
-        self.assertIn("기능 7종", skill)
+        self.assertIn("기능 8종", skill)
         feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
             encoding="utf-8")
         for marker in ("submission_ready", "pi_real_capture_pending",
                        "sam_real_call_pending", "qa.pre_submission"):
+            self.assertIn(marker, feature)
+
+    def test_pi_capture_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("pi-capture", skill)
+        self.assertIn("기능 8종", skill)
+        feature = (SKILL_DIR / "features" / "pi-capture.md").read_text(
+            encoding="utf-8")
+        for marker in ("probe_pi_camera", "capture_photo", "Pi 실촬영 검증 전",
+                       "fake-pi-jpeg", "PiCaptureError", "libcamera-still"):
             self.assertIn(marker, feature)
 
     def test_demo_video_data_panel_listed_and_grounded(self):
@@ -110,7 +121,7 @@ class HelperRunTests(unittest.TestCase):
     def test_each_feature_drives_and_passes(self):
         for feature in ("terminal-simulator", "session-list",
                         "difference-report", "demo-video-draft",
-                        "photo-intake", "pre-submission"):
+                        "photo-intake", "pre-submission", "pi-capture"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -131,7 +142,7 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(set(summary["features"]), {
                 "console-home", "terminal-simulator", "session-list",
                 "difference-report", "demo-video-draft", "photo-intake",
-                "pre-submission"})
+                "pre-submission", "pi-capture"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
@@ -248,6 +259,51 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("일치율 66.7%", panel["1"][0])
             self.assertTrue(all("장부" in line and "→ 실측" in line
                                 for line in panel["5"]))
+
+    def test_pi_capture_drives_and_records_fake_hash(self):
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pi"
+            result = self._run_helper("--feature", "pi-capture",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "pi-capture")
+            self.assertTrue(summary["all_ok"])
+            # 이 VM에는 카메라 명령이 없어 탐지는 available=false,
+            # CLI --capture는 파일 없이 실패하는 것이 기대 동작이다.
+            self.assertFalse(summary["probe_available"])
+            self.assertIsNone(summary["probe_command"])
+            self.assertTrue(summary["cli_capture_blocked"])
+            self.assertEqual(
+                summary["fake_capture_sha256"],
+                hashlib.sha256(b"fake-pi-jpeg").hexdigest())
+            self.assertEqual(summary["fake_capture_suffix"], ".jpg")
+            fake = json.loads((evidence / "pi-capture-fake.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(fake["bin_id"], "A-01-02")
+            self.assertEqual(fake["sha256"], summary["fake_capture_sha256"])
+            self.assertTrue((evidence / "pi-capture-probe.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_pi_capture_evidence_keeps_honesty_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pi-honesty"
+            result = self._run_helper("--feature", "pi-capture",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            probe = json.loads((evidence / "pi-capture-probe.json").read_text(
+                encoding="utf-8"))
+            self.assertIn("available", probe)
+            self.assertTrue(any("Pi 실촬영 검증 전" in line
+                                for line in probe["honesty"]))
+            fake = json.loads((evidence / "pi-capture-fake.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(fake["suffix"], ".jpg")
+            self.assertEqual(fake["size_bytes"], len(b"fake-pi-jpeg"))
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

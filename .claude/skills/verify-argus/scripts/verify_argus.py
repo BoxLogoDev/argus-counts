@@ -4,7 +4,8 @@
 사용자가 닿는 표면을 직접 구동해 검증한다: 웹 콘솔은 임시 포트 서버를
 띄워 HTTP로, 단말 흐름은 CLI 서브프로세스로, 데모 영상 초안은 ffprobe
 탐침으로 확인하고, 제출 전 전수 점검은 CLI 서브프로세스로 구동하며,
-응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
+Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하고(Pi 실촬영
+검증 전), 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
 사용:
@@ -14,7 +15,7 @@
 
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
-all(전부, 기능별 하위 디렉터리).
+pi-capture, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -36,6 +37,7 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
@@ -46,12 +48,14 @@ HOME_MARKERS = ("조치 우선순위", "모의 데이터", "66.7%")
 SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
-            "pre-submission")
+            "pre-submission", "pi-capture")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
 EXPECTED_SIM_SUMMARY = {"counted_bins": 6, "matched": 4, "mismatched": 2,
                         "abs_diff_total": 6, "net_diff": 0}
+PI_FAKE_CONTENT = b"fake-pi-jpeg"
+PI_BIN_ID = "A-01-02"
 
 
 def clean_env() -> dict:
@@ -528,13 +532,121 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_pi_capture(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from terminal.pi_capture import (CAPTURE_COMMAND_CANDIDATES, PiCaptureError,
+                                     build_capture_command, capture_photo,
+                                     probe_pi_camera)
+
+    result = run_cli(["-m", "terminal.pi_capture", "--probe"])
+    ctx.note(f"python3 -m terminal.pi_capture --probe -> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(f"Pi probe 종료코드 {result.returncode}: {result.stderr[:200]}")
+    probe_data: dict = {}
+    try:
+        probe_data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"probe stdout JSON 파싱 실패: {e}")
+    available = probe_data.get("available")
+    command = probe_data.get("command")
+    if probe_data:
+        if not isinstance(available, bool):
+            problems.append(f"probe available이 bool이 아니다: {available!r}")
+        if command is not None and command not in CAPTURE_COMMAND_CANDIDATES:
+            problems.append(
+                f"probe command 기대 None 또는 {list(CAPTURE_COMMAND_CANDIDATES)} 중 하나, 실제 {command!r}")
+        if not any("Pi 실촬영 검증 전" in line
+                   for line in probe_data.get("honesty", [])):
+            problems.append("probe honesty에 'Pi 실촬영 검증 전' 표기 없음")
+    ctx.note(f"Pi probe -> available={available}, command={command}")
+
+    cli_capture_blocked: bool | None = None
+    record = None
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        if available is False:
+            blocked_path = root / f"{PI_BIN_ID}.jpg"
+            result_c = run_cli(["-m", "terminal.pi_capture", "--capture",
+                                f"{PI_BIN_ID}={blocked_path}"])
+            ctx.note(f"python3 -m terminal.pi_capture --capture (명령 부재) -> 종료코드 {result_c.returncode}")
+            cli_capture_blocked = result_c.returncode != 0 and not blocked_path.exists()
+            if result_c.returncode == 0:
+                problems.append("카메라 명령 부재 환경에서 --capture 종료코드가 0이다")
+            if blocked_path.exists():
+                problems.append("카메라 명령 부재 환경에서 --capture 출력 파일이 생겼다")
+        elif available is True:
+            ctx.note("카메라 명령이 있는 환경이라 CLI --capture 기대 실패 검사는 건너뛴다.")
+
+        fake_which = lambda name: f"/usr/bin/{name}" if name == "libcamera-still" else None  # noqa: E731
+
+        def fake_runner(argv, **kwargs):
+            Path(argv[argv.index("-o") + 1]).write_bytes(PI_FAKE_CONTENT)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        def failing_runner(argv, **kwargs):
+            return SimpleNamespace(returncode=2, stdout="", stderr="sensitive-detail")
+
+        fake_probe = probe_pi_camera(which=fake_which)
+        if fake_probe.get("available") is not True or fake_probe.get("command") != "libcamera-still":
+            problems.append(
+                f"가짜 which probe 기대 available=True·command=libcamera-still, 실제 {fake_probe.get('available')}·{fake_probe.get('command')}")
+
+        fake_path = root / "fake-pi.jpg"
+        try:
+            record = capture_photo(PI_BIN_ID, fake_path,
+                                   runner=fake_runner, which=fake_which)
+        except Exception as e:
+            problems.append(f"가짜 runner capture_photo 실패: {type(e).__name__}: {e}")
+        if record is not None:
+            ctx.note(f"가짜 runner capture_photo -> sha256={record.sha256}, suffix={record.suffix}")
+            expected_sha = hashlib.sha256(PI_FAKE_CONTENT).hexdigest()
+            if record.sha256 != expected_sha:
+                problems.append("가짜 캡처 sha256이 PI_FAKE_CONTENT 해시와 다르다")
+            if record.suffix != ".jpg":
+                problems.append(f"가짜 캡처 suffix 기대 .jpg, 실제 {record.suffix}")
+            if record.bin_id != PI_BIN_ID:
+                problems.append(f"가짜 캡처 bin_id 기대 {PI_BIN_ID}, 실제 {record.bin_id}")
+
+        argv_shape = build_capture_command("libcamera-still", "/tmp/x.jpg")
+        if not argv_shape or argv_shape[0] != "libcamera-still":
+            problems.append(f"build_capture_command 첫 원소 기대 libcamera-still, 실제 {argv_shape[:1]}")
+        elif "-o" not in argv_shape or argv_shape.index("-o") + 1 >= len(argv_shape) \
+                or argv_shape[argv_shape.index("-o") + 1] != "/tmp/x.jpg":
+            problems.append(f"build_capture_command -o 다음 기대 /tmp/x.jpg, 실제 {argv_shape}")
+
+        try:
+            capture_photo(PI_BIN_ID, root / "fake-pi-fail.jpg",
+                          runner=failing_runner, which=fake_which)
+            problems.append("returncode 2인 runner에서 PiCaptureError가 나지 않았다")
+        except PiCaptureError as e:
+            if "sensitive-detail" in str(e):
+                problems.append("PiCaptureError 메시지에 runner stderr(sensitive-detail)가 포함됐다")
+
+    fake_payload = {"bin_id": getattr(record, "bin_id", None),
+                    "image_ref": getattr(record, "image_ref", None),
+                    "size_bytes": getattr(record, "size_bytes", None),
+                    "sha256": getattr(record, "sha256", None),
+                    "suffix": getattr(record, "suffix", None)}
+    summary = {"feature": "pi-capture", "probe_available": available,
+               "probe_command": command,
+               "cli_capture_blocked": cli_capture_blocked,
+               "fake_capture_sha256": getattr(record, "sha256", None),
+               "fake_capture_suffix": getattr(record, "suffix", None),
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"pi-capture-probe.json": result.stdout,
+                    "pi-capture-fake.json": json.dumps(fake_payload, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
            "difference-report": drive_difference_report,
            "demo-video-draft": drive_demo_video,
            "photo-intake": drive_photo_intake,
-           "pre-submission": drive_pre_submission}
+           "pre-submission": drive_pre_submission,
+           "pi-capture": drive_pi_capture}
 
 
 def main(argv: list[str] | None = None) -> int:
