@@ -25,7 +25,7 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 ## Drive
 
 - 기본 구동은 헬퍼다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature console-home --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 `GET /`에서 마커 `조치 우선순위`·`모의 데이터`·`66.7%`를, `GET /api/report`에서 source와 요약 수치를 확인한다.
-- 헬퍼는 기능 12종을 모두 구동한다: `--feature`에 `console-home`·`terminal-simulator`·`session-list`·`difference-report`·`demo-video-draft`·`photo-intake`·`pre-submission`·`pi-capture`·`pi-session`·`sam-live`·`sam-readiness`·`submission-runbook` 중 하나를 주거나, `all`을 주면 12종을 순서대로 구동해 증거를 기능별 하위 디렉터리에 남기고 최상위 `summary.json`에 기능별 `all_ok`를 모은다. 시뮬레이터와 리포트는 CLI 서브프로세스로(자식 환경에서도 SAM 환경변수를 제거), 세션은 임시 포트 HTTP로, 영상 초안은 ffprobe 탐침(렌더 아님)과 `demo.render_video.build_data_panel_lines`로 구한 컷별 데이터 패널 대조(컷 5 전체 빈 6줄·컷 6 불일치만·컷 3 `실촬영 데이터 없음`, 증거 `data-panel.json`)로, 사진 입력은 임시 디렉터리에 만든 가짜 사진 6장을 CLI 서브프로세스에 `--capture`로 넘겨 구동한다(파일 기반 입력이며 Pi 실촬영이 아니다. `capture_source=file`와 `honesty`의 'Pi 실촬영이 아닙니다' 표기, 사진 SHA-256 기록을 확인한다).
+- 헬퍼는 기능 13종을 모두 구동한다: `--feature`에 `console-home`·`terminal-simulator`·`session-list`·`difference-report`·`demo-video-draft`·`photo-intake`·`pre-submission`·`pi-capture`·`pi-session`·`sam-live`·`sam-readiness`·`submission-runbook`·`pi-readiness` 중 하나를 주거나, `all`을 주면 13종을 순서대로 구동해 증거를 기능별 하위 디렉터리에 남기고 최상위 `summary.json`에 기능별 `all_ok`를 모은다. 시뮬레이터와 리포트는 CLI 서브프로세스로(자식 환경에서도 SAM 환경변수를 제거), 세션은 임시 포트 HTTP로, 영상 초안은 ffprobe 탐침(렌더 아님)과 `demo.render_video.build_data_panel_lines`로 구한 컷별 데이터 패널 대조(컷 5 전체 빈 6줄·컷 6 불일치만·컷 3 `실촬영 데이터 없음`, 증거 `data-panel.json`)로, 사진 입력은 임시 디렉터리에 만든 가짜 사진 6장을 CLI 서브프로세스에 `--capture`로 넘겨 구동한다(파일 기반 입력이며 Pi 실촬영이 아니다. `capture_source=file`와 `honesty`의 'Pi 실촬영이 아닙니다' 표기, 사진 SHA-256 기록을 확인한다).
 - 콘솔 라우트(전부 GET): `/` 홈 화면, `/api/report` JSON 리포트, `/sessions` 세션 목록 화면, `/api/sessions` 세션 목록 JSON(세션 3개), `/sessions/<id>` 세션 상세, `/api/sessions/<id>` 세션 상세 JSON. 없는 세션 id는 두 경로 모두 404가 정답이다. 세션 id는 `DEMO-20261027-A`, `DEMO-20261027-B`(전부 일치, 일치율 100.0%), `DEMO-20261026-A`다.
 - 로컬 서버를 HTTP로 읽을 때는 환경 프록시를 우회해야 한다. urllib에 `ProxyHandler({})`를 명시한 전용 오프너를 쓴다. 전역 urlopen은 프록시 캐시 때문에 로컬 응답을 놓치거나 이후 테스트를 오염시킨다(`demo/capture.py`가 이미 겪은 결함이다).
 - 단말 CLI 구동: `python3 -m terminal.simulator`는 촬영→계수→대조 흐름의 JSON을 stdout으로 내고 종료코드 0이다. `python3 -m terminal.report`는 텍스트 리포트를 내며 말미에 `데모 기준` 영향 한 줄이 있고, `--json`이면 조치 우선순위 payload를 낸다.
@@ -34,6 +34,7 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 - pi-session 구동: Pi 촬영 세션은 카메라 명령 부재 시 CLI `--out-dir` 기대 실패, 가짜 `which`/`runner` 주입 성공으로 구동하며 증거 `pi-session-report.json`·`pi-session-blocked.txt`를 남긴다(Pi 실촬영 검증 전).
 - sam-live 구동: SAM 실호출 준비 경계는 가짜 transport로만 구동하며 실제 API 호출은 하지 않고 증거 `sam-live-fake.json`·`sam-live-errors.json`을 남긴다(SAM 실호출 검증 전).
 - sam-readiness 구동: SAM 실호출 전환 준비 점검은 CLI 서브프로세스(기본 차단 3건·종료코드 1)와 프로세스 내 check_readiness(가짜 환경+크레딧 확인 시 준비 완료, 값 누출 없음)로 구동하며 증거 `sam-readiness-blocked.json`·`sam-readiness-ready.json`을 남긴다(준비 완료는 실호출 성공이 아니다).
+- pi-readiness 구동: Pi 실촬영 준비 점검은 CLI 서브프로세스(기본 차단 2건·종료코드 1)와 프로세스 내 check_readiness(가짜 probe 준비 완료)로 구동하며 증거 `pi-readiness-blocked.json`·`pi-readiness-ready.json`을 남긴다(준비 완료는 실촬영 성공이 아니다).
 - submission-runbook 구동: 제출 런북은 파일 원문을 읽어 절 순서·블로커·최종 점검 명령·주장 감사를 대조하고 변조 탐지를 확인하며 증거 submission-runbook.json·submission-runbook.md를 남긴다(제출 준비 완료가 아니다).
 - 회귀 확인: `python3 -m unittest discover -s tests`, `python3 -m qa`(체크 17개), `python3 -m qa.standalone`(체크 6개, 현재형 주장 감사 통합). 셋 다 종료코드 0이어야 한다.
 - 기능별 상세 절차는 `features/` 아래 파일이 정본이다. 검증 전에 색인 `features/README.md`를 읽고 해당 기능 파일을 따른다.
@@ -63,6 +64,7 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 - `scripts/verify_argus.py --feature pi-session --evidence-dir <dir>` — Pi 촬영 세션(기대 실패·가짜 주입 성공)을 구동하고 증거를 남긴다.
 - `scripts/verify_argus.py --feature sam-live --evidence-dir <dir>` — SAM 실호출 준비 경계(가짜 transport 성공·해석 변형·실패 차단)를 구동하고 증거를 남긴다.
 - `scripts/verify_argus.py --feature sam-readiness --evidence-dir <dir>` — SAM 실호출 전환 준비 점검(기본 차단 3건·가짜 환경 준비 완료, 실제 API 호출 없음)을 구동하고 증거를 남긴다.
+- `scripts/verify_argus.py --feature pi-readiness --evidence-dir <dir>` — Pi 실촬영 준비 점검(기본 차단 2건·가짜 probe 준비 완료, 실제 촬영 없음)을 구동하고 증거를 남긴다.
 - `scripts/verify_argus.py --feature submission-runbook --evidence-dir <dir>` — 제출 런북(절 순서·블로커·최종 점검 명령·변조 탐지)을 구동하고 증거를 남긴다.
-- `scripts/verify_argus.py --feature all --evidence-dir <dir>` — 기능 12종을 전부 구동하고 기능별 하위 디렉터리와 최상위 요약을 남긴다.
+- `scripts/verify_argus.py --feature all --evidence-dir <dir>` — 기능 13종을 전부 구동하고 기능별 하위 디렉터리와 최상위 요약을 남긴다.
 - 유지보수는 pstack `maintain-verification-skill` 절차를 따른다: 라우트·마커·수치가 바뀌면 이 스킬과 `features/`를 같은 변경에서 함께 고친다.

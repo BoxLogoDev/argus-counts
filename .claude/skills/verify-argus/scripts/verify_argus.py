@@ -12,7 +12,9 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 실제 API 호출 없이 CLI 서브프로세스와 프로세스 내 check_readiness로만
 구동한다(준비 완료는 실호출 성공이 아님). 제출 런북(submission-runbook)은
 파일 원문을 읽어 절 순서·블로커·최종 점검 명령을 대조하고 변조 탐지를
-확인한다(제출 준비 완료가 아니다). 응답 원문과 종료 판정을
+확인한다(제출 준비 완료가 아니다). Pi 실촬영 준비 점검(pi-readiness)은
+실제 촬영 없이 CLI 서브프로세스와 프로세스 내 check_readiness로만
+구동한다(준비 완료는 실촬영 성공이 아님). 응답 원문과 종료 판정을
 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -24,7 +26,7 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
-all(전부, 기능별 하위 디렉터리).
+pi-readiness, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -58,7 +60,7 @@ SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
-            "sam-readiness", "submission-runbook")
+            "sam-readiness", "submission-runbook", "pi-readiness")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -77,6 +79,19 @@ EXPECTED_READINESS_BLOCKER_IDS = ("sam_credit_not_confirmed",
                                   "sam_api_key_missing")
 SAM_READINESS_FAKE_URL = "https://sentinel-readiness.example.invalid/sam"
 SAM_READINESS_FAKE_KEY_VALUE = "sentinel-readiness-key-not-real"
+EXPECTED_PI_READINESS_BLOCKER_IDS = ("pi_device_arrival_not_confirmed",
+                                     "pi_camera_command_missing")
+PI_READINESS_READY_PROBE = {"available": True,
+                            "command": "libcamera-still",
+                            "command_path": "/usr/bin/libcamera-still",
+                            "candidates_checked": ["libcamera-still",
+                                                   "raspistill"],
+                            "honesty": ["Pi 실촬영 검증 전입니다"]}
+PI_READINESS_MISSING_PROBE = {"available": False, "command": None,
+                              "command_path": None,
+                              "candidates_checked": ["libcamera-still",
+                                                     "raspistill"],
+                              "honesty": ["Pi 실촬영 검증 전입니다"]}
 RUNBOOK_REL = "docs/submission-runbook.md"
 RUNBOOK_SECTIONS = ("## 0. 현재 상태", "## 1. 크레딧 확인", "## 2. API 키",
                     "## 3. SAM 전환", "## 4. Pi 촬영", "## 5. 최종 점검",
@@ -1144,6 +1159,160 @@ def validate_runbook_text(text: str) -> list[str]:
     return problems
 
 
+def drive_pi_readiness(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.pi_readiness import check_readiness
+
+    result = run_cli(["-m", "qa.pi_readiness"])
+    ctx.note(f"python3 -m qa.pi_readiness -> 종료코드 {result.returncode}")
+    if result.returncode != 1:
+        problems.append(
+            f"pi_readiness 기본 종료코드 기대 1, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("BLOCKERS: 2", "READY_FOR_REAL_CAPTURE: false"):
+        if needle not in result.stdout:
+            problems.append(f"pi_readiness 텍스트에 {needle!r} 없음")
+    positions = [result.stdout.find(blocker_id)
+                 for blocker_id in EXPECTED_PI_READINESS_BLOCKER_IDS]
+    if any(position < 0 for position in positions):
+        problems.append(f"pi_readiness 텍스트에 블로커 id 누락: 위치 {positions}")
+    elif positions != sorted(positions):
+        problems.append(f"pi_readiness 블로커 id 순서 이상: 위치 {positions}")
+
+    result_j = run_cli(["-m", "qa.pi_readiness", "--json"])
+    ctx.note(f"python3 -m qa.pi_readiness --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 1:
+        problems.append(
+            f"pi_readiness --json 종료코드 기대 1, 실제 {result_j.returncode}: "
+            f"{result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocked_blockers: list = []
+    if report:
+        if report.get("ready_for_real_capture") is not False:
+            problems.append(
+                "ready_for_real_capture 기대 False, 실제 "
+                f"{report.get('ready_for_real_capture')}")
+        blocked_blockers = [b["id"] for b in report.get("blockers", [])]
+        if blocked_blockers != list(EXPECTED_PI_READINESS_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_PI_READINESS_BLOCKER_IDS)}, "
+                f"실제 {blocked_blockers}")
+        if report.get("device_confirmed") is not False:
+            problems.append(
+                f"device_confirmed 기대 False, 실제 {report.get('device_confirmed')}")
+        if report.get("camera_available") is not False:
+            problems.append(
+                f"camera_available 기대 False, 실제 {report.get('camera_available')}")
+        if report.get("camera_command") is not None:
+            problems.append(
+                f"camera_command 기대 None, 실제 {report.get('camera_command')}")
+        if report.get("candidates_checked") != ["libcamera-still", "raspistill"]:
+            problems.append(
+                f"candidates_checked 이상: {report.get('candidates_checked')}")
+        honesty = report.get("honesty", [])
+        if not any("촬영을 하지 않는다" in line for line in honesty):
+            problems.append("honesty에 '촬영을 하지 않는다'를 포함한 줄 없음")
+        if not any("성공을 뜻하지 않는다" in line for line in honesty):
+            problems.append("honesty에 '성공을 뜻하지 않는다'를 포함한 줄 없음")
+
+    ready: dict = {}
+    try:
+        ready = check_readiness(probe=PI_READINESS_READY_PROBE,
+                                device_confirmed=True)
+    except Exception as e:
+        problems.append(f"check_readiness 가짜 probe 실패: {type(e).__name__}: {e}")
+    if ready:
+        ctx.note(
+            f"check_readiness 가짜 probe -> ready_for_real_capture="
+            f"{ready.get('ready_for_real_capture')}")
+        if ready.get("ready_for_real_capture") is not True:
+            problems.append(
+                "가짜 probe ready_for_real_capture 기대 True, 실제 "
+                f"{ready.get('ready_for_real_capture')}")
+        if ready.get("blockers") != []:
+            problems.append(f"가짜 probe blockers 기대 [], 실제 {ready.get('blockers')}")
+
+    device_only_ids: list = []
+    try:
+        device_only = check_readiness(probe=PI_READINESS_READY_PROBE,
+                                      device_confirmed=False)
+        device_only_ids = [b["id"] for b in device_only.get("blockers", [])]
+    except Exception as e:
+        problems.append(f"check_readiness 장치만 차단 실패: {type(e).__name__}: {e}")
+    ctx.note(f"check_readiness 장치만 차단 블로커 -> {device_only_ids}")
+    if device_only_ids != ["pi_device_arrival_not_confirmed"]:
+        problems.append(
+            f"장치만 차단 blockers 기대 ['pi_device_arrival_not_confirmed'], "
+            f"실제 {device_only_ids}")
+
+    camera_only_ids: list = []
+    try:
+        camera_only = check_readiness(probe=PI_READINESS_MISSING_PROBE,
+                                      device_confirmed=True)
+        camera_only_ids = [b["id"] for b in camera_only.get("blockers", [])]
+    except Exception as e:
+        problems.append(f"check_readiness 카메라만 차단 실패: {type(e).__name__}: {e}")
+    ctx.note(f"check_readiness 카메라만 차단 블로커 -> {camera_only_ids}")
+    if camera_only_ids != ["pi_camera_command_missing"]:
+        problems.append(
+            f"카메라만 차단 blockers 기대 ['pi_camera_command_missing'], "
+            f"실제 {camera_only_ids}")
+
+    which_command = None
+    try:
+        injected = check_readiness(
+            device_confirmed=True,
+            which=lambda name: "/usr/bin/raspistill" if name == "raspistill" else None)
+        which_command = injected.get("camera_command")
+        if injected.get("camera_available") is not True \
+                or injected.get("ready_for_real_capture") is not True:
+            problems.append(f"which 주입 결과 이상: {injected}")
+    except Exception as e:
+        problems.append(f"check_readiness which 주입 실패: {type(e).__name__}: {e}")
+    ctx.note(f"which 주입 카메라 명령 -> {which_command}")
+    if which_command != "raspistill":
+        problems.append(f"which 주입 command 기대 'raspistill', 실제 {which_command}")
+
+    cli_device = run_cli(["-m", "qa.pi_readiness", "--device-confirmed", "--json"])
+    ctx.note(
+        "python3 -m qa.pi_readiness --device-confirmed --json -> "
+        f"종료코드 {cli_device.returncode}")
+    if cli_device.returncode != 1:
+        problems.append(
+            f"장치 확인 CLI 종료코드 기대 1, 실제 {cli_device.returncode}: "
+            f"{cli_device.stderr[:200]}")
+    cli_device_blockers: list = []
+    try:
+        cli_device_report = json.loads(cli_device.stdout)
+        cli_device_blockers = [b["id"] for b in cli_device_report.get("blockers", [])]
+    except json.JSONDecodeError as e:
+        problems.append(f"장치 확인 CLI --json 파싱 실패: {e}")
+    if cli_device_blockers != ["pi_camera_command_missing"]:
+        problems.append(
+            f"장치 확인 CLI blockers 기대 ['pi_camera_command_missing'], "
+            f"실제 {cli_device_blockers}")
+
+    summary = {"feature": "pi-readiness",
+               "blocked_blockers": blocked_blockers,
+               "default_exit_code": result.returncode,
+               "ready_with_fake_probe": ready.get("ready_for_real_capture") is True,
+               "device_only_blocker": device_only_ids,
+               "camera_only_blocker": camera_only_ids,
+               "which_injected_command": which_command,
+               "cli_device_confirmed_exit_code": cli_device.returncode,
+               "cli_device_confirmed_blockers": cli_device_blockers,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"pi-readiness-blocked.json": result_j.stdout,
+                    "pi-readiness-ready.json": json.dumps(
+                        ready, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
+
 def drive_submission_runbook(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
     runbook_path = ROOT / RUNBOOK_REL
@@ -1225,7 +1394,8 @@ DRIVERS = {"console-home": drive_console_home,
            "pi-session": drive_pi_session,
            "sam-live": drive_sam_live,
            "sam-readiness": drive_sam_readiness,
-           "submission-runbook": drive_submission_runbook}
+           "submission-runbook": drive_submission_runbook,
+           "pi-readiness": drive_pi_readiness}
 
 
 def main(argv: list[str] | None = None) -> int:
