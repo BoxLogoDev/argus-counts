@@ -12,7 +12,8 @@
       --feature <기능> --evidence-dir /tmp/argus-verify-evidence/<run-id>
 
 기능: console-home(기본), terminal-simulator, session-list,
-difference-report, demo-video-draft, all(전부, 기능별 하위 디렉터리).
+difference-report, demo-video-draft, photo-intake,
+all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -21,11 +22,13 @@ SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -40,7 +43,9 @@ from console.server import create_handler  # noqa: E402
 HOME_MARKERS = ("조치 우선순위", "모의 데이터", "66.7%")
 SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
-            "difference-report", "demo-video-draft")
+            "difference-report", "demo-video-draft", "photo-intake")
+PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
+                 "A-03-01", "B-01-02", "B-02-02")
 EXPECTED_SIM_SUMMARY = {"counted_bins": 6, "matched": 4, "mismatched": 2,
                         "abs_diff_total": 6, "net_diff": 0}
 
@@ -322,11 +327,90 @@ def drive_demo_video(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_photo_intake(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    evidence.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        captures: dict[str, Path] = {}
+        for bin_id in PHOTO_BIN_IDS:
+            path = root / f"{bin_id}.jpg"
+            path.write_bytes(f"fake-photo-{bin_id}".encode())
+            captures[bin_id] = path
+        args: list[str] = ["-m", "terminal.photo_intake"]
+        for bin_id in PHOTO_BIN_IDS:
+            args += ["--capture", f"{bin_id}={captures[bin_id]}"]
+        result = run_cli([*args, "--session-id", "VERIFY-PHOTO-1"])
+        ctx.note(f"python3 -m terminal.photo_intake (가짜 사진 6장) -> 종료코드 {result.returncode}")
+        data: dict = {}
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            problems.append(f"stdout JSON 파싱 실패: {e}")
+        if result.returncode != 0:
+            problems.append(f"사진 입력 종료코드 {result.returncode}: {result.stderr[:200]}")
+        if data:
+            if data.get("source") != "mock":
+                problems.append(f"source가 mock이 아니다: {data.get('source')}")
+            if data.get("capture_source") != "file":
+                problems.append(f"capture_source가 file이 아니다: {data.get('capture_source')}")
+            if data.get("session_id") != "VERIFY-PHOTO-1":
+                problems.append(f"session_id 기대 VERIFY-PHOTO-1, 실제 {data.get('session_id')}")
+            if not any("Pi 실촬영이 아닙니다" in line
+                       for line in data.get("honesty", [])):
+                problems.append("honesty에 'Pi 실촬영이 아닙니다' 표기 없음")
+            summary_data = data.get("summary", {})
+            for key, expected in EXPECTED_SIM_SUMMARY.items():
+                if summary_data.get(key) != expected:
+                    problems.append(
+                        f"summary.{key} 기대 {expected}, 실제 {summary_data.get(key)}")
+            bins = data.get("bins", [])
+            if len(bins) != 6:
+                problems.append(f"bins 기대 6, 실제 {len(bins)}")
+            by_bin = {b.get("bin_id"): b for b in bins}
+            target = by_bin.get("A-01-02", {})
+            if target.get("verdict") != "short":
+                problems.append(f"A-01-02 verdict 기대 short, 실제 {target.get('verdict')}")
+            if target.get("diff") != -3:
+                problems.append(f"A-01-02 diff 기대 -3, 실제 {target.get('diff')}")
+            photo = target.get("photo", {})
+            expected_sha = hashlib.sha256(b"fake-photo-A-01-02").hexdigest()
+            if photo.get("sha256") != expected_sha:
+                problems.append("A-01-02 photo.sha256이 가짜 사진 바이트 해시와 다르다")
+            if photo.get("image_ref") != "A-01-02.jpg":
+                problems.append(f"A-01-02 photo.image_ref 기대 A-01-02.jpg, 실제 {photo.get('image_ref')}")
+            over = by_bin.get("B-01-02", {})
+            if over.get("verdict") != "over" or over.get("diff") != 3:
+                problems.append(f"B-01-02 기대 over/+3, 실제 {over.get('verdict')}/{over.get('diff')}")
+        out_path = evidence / "photo-intake.json"
+        result2 = run_cli([*args, "--session-id", "VERIFY-PHOTO-1",
+                           "--out", str(out_path)])
+        ctx.note(f"python3 -m terminal.photo_intake --out -> 종료코드 {result2.returncode}")
+        if result2.returncode != 0:
+            problems.append(f"--out 종료코드 {result2.returncode}")
+        elif out_path.is_file():
+            saved = json.loads(out_path.read_text(encoding="utf-8"))
+            if saved.get("summary") != data.get("summary"):
+                problems.append("--out 파일의 summary가 stdout과 다르다")
+            if saved.get("capture_source") != "file":
+                problems.append("--out 파일의 capture_source가 file이 아니다")
+        else:
+            problems.append("--out 파일이 생성되지 않았다")
+    summary = {"feature": "photo-intake", "source": data.get("source"),
+               "capture_source": data.get("capture_source"),
+               "intake_summary": data.get("summary"), "all_ok": not problems,
+               "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"photo-intake-stdout.json": result.stdout})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
            "difference-report": drive_difference_report,
-           "demo-video-draft": drive_demo_video}
+           "demo-video-draft": drive_demo_video,
+           "photo-intake": drive_photo_intake}
 
 
 def main(argv: list[str] | None = None) -> int:

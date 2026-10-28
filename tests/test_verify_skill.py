@@ -20,6 +20,7 @@ FEATURES = [
     "session-list.md",
     "difference-report.md",
     "demo-video-draft.md",
+    "photo-intake.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -55,6 +56,16 @@ class SkillFileTests(unittest.TestCase):
             self.assertEqual(h2, EXPECTED_H2, name)
             self.assertIn("Preconditions:", text, name)
 
+    def test_photo_intake_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("photo-intake", skill)
+        self.assertIn("기능 6종", skill)
+        feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
+            encoding="utf-8")
+        for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
+                       "VERIFY-PHOTO-1"):
+            self.assertIn(marker, feature)
+
     def test_helper_exists_and_compiles(self):
         helper = SKILL_DIR / "scripts" / "verify_argus.py"
         self.assertTrue(helper.is_file())
@@ -77,7 +88,8 @@ class HelperRunTests(unittest.TestCase):
 
     def test_each_feature_drives_and_passes(self):
         for feature in ("terminal-simulator", "session-list",
-                        "difference-report", "demo-video-draft"):
+                        "difference-report", "demo-video-draft",
+                        "photo-intake"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -97,10 +109,49 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["all_ok"])
             self.assertEqual(set(summary["features"]), {
                 "console-home", "terminal-simulator", "session-list",
-                "difference-report", "demo-video-draft"})
+                "difference-report", "demo-video-draft", "photo-intake"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
+
+    def test_photo_intake_drives_and_records_photo_hash(self):
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-photo"
+            result = self._run_helper("--feature", "photo-intake",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "photo-intake")
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(summary["source"], "mock")
+            self.assertEqual(summary["capture_source"], "file")
+            self.assertEqual(summary["intake_summary"]["matched"], 4)
+            self.assertEqual(summary["intake_summary"]["mismatched"], 2)
+            payload = json.loads((evidence / "photo-intake-stdout.json").read_text(
+                encoding="utf-8"))
+            by_bin = {b["bin_id"]: b for b in payload["bins"]}
+            self.assertEqual(
+                by_bin["A-01-02"]["photo"]["sha256"],
+                hashlib.sha256(b"fake-photo-A-01-02").hexdigest())
+            self.assertTrue((evidence / "photo-intake.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_photo_intake_evidence_keeps_honesty_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-photo-honesty"
+            result = self._run_helper("--feature", "photo-intake",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "photo-intake-stdout.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(payload["capture_source"], "file")
+            self.assertTrue(any("Pi 실촬영이 아닙니다" in line
+                                for line in payload["honesty"]))
+            self.assertEqual(payload["session_id"], "VERIFY-PHOTO-1")
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

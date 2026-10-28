@@ -23,7 +23,7 @@
 - 단말 시뮬레이터: 프로젝트 루트에서 `python3 -m terminal.simulator` (JSON 리포트 출력, `--out <경로>`로 저장 가능)
 - 차이 리포트: 프로젝트 루트에서 `python3 -m terminal.report` (텍스트 리포트, `--json`으로 조치 우선순위 payload, `--out <경로>`로 저장 가능)
 - 사진 입력 파이프라인: 프로젝트 루트에서 `python3 -m terminal.photo_intake --capture A-01-02=<사진경로> [--capture <빈>=<사진경로> ...]` (파일 기반 입력이며 Pi 실촬영이 아니다. 사진 파일의 크기·SHA-256을 기록하고 기존 계수→대조 흐름에 태우며, 계수는 어댑터 경유·모의 기준이다. Pi 도착 후에는 카메라가 만든 사진 파일을 같은 형식으로 넘긴다)
-- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 163개)
+- 단위 테스트: 프로젝트 루트에서 `python3 -m unittest discover -s tests` (현재 166개)
 - QA 하네스: 프로젝트 루트에서 `python3 -m qa` (기준값 대조 체크 17개, 전부 통과 시 종료코드 0·실패 시 1)
 - standalone 점검: 프로젝트 루트에서 `python3 -m qa.standalone` (필수 파일·회사 식별자/비밀 패턴·정직성 표기·현재형 주장 감사 체크 6개 — 주장 감사는 qa.claims_audit를 재사용해 통합했다)
 - 현재형 주장 감사: 프로젝트 루트에서 `python3 -m qa.claims_audit` (README·제출 문서에서 SAM 실호출·Pi 실촬영 같은 미실시 사항을 이미 한 것처럼 단정하는 문장을 감사. 정직성 표기가 없는 단정만 위반으로 잡으며, 전부 통과 시 종료코드 0)
@@ -33,7 +33,7 @@
 - 데모 나레이션 대본: 프로젝트 루트에서 `python3 -m demo.narration` (자막 컷 9개의 나레이션 문장을 `demo/assets/`에 narration.json·narration.txt·narration-full.txt로 생성. 실제 음성 파일이 아닌 대본 텍스트 자산이며, 컷 구간 재조정으로 전 컷이 공백 제외 글자수/초 4.0 이하라 속도 경고가 없다)
 - 데모 영상 초안 렌더: 프로젝트 루트에서 `python3 -m demo.render_video` (자막 컷 9개를 슬라이드로 만들어 ffmpeg로 이어 붙인 180초 MP4 초안을 `demo/assets/argus-demo-draft.mp4`로 생성. 최종 제출본이 아닌 조립 초안이며, 컷 3은 Pi 도착 후 실촬영으로 교체할 플레이스홀더 슬라이드이고 전 컷에 '모의 데이터 · 데모 기준' 표기가 들어간다)
 - 제출 문서: `docs/submission-story.md`(제출 스토리 초안), `docs/submission-summary-en.md`(영문 제출 요약), `docs/demo-script.md`(3분 데모 대본 초안)
-- 검증 스킬: `.claude/skills/verify-argus/` — 콘솔·단말을 사용자처럼 구동해 검증하는 프로젝트 로컬 스킬. 점검은 `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`, 구동·증거 수집은 같은 스크립트에 `--evidence-dir /tmp/argus-verify-evidence/<run-id>`를 붙여 실행한다. `--feature`로 기능 5종(console-home·terminal-simulator·session-list·difference-report·demo-video-draft)을 개별 구동하거나 `all`로 전부 구동할 수 있다
+- 검증 스킬: `.claude/skills/verify-argus/` — 콘솔·단말을 사용자처럼 구동해 검증하는 프로젝트 로컬 스킬. 점검은 `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`, 구동·증거 수집은 같은 스크립트에 `--evidence-dir /tmp/argus-verify-evidence/<run-id>`를 붙여 실행한다. `--feature`로 기능 6종(console-home·terminal-simulator·session-list·difference-report·demo-video-draft·photo-intake)을 개별 구동하거나 `all`로 전부 구동할 수 있다
 
 ## 일정
 
