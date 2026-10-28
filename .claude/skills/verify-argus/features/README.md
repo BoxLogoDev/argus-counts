@@ -44,3 +44,4 @@
 - [Pi 캡처](pi-capture.md) — Pi 카메라 캡처 경계(명령 탐지·부재 시 기대 실패·가짜 runner 성공)를 구동한다. Pi 실촬영 검증 전이다.
 - [Pi 촬영 세션](pi-session.md) — Pi 캡처→사진 입력→대조 통합 세션을 CLI 기대 실패와 가짜 which/runner 주입으로 구동한다. Pi 실촬영 검증 전이다.
 - [SAM 실호출 준비](sam-live.md) — SAM 실호출 경계(가짜 transport 성공·해석 변형·실패 차단)를 구동한다. SAM 실호출 검증 전이며 실제 API 호출은 없다.
+- [SAM 실호출 전환 준비 점검](sam-readiness.md) — SAM 실호출 전환 준비 점검(크레딧·환경변수 존재 여부만, 실제 API 호출 없음)을 구동한다. 준비 완료는 실호출 성공이 아니다.

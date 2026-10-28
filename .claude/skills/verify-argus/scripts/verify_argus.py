@@ -8,7 +8,10 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 검증 전), Pi 촬영 세션은 CLI 기대 실패(카메라 부재)와 가짜 which/runner
 주입 성공으로 구동하며(Pi 실촬영 검증 전), SAM 실호출 준비 경계는
 가짜 transport 주입으로만 구동하며 실제 API 호출은 하지 않는다
-(SAM 실호출 검증 전). 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
+(SAM 실호출 검증 전). SAM 실호출 전환 준비 점검(sam-readiness)은
+실제 API 호출 없이 CLI 서브프로세스와 프로세스 내 check_readiness로만
+구동한다(준비 완료는 실호출 성공이 아님). 응답 원문과 종료 판정을
+증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
 사용:
@@ -18,7 +21,8 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
-pi-capture, pi-session, sam-live, all(전부, 기능별 하위 디렉터리).
+pi-capture, pi-session, sam-live, sam-readiness,
+all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -51,7 +55,8 @@ HOME_MARKERS = ("조치 우선순위", "모의 데이터", "66.7%")
 SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
-            "pre-submission", "pi-capture", "pi-session", "sam-live")
+            "pre-submission", "pi-capture", "pi-session", "sam-live",
+            "sam-readiness")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -65,6 +70,11 @@ SAM_FAKE_URL = "https://example.invalid/sam"
 SAM_FAKE_KEY = "test-key-not-real"
 SAM_BIN_ID = "A-01-02"
 SAM_FAKE_COUNT = 5
+EXPECTED_READINESS_BLOCKER_IDS = ("sam_credit_not_confirmed",
+                                  "sam_base_url_missing",
+                                  "sam_api_key_missing")
+SAM_READINESS_FAKE_URL = "https://sentinel-readiness.example.invalid/sam"
+SAM_READINESS_FAKE_KEY_VALUE = "sentinel-readiness-key-not-real"
 
 
 def clean_env() -> dict:
@@ -941,6 +951,141 @@ def drive_sam_live(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_sam_readiness(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.sam_readiness import ENV_BASE_URL, ENV_KEY_VAR, check_readiness
+
+    result = run_cli(["-m", "qa.sam_readiness"])
+    ctx.note(f"python3 -m qa.sam_readiness -> 종료코드 {result.returncode}")
+    if result.returncode != 1:
+        problems.append(
+            f"sam_readiness 기본 종료코드 기대 1, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("BLOCKERS: 3", "READY_FOR_LIVE_CALL: false"):
+        if needle not in result.stdout:
+            problems.append(f"sam_readiness 텍스트에 {needle!r} 없음")
+    positions = [result.stdout.find(blocker_id)
+                 for blocker_id in EXPECTED_READINESS_BLOCKER_IDS]
+    if any(position < 0 for position in positions):
+        problems.append(
+            f"sam_readiness 텍스트에 블로커 id 누락: 위치 {positions}")
+    elif positions != sorted(positions):
+        problems.append(f"sam_readiness 블로커 id 순서 이상: 위치 {positions}")
+
+    result_j = run_cli(["-m", "qa.sam_readiness", "--json"])
+    ctx.note(f"python3 -m qa.sam_readiness --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 1:
+        problems.append(
+            f"sam_readiness --json 종료코드 기대 1, 실제 {result_j.returncode}: "
+            f"{result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocked_blockers: list = []
+    if report:
+        if report.get("ready_for_live_call") is not False:
+            problems.append(
+                "ready_for_live_call 기대 False, 실제 "
+                f"{report.get('ready_for_live_call')}")
+        blocked_blockers = [b["id"] for b in report.get("blockers", [])]
+        if blocked_blockers != list(EXPECTED_READINESS_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_READINESS_BLOCKER_IDS)}, "
+                f"실제 {blocked_blockers}")
+        for field in ("base_url_present", "api_key_present", "credit_confirmed"):
+            if report.get(field) is not False:
+                problems.append(f"{field} 기대 False, 실제 {report.get(field)}")
+        if not any("호출하지 않는다" in line
+                   for line in report.get("honesty", [])):
+            problems.append("honesty에 '호출하지 않는다'를 포함한 줄 없음")
+
+    fake_env = {ENV_BASE_URL: SAM_READINESS_FAKE_URL,
+                ENV_KEY_VAR: SAM_READINESS_FAKE_KEY_VALUE}
+    ready: dict = {}
+    sentinel_leaked = False
+    try:
+        ready = check_readiness(env=fake_env, credit_confirmed=True)
+    except Exception as e:
+        problems.append(f"check_readiness 가짜 환경 실패: {type(e).__name__}: {e}")
+    if ready:
+        ctx.note(
+            f"check_readiness 가짜 환경 -> ready_for_live_call="
+            f"{ready.get('ready_for_live_call')}")
+        if ready.get("ready_for_live_call") is not True:
+            problems.append(
+                "가짜 환경 ready_for_live_call 기대 True, 실제 "
+                f"{ready.get('ready_for_live_call')}")
+        if ready.get("blockers") != []:
+            problems.append(f"가짜 환경 blockers 기대 [], 실제 {ready.get('blockers')}")
+        if ready.get("would_select_live") is not True:
+            problems.append(
+                "가짜 환경 would_select_live 기대 True, 실제 "
+                f"{ready.get('would_select_live')}")
+        ready_dumped = json.dumps(ready, ensure_ascii=False)
+        if SAM_READINESS_FAKE_KEY_VALUE in ready_dumped \
+                or SAM_READINESS_FAKE_URL in ready_dumped:
+            sentinel_leaked = True
+            problems.append("check_readiness 결과에 가짜 키/URL 값이 포함됐다")
+
+    credit_only_ids: list = []
+    try:
+        credit_only = check_readiness(env=fake_env, credit_confirmed=False)
+        credit_only_ids = [b["id"] for b in credit_only.get("blockers", [])]
+    except Exception as e:
+        problems.append(
+            f"check_readiness 크레딧 미확인 실패: {type(e).__name__}: {e}")
+    ctx.note(f"check_readiness 크레딧 미확인 블로커 -> {credit_only_ids}")
+    if credit_only_ids != ["sam_credit_not_confirmed"]:
+        problems.append(
+            f"크레딧 미확인 blockers 기대 ['sam_credit_not_confirmed'], "
+            f"실제 {credit_only_ids}")
+
+    cli_ready = subprocess.run(
+        [sys.executable, "-m", "qa.sam_readiness",
+         "--credit-confirmed", "--json"],
+        cwd=ROOT,
+        env={**clean_env(), ENV_BASE_URL: SAM_READINESS_FAKE_URL,
+             ENV_KEY_VAR: SAM_READINESS_FAKE_KEY_VALUE},
+        capture_output=True, text=True, timeout=120)
+    ctx.note(
+        "python3 -m qa.sam_readiness --credit-confirmed --json "
+        f"(가짜 환경) -> 종료코드 {cli_ready.returncode}")
+    if cli_ready.returncode != 0:
+        problems.append(
+            f"가짜 환경 CLI 종료코드 기대 0, 실제 {cli_ready.returncode}: "
+            f"{cli_ready.stderr[:200]}")
+    cli_ready_report: dict = {}
+    try:
+        cli_ready_report = json.loads(cli_ready.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"가짜 환경 CLI --json 파싱 실패: {e}")
+    if cli_ready_report and cli_ready_report.get("ready_for_live_call") is not True:
+        problems.append(
+            "가짜 환경 CLI ready_for_live_call 기대 True, 실제 "
+            f"{cli_ready_report.get('ready_for_live_call')}")
+    if SAM_READINESS_FAKE_KEY_VALUE in cli_ready.stdout \
+            or SAM_READINESS_FAKE_URL in cli_ready.stdout:
+        sentinel_leaked = True
+        problems.append("가짜 환경 CLI stdout에 가짜 키/URL 값이 포함됐다")
+    ctx.note(f"가짜 키/URL 값 누출 -> {sentinel_leaked}")
+
+    summary = {"feature": "sam-readiness",
+               "blocked_blockers": blocked_blockers,
+               "default_exit_code": result.returncode,
+               "ready_with_fake_env": ready.get("ready_for_live_call") is True,
+               "credit_only_blocker": credit_only_ids,
+               "cli_ready_exit_code": cli_ready.returncode,
+               "sentinel_leaked": sentinel_leaked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"sam-readiness-blocked.json": result_j.stdout,
+                    "sam-readiness-ready.json": json.dumps(
+                        ready, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -950,7 +1095,8 @@ DRIVERS = {"console-home": drive_console_home,
            "pre-submission": drive_pre_submission,
            "pi-capture": drive_pi_capture,
            "pi-session": drive_pi_session,
-           "sam-live": drive_sam_live}
+           "sam-live": drive_sam_live,
+           "sam-readiness": drive_sam_readiness}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -25,6 +25,7 @@ FEATURES = [
     "pi-capture.md",
     "pi-session.md",
     "sam-live.md",
+    "sam-readiness.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -63,7 +64,7 @@ class SkillFileTests(unittest.TestCase):
     def test_photo_intake_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("photo-intake", skill)
-        self.assertIn("기능 10종", skill)
+        self.assertIn("기능 11종", skill)
         feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
             encoding="utf-8")
         for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
@@ -73,7 +74,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pre_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pre-submission", skill)
-        self.assertIn("기능 10종", skill)
+        self.assertIn("기능 11종", skill)
         feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
             encoding="utf-8")
         for marker in ("submission_ready", "pi_real_capture_pending",
@@ -83,7 +84,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_capture_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-capture", skill)
-        self.assertIn("기능 10종", skill)
+        self.assertIn("기능 11종", skill)
         feature = (SKILL_DIR / "features" / "pi-capture.md").read_text(
             encoding="utf-8")
         for marker in ("probe_pi_camera", "capture_photo", "Pi 실촬영 검증 전",
@@ -93,7 +94,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_session_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-session", skill)
-        self.assertIn("기능 10종", skill)
+        self.assertIn("기능 11종", skill)
         feature = (SKILL_DIR / "features" / "pi-session.md").read_text(
             encoding="utf-8")
         for marker in ("run_pi_session", "capture_source", "pi-camera",
@@ -105,13 +106,25 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_live_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-live", skill)
-        self.assertIn("기능 10종", skill)
+        self.assertIn("기능 11종", skill)
         feature = (SKILL_DIR / "features" / "sam-live.md").read_text(
             encoding="utf-8")
         for marker in ("LiveSamCounter", "build_payload", "parse_response",
                        "SamCountingError", "fake transport", "example.invalid",
                        "SAM 실호출 검증 전", "실제 API 호출 없음",
                        "모의 폴백 없음", "Authorization"):
+            self.assertIn(marker, feature)
+
+    def test_sam_readiness_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("sam-readiness", skill)
+        self.assertIn("기능 11종", skill)
+        feature = (SKILL_DIR / "features" / "sam-readiness.md").read_text(
+            encoding="utf-8")
+        for marker in ("qa.sam_readiness", "check_readiness",
+                       "sam_credit_not_confirmed", "sam_base_url_missing",
+                       "sam_api_key_missing", "READY_FOR_LIVE_CALL",
+                       "호출하지 않는다", "실호출 성공", "존재 여부만"):
             self.assertIn(marker, feature)
 
     def test_demo_video_data_panel_listed_and_grounded(self):
@@ -148,7 +161,7 @@ class HelperRunTests(unittest.TestCase):
         for feature in ("terminal-simulator", "session-list",
                         "difference-report", "demo-video-draft",
                         "photo-intake", "pre-submission", "pi-capture",
-                        "pi-session", "sam-live"):
+                        "pi-session", "sam-live", "sam-readiness"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -169,7 +182,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(set(summary["features"]), {
                 "console-home", "terminal-simulator", "session-list",
                 "difference-report", "demo-video-draft", "photo-intake",
-                "pre-submission", "pi-capture", "pi-session", "sam-live"})
+                "pre-submission", "pi-capture", "pi-session", "sam-live",
+                "sam-readiness"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
@@ -424,6 +438,49 @@ class HelperRunTests(unittest.TestCase):
                 encoding="utf-8")
             self.assertNotIn("test-key-not-real", fake_text)
             self.assertNotIn("Authorization", fake_text)
+
+    def test_sam_readiness_drives_and_records_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-sam-readiness"
+            result = self._run_helper("--feature", "sam-readiness",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "sam-readiness")
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(summary["blocked_blockers"], [
+                "sam_credit_not_confirmed", "sam_base_url_missing",
+                "sam_api_key_missing"])
+            self.assertEqual(summary["default_exit_code"], 1)
+            self.assertTrue(summary["ready_with_fake_env"])
+            self.assertEqual(summary["credit_only_blocker"],
+                             ["sam_credit_not_confirmed"])
+            self.assertEqual(summary["cli_ready_exit_code"], 0)
+            self.assertFalse(summary["sentinel_leaked"])
+            self.assertTrue((evidence / "sam-readiness-blocked.json").is_file())
+            self.assertTrue((evidence / "sam-readiness-ready.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_sam_readiness_evidence_keeps_no_sentinel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-sam-readiness-noleak"
+            result = self._run_helper("--feature", "sam-readiness",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            blocked = json.loads(
+                (evidence / "sam-readiness-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertFalse(blocked["ready_for_live_call"])
+            self.assertTrue(any("호출하지 않는다" in line
+                                for line in blocked["honesty"]))
+            ready_text = (evidence / "sam-readiness-ready.json").read_text(
+                encoding="utf-8")
+            self.assertNotIn("sentinel-readiness", ready_text)
+            ready = json.loads(ready_text)
+            self.assertTrue(ready["ready_for_live_call"])
+            self.assertEqual(ready["blockers"], [])
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
