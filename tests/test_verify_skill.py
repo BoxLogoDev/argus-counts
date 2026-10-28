@@ -77,6 +77,16 @@ class SkillFileTests(unittest.TestCase):
                        "sam_real_call_pending", "qa.pre_submission"):
             self.assertIn(marker, feature)
 
+    def test_demo_video_data_panel_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("build_data_panel_lines", skill)
+        self.assertIn("data-panel.json", skill)
+        feature = (SKILL_DIR / "features" / "demo-video-draft.md").read_text(
+            encoding="utf-8")
+        for marker in ("video-data-panel", "build_data_panel_lines",
+                       "data-panel.json", "실촬영 데이터 없음", "실측 999"):
+            self.assertIn(marker, feature)
+
     def test_helper_exists_and_compiles(self):
         helper = SKILL_DIR / "scripts" / "verify_argus.py"
         self.assertTrue(helper.is_file())
@@ -200,6 +210,44 @@ class HelperRunTests(unittest.TestCase):
                 encoding="utf-8")
             self.assertIn("SUBMISSION_READY: false", text)
             self.assertIn("BLOCKERS: 2", text)
+
+    def test_demo_video_drives_and_records_data_panel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-panel"
+            result = self._run_helper("--feature", "demo-video-draft",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "demo-video-draft")
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(summary["data_panel_cuts"],
+                             [1, 2, 3, 4, 5, 6, 7, 8, 9])
+            payload = json.loads((evidence / "data-panel.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(payload["custom_counted_qty_reflected"])
+            panel = payload["data_panel"]
+            self.assertEqual(len(panel["5"]), 6)
+            self.assertEqual(len(panel["6"]), 2)
+            self.assertEqual(panel["3"],
+                             ["실촬영 데이터 없음 — Pi 도착 후 교체"])
+            self.assertTrue((evidence / "video-probe.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_demo_video_data_panel_evidence_keeps_honesty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-panel-honesty"
+            result = self._run_helper("--feature", "demo-video-draft",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "data-panel.json").read_text(
+                encoding="utf-8"))
+            panel = payload["data_panel"]
+            self.assertIn("데모 기준", panel["9"][0])
+            self.assertIn("일치율 66.7%", panel["1"][0])
+            self.assertTrue(all("장부" in line and "→ 실측" in line
+                                for line in panel["5"]))
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

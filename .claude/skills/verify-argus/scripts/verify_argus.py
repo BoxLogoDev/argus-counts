@@ -23,6 +23,7 @@ SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -323,10 +324,70 @@ def drive_demo_video(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"assembly total_seconds 기대 180, 실제 {assembly.get('total_seconds')}")
     probe["pace_warnings"] = narration.get("pace_warnings")
     probe["assembly_total_seconds"] = assembly.get("total_seconds")
+    from demo.render_video import build_data_panel_lines
+    from terminal.simulator import run_simulation
+
+    report = run_simulation()
+    panel: dict[str, list[str]] = {}
+    for cut in range(1, 10):
+        panel[str(cut)] = build_data_panel_lines(cut, report=report)
+    all_bin_ids = ("A-01-01", "A-01-02", "A-02-02", "A-03-01", "B-01-02", "B-02-02")
+    cut5 = panel["5"]
+    if len(cut5) != 6:
+        problems.append(f"컷 5 데이터 패널 기대 6줄, 실제 {len(cut5)}줄")
+    missing5 = [bid for bid in all_bin_ids if bid not in "\n".join(cut5)]
+    if missing5:
+        problems.append(f"컷 5 데이터 패널에 빈 ID 누락 {missing5}")
+    if any("장부" not in line or "→ 실측" not in line for line in cut5):
+        problems.append("컷 5 데이터 패널 줄마다 '장부'와 '→ 실측'이 있어야 한다")
+    cut6 = panel["6"]
+    if len(cut6) != 2:
+        problems.append(f"컷 6 데이터 패널 기대 2줄, 실제 {len(cut6)}줄")
+    present6 = [bid for bid in all_bin_ids if bid in "\n".join(cut6)]
+    if present6 != ["A-01-02", "B-01-02"]:
+        problems.append(f"컷 6 데이터 패널 빈 ID 기대 ['A-01-02', 'B-01-02'], 실제 {present6}")
+    cut7 = panel["7"]
+    if len(cut7) != 2:
+        problems.append(f"컷 7 데이터 패널 기대 2줄, 실제 {len(cut7)}줄")
+    if not cut7 or "A-01-02" not in cut7[0]:
+        problems.append("컷 7 데이터 패널 첫 줄에 A-01-02가 있어야 한다")
+    cut8 = panel["8"]
+    if len(cut8) != 3:
+        problems.append(f"컷 8 데이터 패널 기대 3줄, 실제 {len(cut8)}줄")
+    if "66.7%" not in "\n".join(cut8):
+        problems.append("컷 8 데이터 패널에 '66.7%'가 있어야 한다")
+    cut9 = panel["9"]
+    if len(cut9) != 1:
+        problems.append(f"컷 9 데이터 패널 기대 1줄, 실제 {len(cut9)}줄")
+    if not any("데모 기준" in line for line in cut9):
+        problems.append("컷 9 데이터 패널에 '데모 기준'이 있어야 한다")
+    if panel["3"] != ["실촬영 데이터 없음 — Pi 도착 후 교체"]:
+        problems.append(f"컷 3 데이터 패널 기대 ['실촬영 데이터 없음 — Pi 도착 후 교체'], 실제 {panel['3']}")
+    cut1 = panel["1"]
+    if len(cut1) != 1:
+        problems.append(f"컷 1 데이터 패널 기대 1줄, 실제 {len(cut1)}줄")
+    if not any("일치율 66.7%" in line for line in cut1):
+        problems.append("컷 1 데이터 패널에 '일치율 66.7%'가 있어야 한다")
+    custom_report = copy.deepcopy(report)
+    custom_report["bins"][0]["counted_qty"] = 999
+    custom_cut5 = build_data_panel_lines(5, report=custom_report)
+    custom_counted_qty_reflected = bool(custom_cut5 and "실측 999" in custom_cut5[0])
+    if not custom_counted_qty_reflected:
+        problems.append("변조 리포트의 counted_qty 999가 컷 5 첫 줄 '실측 999'에 반영되지 않았다")
+    data_panel_cuts = sorted(int(cut) for cut, lines in panel.items() if lines)
+    ctx.note(f"데이터 패널 컷 -> {data_panel_cuts}, 변조 반영 {custom_counted_qty_reflected}")
+    probe["data_panel_cuts"] = data_panel_cuts
+    probe["data_panel"] = panel
+    data_panel_payload = {"data_panel": panel, "panel": panel,
+                          "data_panel_cuts": data_panel_cuts,
+                          "custom_counted_qty_reflected": custom_counted_qty_reflected,
+                          **panel}
     summary = {"feature": "demo-video-draft", "probe": probe,
+               "data_panel_cuts": data_panel_cuts,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
-                   {"video-probe.json": json.dumps(probe, ensure_ascii=False, indent=2) + "\n"})
+                   {"video-probe.json": json.dumps(probe, ensure_ascii=False, indent=2) + "\n",
+                    "data-panel.json": json.dumps(data_panel_payload, ensure_ascii=False, indent=2) + "\n"})
     return summary
 
 
