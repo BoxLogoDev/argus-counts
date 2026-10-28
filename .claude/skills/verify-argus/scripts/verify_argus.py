@@ -3,7 +3,8 @@
 
 사용자가 닿는 표면을 직접 구동해 검증한다: 웹 콘솔은 임시 포트 서버를
 띄워 HTTP로, 단말 흐름은 CLI 서브프로세스로, 데모 영상 초안은 ffprobe
-탐침으로 확인하고, 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
+탐침으로 확인하고, 제출 전 전수 점검은 CLI 서브프로세스로 구동하며,
+응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
 사용:
@@ -12,7 +13,7 @@
       --feature <기능> --evidence-dir /tmp/argus-verify-evidence/<run-id>
 
 기능: console-home(기본), terminal-simulator, session-list,
-difference-report, demo-video-draft, photo-intake,
+difference-report, demo-video-draft, photo-intake, pre-submission,
 all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
@@ -43,7 +44,9 @@ from console.server import create_handler  # noqa: E402
 HOME_MARKERS = ("조치 우선순위", "모의 데이터", "66.7%")
 SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
-            "difference-report", "demo-video-draft", "photo-intake")
+            "difference-report", "demo-video-draft", "photo-intake",
+            "pre-submission")
+EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
 EXPECTED_SIM_SUMMARY = {"counted_bins": 6, "matched": 4, "mismatched": 2,
@@ -405,12 +408,72 @@ def drive_photo_intake(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    result = run_cli(["-m", "qa.pre_submission"])
+    text = result.stdout
+    ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
+    for needle in ("PRE_SUBMISSION: 6/6 mechanical passed", "BLOCKERS: 2",
+                   "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
+        if needle not in text:
+            problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
+    result_j = run_cli(["-m", "qa.pre_submission", "--json"])
+    ctx.note(f"python3 -m qa.pre_submission --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(f"전수 점검 --json 종료코드 {result_j.returncode}: {result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocker_ids: list = []
+    if report:
+        if report.get("passed") != 6:
+            problems.append(f"passed 기대 6, 실제 {report.get('passed')}")
+        if report.get("total") != 6:
+            problems.append(f"total 기대 6, 실제 {report.get('total')}")
+        if report.get("mechanical_pass") is not True:
+            problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
+        if report.get("submission_ready") is not False:
+            problems.append(
+                "심각한 문제: submission_ready가 false가 아니다"
+                f" (실제 {report.get('submission_ready')})"
+                " — 기계적 통과를 제출 가능으로 오인하면 안 된다")
+        blocker_ids = [b["id"] for b in report.get("blockers", [])]
+        if blocker_ids != list(EXPECTED_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
+        checks = report.get("checks", [])
+        if len(checks) != 6:
+            problems.append(f"checks 기대 6, 실제 {len(checks)}")
+        if not all(c.get("passed") is True for c in checks):
+            problems.append("checks 중 passed가 True가 아닌 항목이 있다")
+        honesty = report.get("honesty", [])
+        if not any("모의" in line for line in honesty):
+            problems.append("honesty에 '모의'를 포함한 줄 없음")
+        if not any("데모 기준" in line for line in honesty):
+            problems.append("honesty에 '데모 기준'을 포함한 줄 없음")
+    summary = {"feature": "pre-submission",
+               "mechanical_pass": report.get("mechanical_pass"),
+               "passed": report.get("passed"), "total": report.get("total"),
+               "blockers": blocker_ids,
+               "submission_ready": report.get("submission_ready"),
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"pre-submission-stdout.txt": text,
+                    "pre-submission.json": result_j.stdout})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
            "difference-report": drive_difference_report,
            "demo-video-draft": drive_demo_video,
-           "photo-intake": drive_photo_intake}
+           "photo-intake": drive_photo_intake,
+           "pre-submission": drive_pre_submission}
 
 
 def main(argv: list[str] | None = None) -> int:

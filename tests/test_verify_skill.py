@@ -21,6 +21,7 @@ FEATURES = [
     "difference-report.md",
     "demo-video-draft.md",
     "photo-intake.md",
+    "pre-submission.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -59,11 +60,21 @@ class SkillFileTests(unittest.TestCase):
     def test_photo_intake_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("photo-intake", skill)
-        self.assertIn("기능 6종", skill)
+        self.assertIn("기능 7종", skill)
         feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
             encoding="utf-8")
         for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
                        "VERIFY-PHOTO-1"):
+            self.assertIn(marker, feature)
+
+    def test_pre_submission_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("pre-submission", skill)
+        self.assertIn("기능 7종", skill)
+        feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
+            encoding="utf-8")
+        for marker in ("submission_ready", "pi_real_capture_pending",
+                       "sam_real_call_pending", "qa.pre_submission"):
             self.assertIn(marker, feature)
 
     def test_helper_exists_and_compiles(self):
@@ -89,7 +100,7 @@ class HelperRunTests(unittest.TestCase):
     def test_each_feature_drives_and_passes(self):
         for feature in ("terminal-simulator", "session-list",
                         "difference-report", "demo-video-draft",
-                        "photo-intake"):
+                        "photo-intake", "pre-submission"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -109,7 +120,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["all_ok"])
             self.assertEqual(set(summary["features"]), {
                 "console-home", "terminal-simulator", "session-list",
-                "difference-report", "demo-video-draft", "photo-intake"})
+                "difference-report", "demo-video-draft", "photo-intake",
+                "pre-submission"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
@@ -152,6 +164,42 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(any("Pi 실촬영이 아닙니다" in line
                                 for line in payload["honesty"]))
             self.assertEqual(payload["session_id"], "VERIFY-PHOTO-1")
+
+    def test_pre_submission_drives_and_records_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "pre-submission")
+            self.assertTrue(summary["all_ok"])
+            self.assertTrue(summary["mechanical_pass"])
+            self.assertEqual(summary["passed"], 6)
+            self.assertEqual(summary["total"], 6)
+            self.assertEqual(summary["blockers"], [
+                "pi_real_capture_pending", "sam_real_call_pending"])
+            self.assertFalse(summary["submission_ready"])
+            self.assertTrue((evidence / "pre-submission.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_pre_submission_evidence_keeps_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-honesty"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(payload["mechanical_pass"])
+            self.assertFalse(payload["submission_ready"])
+            self.assertTrue(any("모의" in line for line in payload["honesty"]))
+            text = (evidence / "pre-submission-stdout.txt").read_text(
+                encoding="utf-8")
+            self.assertIn("SUBMISSION_READY: false", text)
+            self.assertIn("BLOCKERS: 2", text)
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
