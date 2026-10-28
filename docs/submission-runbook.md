@@ -1,0 +1,82 @@
+# Argus 제출 런북
+
+이 런북은 제출까지 남은 블로커를 순서대로 해소하기 위한 운영자 문서다.
+현재는 모의 어댑터가 동작 중이며 Pi 검증 전이고 SAM 미실시 상태다.
+아래 순서가 끝나기 전에는 제출 준비가 됐다고 적지 않는다.
+
+## 0. 현재 상태
+
+- 남은 블로커는 2건이다.
+- `pi_real_capture_pending`
+- `sam_real_call_pending`
+- 기계 점검은 `python3 -m qa.pre_submission` 으로 확인한다.
+- 현재 정답은 `SUBMISSION_READY: false` 다.
+- 블로커가 남아 있는 동안 이 값은 그대로 둔다.
+- 테스트 개수는 숫자로 적지 않고 명령을 실행해 확인한다.
+- 상태가 바뀌면 같은 명령을 다시 실행해 출력을 확인한다.
+
+## 1. 크레딧 확인
+
+- Model API 크레딧 입금 확인 예정 시각은 2026-10-29 09:30이다.
+- 확인 명령은 `python3 -m qa.sam_readiness` 다.
+- 기본 실행에서는 블로커 3건과 종료코드 1이 기대 동작이다.
+- 외부에서 입금을 실제로 확인한 뒤에만 `--credit-confirmed` 플래그를 붙인다.
+- 확인 없이 플래그를 붙이지 않는다.
+- 준비 완료는 성공이 아니다.
+- 이 단계는 호출 가능 여부를 가리는 준비 점검일 뿐이다.
+- SAM 실호출 미실시 상태는 크레딧 확인만으로 바뀌지 않는다.
+- 결과를 보고 다음 절로 넘어갈지 판단한다.
+
+## 2. API 키
+
+- API 키는 Secure Vault 보안 경로로만 받는다.
+- 키 원문은 채팅에 적지 않는다.
+- 키 원문은 문서에 적지 않는다.
+- 키 원문은 코드에 적지 않는다.
+- 환경변수 이름은 `SAM_API_BASE_URL` 과 `SAM_API_KEY` 다.
+- 두 변수의 값은 이 문서에 쓰지 않는다.
+- 운영자는 값이 존재하는지만 확인한다.
+- 값이 비어 있으면 다음 단계로 넘어가지 않는다.
+
+## 3. SAM 전환
+
+- `READY_FOR_LIVE_CALL: true` 가 된 뒤에만 첫 호출을 시작한다.
+- 첫 호출은 빈 1개로 작게 시작한다.
+- 호출이 실패하면 모의로 폴백하지 않는다.
+- 실패는 그대로 오류로 보고한다.
+- 성공을 확인하기 전에는 성공했다고 쓰지 않는다.
+- SAM 실호출 아직 미실시인 동안은 결과를 단정하지 않는다.
+- 작은 호출의 출력을 확인한 뒤에만 범위를 넓힌다.
+- 출력이 기대와 다르면 멈추고 오류 내용을 기록한다.
+
+## 4. Pi 촬영
+
+- Pi 도착 후 아래 순서로 진행한다.
+- 먼저 `python3 -m terminal.pi_capture --probe` 를 실행한다.
+- 그다음 `python3 -m terminal.pi_session --out-dir` 명령으로 세션을 남긴다.
+- 데모 컷 3은 그 뒤에 교체한다.
+- Pi 실촬영 검증 전인 동안은 데모 컷 3 교체를 예정으로만 적는다.
+- 촬영 순서가 어긋나면 이전 단계부터 다시 확인한다.
+- 새 촬영본을 확인하기 전에는 기존 컷을 최종본이라고 적지 않는다.
+
+## 5. 최종 점검
+
+- 아래 명령을 줄 단위로 하나씩 실행한다.
+- `python3 -m unittest discover -s tests`
+- `python3 -m qa`
+- `python3 -m qa.standalone`
+- `python3 -m qa.claims_audit`
+- `python3 -m qa.pre_submission`
+- `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`
+- `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature all`
+- 영상 재렌더 명령은 `python3 -m demo.render_video` 다.
+- 하나라도 실패하면 제출 단계로 넘어가지 않는다.
+- 실패한 명령의 출력을 그대로 기록한다.
+
+## 6. 제출
+
+- 제출 마감은 2026-11-04 21:00 ET 다.
+- 같은 마감은 한국 시간으로 2026-11-05 11:00 KST 다.
+- 지각 제출은 고려되지 않으므로 마감 전에 제출한다.
+- 마지막에 공개 저장소 `BoxLogoDev/argus-counts` 가 standalone인지 확인한다.
+- standalone 확인이 끝나기 전에는 제출을 마쳤다고 적지 않는다.

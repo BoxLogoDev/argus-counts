@@ -24,6 +24,7 @@ SCAN_FILES = (
     "docs/submission-story.md",
     "docs/demo-script.md",
     "docs/submission-summary-en.md",
+    "docs/submission-runbook.md",
 )
 
 RISKY_PATTERNS = [
