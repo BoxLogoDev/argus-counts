@@ -5,7 +5,9 @@
 띄워 HTTP로, 단말 흐름은 CLI 서브프로세스로, 데모 영상 초안은 ffprobe
 탐침으로 확인하고, 제출 전 전수 점검은 CLI 서브프로세스로 구동하며,
 Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하고(Pi 실촬영
-검증 전), 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
+검증 전), Pi 촬영 세션은 CLI 기대 실패(카메라 부재)와 가짜 which/runner
+주입 성공으로 구동하며(Pi 실촬영 검증 전), 응답 원문과 종료 판정을
+증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
 사용:
@@ -15,7 +17,7 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
-pi-capture, all(전부, 기능별 하위 디렉터리).
+pi-capture, pi-session, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -48,7 +50,7 @@ HOME_MARKERS = ("조치 우선순위", "모의 데이터", "66.7%")
 SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
-            "pre-submission", "pi-capture")
+            "pre-submission", "pi-capture", "pi-session")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -56,6 +58,8 @@ EXPECTED_SIM_SUMMARY = {"counted_bins": 6, "matched": 4, "mismatched": 2,
                         "abs_diff_total": 6, "net_diff": 0}
 PI_FAKE_CONTENT = b"fake-pi-jpeg"
 PI_BIN_ID = "A-01-02"
+PI_SESSION_FAKE_CONTENT = b"fake-pi-session-jpeg"
+PI_SESSION_ID = "VERIFY-PI-SESSION-1"
 
 
 def clean_env() -> dict:
@@ -639,6 +643,132 @@ def drive_pi_capture(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_pi_session(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from terminal.pi_capture import PiCaptureError, probe_pi_camera
+    from terminal.pi_session import run_pi_session
+
+    probe = probe_pi_camera()
+    available = probe.get("available")
+    ctx.note(f"Pi probe -> available={available}, command={probe.get('command')}")
+    if not isinstance(available, bool):
+        problems.append(f"probe available이 bool이 아니다: {available!r}")
+
+    cli_session_blocked: bool | None = None
+    no_camera_blocked = False
+    blocked_text = ""
+    report: dict = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        fake_which = lambda name: f"/usr/bin/{name}" if name == "libcamera-still" else None  # noqa: E731
+
+        def fake_runner(argv, **kwargs):
+            Path(argv[argv.index("-o") + 1]).write_bytes(PI_SESSION_FAKE_CONTENT)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        if available is False:
+            out_dir = root / "captures"
+            result = run_cli(["-m", "terminal.pi_session", "--out-dir", str(out_dir)])
+            ctx.note(
+                f"python3 -m terminal.pi_session --out-dir (명령 부재) -> 종료코드 {result.returncode}")
+            blocked_text = result.stderr
+            cli_session_blocked = result.returncode != 0 and not out_dir.exists()
+            if result.returncode != 1:
+                problems.append(
+                    f"카메라 명령 부재 환경에서 terminal.pi_session 종료코드 기대 1, 실제 {result.returncode}")
+            if "Pi 카메라 명령을 찾을 수 없습니다" not in result.stderr:
+                problems.append("terminal.pi_session stderr에 'Pi 카메라 명령을 찾을 수 없습니다' 없음")
+            if out_dir.exists():
+                problems.append("카메라 명령 부재 환경에서 terminal.pi_session 캡처 디렉터리가 생겼다")
+        elif available is True:
+            cli_session_blocked = None
+            blocked_text = "카메라 명령이 있는 환경이라 CLI 기대 실패 검사는 건너뛰었습니다.\n"
+            ctx.note("카메라 명령이 있는 환경이라 CLI --out-dir 기대 실패 검사는 건너뛴다.")
+        else:
+            blocked_text = "probe available이 bool이 아니라 CLI 기대 실패 검사는 건너뛰었습니다.\n"
+            ctx.note("probe available이 bool이 아니라 CLI --out-dir 기대 실패 검사는 건너뛴다.")
+
+        no_camera_dir = root / "no-camera"
+        try:
+            run_pi_session(no_camera_dir, which=lambda name: None, runner=fake_runner)
+            problems.append("무카메라 which에서 run_pi_session이 PiCaptureError를 던지지 않았다")
+            no_camera_blocked = False
+        except PiCaptureError:
+            no_camera_blocked = not no_camera_dir.exists()
+            if no_camera_dir.exists():
+                problems.append("무카메라 run_pi_session에서 캡처 디렉터리가 생겼다")
+        except Exception as e:
+            problems.append(f"무카메라 run_pi_session 예외가 PiCaptureError가 아니다: {type(e).__name__}: {e}")
+            no_camera_blocked = False
+        ctx.note(f"무카메라 run_pi_session 차단 -> {no_camera_blocked}")
+
+        session_out_dir = root / "pi-session-captures"
+        try:
+            report = run_pi_session(session_out_dir, session_id=PI_SESSION_ID,
+                                    runner=fake_runner, which=fake_which)
+        except Exception as e:
+            problems.append(f"가짜 which/runner run_pi_session 실패: {type(e).__name__}: {e}")
+            report = {}
+        if report:
+            ctx.note(
+                f"가짜 which/runner run_pi_session -> source={report.get('source')}, "
+                f"capture_source={report.get('capture_source')}, summary={report.get('summary')}")
+            if report.get("source") != "mock":
+                problems.append(f"source가 mock이 아니다: {report.get('source')}")
+            if report.get("capture_source") != "pi-camera":
+                problems.append(f"capture_source가 pi-camera가 아니다: {report.get('capture_source')}")
+            if report.get("session_id") != PI_SESSION_ID:
+                problems.append(f"session_id 기대 {PI_SESSION_ID}, 실제 {report.get('session_id')}")
+            summary_data = report.get("summary", {})
+            for key, expected in EXPECTED_SIM_SUMMARY.items():
+                if summary_data.get(key) != expected:
+                    problems.append(
+                        f"summary.{key} 기대 {expected}, 실제 {summary_data.get(key)}")
+            bins = report.get("bins", [])
+            if len(bins) != 6:
+                problems.append(f"bins 기대 6, 실제 {len(bins)}")
+            by_bin = {b.get("bin_id"): b for b in bins}
+            target = by_bin.get("A-01-02", {})
+            if target.get("verdict") != "short" or target.get("diff") != -3:
+                problems.append(
+                    f"A-01-02 기대 short/-3, 실제 {target.get('verdict')}/{target.get('diff')}")
+            over = by_bin.get("B-01-02", {})
+            if over.get("verdict") != "over" or over.get("diff") != 3:
+                problems.append(
+                    f"B-01-02 기대 over/+3, 실제 {over.get('verdict')}/{over.get('diff')}")
+            probe_data = report.get("probe", {})
+            if probe_data.get("available") is not True:
+                problems.append(f"report probe.available 기대 True, 실제 {probe_data.get('available')}")
+            if probe_data.get("command") != "libcamera-still":
+                problems.append(f"report probe.command 기대 libcamera-still, 실제 {probe_data.get('command')}")
+            if not any("Pi 실촬영 검증 전" in line for line in report.get("honesty", [])):
+                problems.append("honesty에 'Pi 실촬영 검증 전' 표기 없음")
+            expected_sha = hashlib.sha256(PI_SESSION_FAKE_CONTENT).hexdigest()
+            for entry in bins:
+                bin_id = entry.get("bin_id")
+                photo = entry.get("photo", {})
+                if photo.get("sha256") != expected_sha:
+                    problems.append(f"{bin_id} photo.sha256이 가짜 세션 바이트 해시와 다르다")
+                if photo.get("image_ref") != f"{bin_id}.jpg":
+                    problems.append(
+                        f"{bin_id} photo.image_ref 기대 {bin_id}.jpg, 실제 {photo.get('image_ref')}")
+                if not (session_out_dir / f"{bin_id}.jpg").is_file():
+                    problems.append(f"{bin_id} 캡처 파일이 임시 디렉터리에 존재하지 않는다")
+
+    summary = {"feature": "pi-session", "source": report.get("source"),
+               "capture_source": report.get("capture_source"),
+               "session_summary": report.get("summary"),
+               "probe_command": report.get("probe", {}).get("command"),
+               "fake_capture_sha256": hashlib.sha256(PI_SESSION_FAKE_CONTENT).hexdigest(),
+               "cli_session_blocked": cli_session_blocked,
+               "no_camera_blocked": no_camera_blocked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"pi-session-report.json": json.dumps(report, ensure_ascii=False, indent=2),
+                    "pi-session-blocked.txt": blocked_text})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -646,7 +776,8 @@ DRIVERS = {"console-home": drive_console_home,
            "demo-video-draft": drive_demo_video,
            "photo-intake": drive_photo_intake,
            "pre-submission": drive_pre_submission,
-           "pi-capture": drive_pi_capture}
+           "pi-capture": drive_pi_capture,
+           "pi-session": drive_pi_session}
 
 
 def main(argv: list[str] | None = None) -> int:
