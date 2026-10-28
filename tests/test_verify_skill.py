@@ -24,6 +24,7 @@ FEATURES = [
     "pre-submission.md",
     "pi-capture.md",
     "pi-session.md",
+    "sam-live.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -62,7 +63,7 @@ class SkillFileTests(unittest.TestCase):
     def test_photo_intake_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("photo-intake", skill)
-        self.assertIn("기능 9종", skill)
+        self.assertIn("기능 10종", skill)
         feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
             encoding="utf-8")
         for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
@@ -72,7 +73,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pre_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pre-submission", skill)
-        self.assertIn("기능 9종", skill)
+        self.assertIn("기능 10종", skill)
         feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
             encoding="utf-8")
         for marker in ("submission_ready", "pi_real_capture_pending",
@@ -82,7 +83,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_capture_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-capture", skill)
-        self.assertIn("기능 9종", skill)
+        self.assertIn("기능 10종", skill)
         feature = (SKILL_DIR / "features" / "pi-capture.md").read_text(
             encoding="utf-8")
         for marker in ("probe_pi_camera", "capture_photo", "Pi 실촬영 검증 전",
@@ -92,13 +93,25 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_session_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-session", skill)
-        self.assertIn("기능 9종", skill)
+        self.assertIn("기능 10종", skill)
         feature = (SKILL_DIR / "features" / "pi-session.md").read_text(
             encoding="utf-8")
         for marker in ("run_pi_session", "capture_source", "pi-camera",
                        "Pi 실촬영 검증 전", "fake-pi-session-jpeg",
                        "PiCaptureError", "VERIFY-PI-SESSION-1",
                        "libcamera-still", "terminal.pi_session"):
+            self.assertIn(marker, feature)
+
+    def test_sam_live_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("sam-live", skill)
+        self.assertIn("기능 10종", skill)
+        feature = (SKILL_DIR / "features" / "sam-live.md").read_text(
+            encoding="utf-8")
+        for marker in ("LiveSamCounter", "build_payload", "parse_response",
+                       "SamCountingError", "fake transport", "example.invalid",
+                       "SAM 실호출 검증 전", "실제 API 호출 없음",
+                       "모의 폴백 없음", "Authorization"):
             self.assertIn(marker, feature)
 
     def test_demo_video_data_panel_listed_and_grounded(self):
@@ -135,7 +148,7 @@ class HelperRunTests(unittest.TestCase):
         for feature in ("terminal-simulator", "session-list",
                         "difference-report", "demo-video-draft",
                         "photo-intake", "pre-submission", "pi-capture",
-                        "pi-session"):
+                        "pi-session", "sam-live"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -156,7 +169,7 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(set(summary["features"]), {
                 "console-home", "terminal-simulator", "session-list",
                 "difference-report", "demo-video-draft", "photo-intake",
-                "pre-submission", "pi-capture", "pi-session"})
+                "pre-submission", "pi-capture", "pi-session", "sam-live"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
@@ -369,6 +382,48 @@ class HelperRunTests(unittest.TestCase):
             by_bin = {b["bin_id"]: b for b in report["bins"]}
             self.assertEqual(by_bin["A-01-02"]["verdict"], "short")
             self.assertEqual(by_bin["A-01-02"]["diff"], -3)
+
+    def test_sam_live_drives_and_records_fake_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-sam-live"
+            result = self._run_helper("--feature", "sam-live",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "sam-live")
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(summary["source"], "sam")
+            self.assertEqual(summary["counted_qty"], 5)
+            self.assertEqual(summary["fake_url"], "https://example.invalid/sam")
+            self.assertTrue(summary["http_error_blocked"])
+            self.assertTrue(summary["transport_error_wrapped"])
+            self.assertTrue(summary["mock_selection_ok"])
+            fake = json.loads((evidence / "sam-live-fake.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(fake["model"], "sam-3.1")
+            self.assertEqual(fake["bin_id"], "A-01-02")
+            self.assertEqual(fake["counted_qty"], 5)
+            self.assertNotIn("test-key-not-real", json.dumps(fake))
+            self.assertTrue((evidence / "sam-live-errors.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_sam_live_evidence_keeps_error_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-sam-live-errors"
+            result = self._run_helper("--feature", "sam-live",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            errors = json.loads((evidence / "sam-live-errors.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(errors["http_error_blocked"])
+            self.assertTrue(errors["transport_error_wrapped"])
+            self.assertTrue(errors["mock_selection_ok"])
+            fake_text = (evidence / "sam-live-fake.json").read_text(
+                encoding="utf-8")
+            self.assertNotIn("test-key-not-real", fake_text)
+            self.assertNotIn("Authorization", fake_text)
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

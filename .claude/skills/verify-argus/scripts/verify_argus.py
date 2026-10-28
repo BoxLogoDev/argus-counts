@@ -6,8 +6,9 @@
 탐침으로 확인하고, 제출 전 전수 점검은 CLI 서브프로세스로 구동하며,
 Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하고(Pi 실촬영
 검증 전), Pi 촬영 세션은 CLI 기대 실패(카메라 부재)와 가짜 which/runner
-주입 성공으로 구동하며(Pi 실촬영 검증 전), 응답 원문과 종료 판정을
-증거 디렉터리에 남긴다.
+주입 성공으로 구동하며(Pi 실촬영 검증 전), SAM 실호출 준비 경계는
+가짜 transport 주입으로만 구동하며 실제 API 호출은 하지 않는다
+(SAM 실호출 검증 전). 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
 사용:
@@ -17,7 +18,7 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
-pi-capture, pi-session, all(전부, 기능별 하위 디렉터리).
+pi-capture, pi-session, sam-live, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -50,7 +51,7 @@ HOME_MARKERS = ("조치 우선순위", "모의 데이터", "66.7%")
 SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
-            "pre-submission", "pi-capture", "pi-session")
+            "pre-submission", "pi-capture", "pi-session", "sam-live")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -60,6 +61,10 @@ PI_FAKE_CONTENT = b"fake-pi-jpeg"
 PI_BIN_ID = "A-01-02"
 PI_SESSION_FAKE_CONTENT = b"fake-pi-session-jpeg"
 PI_SESSION_ID = "VERIFY-PI-SESSION-1"
+SAM_FAKE_URL = "https://example.invalid/sam"
+SAM_FAKE_KEY = "test-key-not-real"
+SAM_BIN_ID = "A-01-02"
+SAM_FAKE_COUNT = 5
 
 
 def clean_env() -> dict:
@@ -769,6 +774,173 @@ def drive_pi_session(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_sam_live(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from terminal.sam_adapter import (LiveSamCounter, MockSamCounter,
+                                      SamCountingError, build_counter,
+                                      build_payload, parse_response)
+
+    recorded: dict = {}
+
+    def fake_transport(url, headers, body, timeout):
+        recorded["url"] = url
+        recorded["headers"] = dict(headers)
+        recorded["body"] = body
+        recorded["timeout"] = timeout
+        return 200, {"counted_qty": SAM_FAKE_COUNT}
+
+    result = None
+    parsed_body: dict = {}
+    try:
+        counter = LiveSamCounter(SAM_FAKE_URL + "/", SAM_FAKE_KEY,
+                                 transport=fake_transport)
+        result = counter.count(SAM_BIN_ID, image_ref="photo-1.jpg")
+    except Exception as e:
+        problems.append(f"가짜 transport SAM count 실패: {type(e).__name__}: {e}")
+    if result is not None:
+        ctx.note(
+            f"가짜 transport SAM count -> source={result.source}, "
+            f"counted_qty={result.counted_qty}")
+        if result.counted_qty != SAM_FAKE_COUNT:
+            problems.append(
+                f"counted_qty 기대 {SAM_FAKE_COUNT}, 실제 {result.counted_qty}")
+        if result.source != "sam":
+            problems.append(f"source 기대 sam, 실제 {result.source}")
+    if recorded.get("url") != SAM_FAKE_URL:
+        problems.append(
+            f"기록된 url 기대 {SAM_FAKE_URL}, 실제 {recorded.get('url')}")
+    headers = recorded.get("headers", {})
+    if headers.get("Authorization") != "Bearer " + SAM_FAKE_KEY:
+        problems.append("Authorization 헤더가 Bearer 키 형태가 아니다")
+    body_bytes = recorded.get("body", b"")
+    body_text = (body_bytes.decode("utf-8", "replace")
+                 if isinstance(body_bytes, bytes) else str(body_bytes))
+    try:
+        parsed_body = json.loads(body_text) if body_text else {}
+    except json.JSONDecodeError as e:
+        problems.append(f"요청 body JSON 파싱 실패: {e}")
+        parsed_body = {}
+    if parsed_body.get("model") != "sam-3.1":
+        problems.append(f"body model 기대 sam-3.1, 실제 {parsed_body.get('model')}")
+    if parsed_body.get("bin_id") != SAM_BIN_ID:
+        problems.append(f"body bin_id 기대 {SAM_BIN_ID}, 실제 {parsed_body.get('bin_id')}")
+    if parsed_body.get("image_ref") != "photo-1.jpg":
+        problems.append(
+            f"body image_ref 기대 photo-1.jpg, 실제 {parsed_body.get('image_ref')}")
+    if SAM_FAKE_KEY in body_text:
+        problems.append("요청 body 원문에 API 키가 포함됐다")
+    direct_payload = build_payload(SAM_BIN_ID, image_ref="photo-1.jpg")
+    if direct_payload.get("model") != "sam-3.1" \
+            or direct_payload.get("bin_id") != SAM_BIN_ID \
+            or direct_payload.get("image_ref") != "photo-1.jpg":
+        problems.append(f"build_payload 결과가 기대와 다르다: {direct_payload}")
+    if SAM_FAKE_KEY in json.dumps(direct_payload):
+        problems.append("build_payload 결과에 API 키가 포함됐다")
+
+    for payload, expected in (({"counted_qty": 7}, 7),
+                              ({"result": {"quantity": 4}}, 4),
+                              ({"detections": [1, 2]}, 2)):
+        try:
+            actual = parse_response(payload)
+        except Exception as e:
+            problems.append(
+                f"parse_response({payload}) 실패: {type(e).__name__}: {e}")
+            continue
+        if actual != expected:
+            problems.append(
+                f"parse_response({payload}) 기대 {expected}, 실제 {actual}")
+
+    def http_fail_transport(url, headers, body, timeout):
+        return 503, {"error": "unavailable"}
+
+    http_error_blocked = False
+    try:
+        LiveSamCounter(SAM_FAKE_URL, SAM_FAKE_KEY,
+                       transport=http_fail_transport).count(
+                           SAM_BIN_ID, image_ref="photo-1.jpg")
+        problems.append("HTTP 503에서 SamCountingError가 나지 않았다")
+    except SamCountingError:
+        http_error_blocked = True
+    except Exception as e:
+        problems.append(
+            f"HTTP 503 예외가 SamCountingError가 아니다: {type(e).__name__}: {e}")
+    ctx.note(f"HTTP 503 차단(모의 폴백 없음) -> {http_error_blocked}")
+
+    def raising_transport(url, headers, body, timeout):
+        raise OSError("sensitive-detail")
+
+    transport_error_wrapped = False
+    try:
+        LiveSamCounter(SAM_FAKE_URL, SAM_FAKE_KEY,
+                       transport=raising_transport).count(
+                           SAM_BIN_ID, image_ref="photo-1.jpg")
+        problems.append("전송 OSError에서 SamCountingError가 나지 않았다")
+    except SamCountingError as e:
+        message = str(e)
+        if "sensitive-detail" in message:
+            problems.append("SamCountingError 메시지에 원본 전송 상세가 포함됐다")
+        elif SAM_FAKE_KEY in message:
+            problems.append("SamCountingError 메시지에 API 키가 포함됐다")
+        else:
+            transport_error_wrapped = True
+    except Exception as e:
+        problems.append(
+            f"전송 예외가 SamCountingError가 아니다: {type(e).__name__}: {e}")
+    ctx.note(f"전송 예외 SamCountingError 감싸기 -> {transport_error_wrapped}")
+
+    mock_selection_ok = False
+    saved_env: dict[str, str] = {}
+    for key in ("SAM_API_BASE_URL", "SAM_API_KEY"):
+        if key in os.environ:
+            saved_env[key] = os.environ.pop(key)
+    try:
+        selected = build_counter({SAM_BIN_ID: SAM_FAKE_COUNT})
+        if not isinstance(selected, MockSamCounter):
+            problems.append(
+                f"환경변수 없는 build_counter 기대 MockSamCounter, "
+                f"실제 {type(selected).__name__}")
+        else:
+            mock_result = selected.count(SAM_BIN_ID, image_ref="photo-1.jpg")
+            if mock_result.source != "mock":
+                problems.append(f"모의 선택 source 기대 mock, 실제 {mock_result.source}")
+            elif mock_result.counted_qty != SAM_FAKE_COUNT:
+                problems.append(
+                    f"모의 선택 counted_qty 기대 {SAM_FAKE_COUNT}, "
+                    f"실제 {mock_result.counted_qty}")
+            else:
+                mock_selection_ok = True
+    except Exception as e:
+        problems.append(f"모의 선택 확인 실패: {type(e).__name__}: {e}")
+    finally:
+        for key in ("SAM_API_BASE_URL", "SAM_API_KEY"):
+            if key in saved_env:
+                os.environ[key] = saved_env[key]
+            else:
+                os.environ.pop(key, None)
+    ctx.note(f"환경변수 없는 모의 선택 -> {mock_selection_ok}")
+
+    fake_payload = {"url": recorded.get("url"),
+                    "model": parsed_body.get("model"),
+                    "bin_id": parsed_body.get("bin_id"),
+                    "counted_qty": getattr(result, "counted_qty", None),
+                    "source": getattr(result, "source", None)}
+    errors_payload = {"http_error_blocked": http_error_blocked,
+                      "transport_error_wrapped": transport_error_wrapped,
+                      "mock_selection_ok": mock_selection_ok}
+    summary = {"feature": "sam-live",
+               "source": getattr(result, "source", None),
+               "counted_qty": getattr(result, "counted_qty", None),
+               "fake_url": SAM_FAKE_URL,
+               "http_error_blocked": http_error_blocked,
+               "transport_error_wrapped": transport_error_wrapped,
+               "mock_selection_ok": mock_selection_ok,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"sam-live-fake.json": json.dumps(fake_payload, ensure_ascii=False, indent=2) + "\n",
+                    "sam-live-errors.json": json.dumps(errors_payload, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -777,7 +949,8 @@ DRIVERS = {"console-home": drive_console_home,
            "photo-intake": drive_photo_intake,
            "pre-submission": drive_pre_submission,
            "pi-capture": drive_pi_capture,
-           "pi-session": drive_pi_session}
+           "pi-session": drive_pi_session,
+           "sam-live": drive_sam_live}
 
 
 def main(argv: list[str] | None = None) -> int:
