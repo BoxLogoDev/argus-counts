@@ -87,6 +87,35 @@ class StandaloneCheckTests(unittest.TestCase):
             by_name = {c.name: c.passed for c in checks}
             self.assertFalse(by_name["honesty_markers:docs/submission-story.md"])
 
+    def test_claims_audit_check_present_and_passes_on_minimal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            checks = run_standalone_checks(root)
+            by_name = {c.name: c for c in checks}
+            self.assertIn("claims_audit_clean", by_name)
+            self.assertTrue(by_name["claims_audit_clean"].passed)
+            self.assertIn("files clean", by_name["claims_audit_clean"].detail)
+            self.assertEqual(checks[-1].name, "claims_audit_clean")
+
+    def test_bare_claim_fails_claims_audit_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "README.md", "SAM 3.1 실호출을 연동했습니다.\n")
+            checks = run_standalone_checks(root)
+            by_name = {c.name: c.passed for c in checks}
+            self.assertFalse(by_name["claims_audit_clean"])
+
+    def test_missing_scan_file_fails_claims_audit_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            (root / "docs/submission-summary-en.md").unlink()
+            checks = run_standalone_checks(root)
+            by_name = {c.name: c.passed for c in checks}
+            self.assertFalse(by_name["claims_audit_clean"])
+
 
 if __name__ == "__main__":
     unittest.main()

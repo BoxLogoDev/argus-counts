@@ -3,6 +3,7 @@
 공개 저장소가 해커톤 제출용 standalone 패키지인지 기계적으로 확인한다:
 필수 파일이 있고, 실제 회사 식별자나 비밀값 패턴이 섞이지 않았으며,
 제출 서술에 정직성 표기(모의·데모 기준·테마 가안)가 들어 있는지 본다.
+standalone 점검은 현재형 주장 감사도 포함하며 체크는 모두 6개다.
 
 실행: 프로젝트 루트에서 `python3 -m qa.standalone`
 전부 통과하면 종료코드 0, 하나라도 실패하면 1.
@@ -13,6 +14,8 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from qa.claims_audit import audit_files
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -119,6 +122,21 @@ def run_standalone_checks(root: Path | None = None) -> list[StandaloneCheck]:
         absent = [m for m in markers if m not in text]
         add(f"honesty_markers:{rel}", not absent,
             f"absent={absent}" if absent else f"markers={markers}")
+
+    claims = audit_files(root)
+    claims_violations = claims["violations"]
+    claims_missing = claims["missing"]
+    if not claims_violations and not claims_missing:
+        add("claims_audit_clean", True, f"{claims['checked_files']} files clean")
+    else:
+        parts: list[str] = []
+        if claims_missing:
+            parts.append(f"missing={claims_missing}")
+        parts.extend(
+            f"{violation['file']}:{violation['line']}: {violation['text']}"
+            for violation in claims_violations
+        )
+        add("claims_audit_clean", False, "; ".join(parts))
 
     return checks
 

@@ -29,7 +29,7 @@ description: "Argus(창고 재고실사 코파일럿)의 웹 콘솔과 단말 CL
 - 콘솔 라우트(전부 GET): `/` 홈 화면, `/api/report` JSON 리포트, `/sessions` 세션 목록 화면, `/api/sessions` 세션 목록 JSON(세션 3개), `/sessions/<id>` 세션 상세, `/api/sessions/<id>` 세션 상세 JSON. 없는 세션 id는 두 경로 모두 404가 정답이다. 세션 id는 `DEMO-20261027-A`, `DEMO-20261027-B`(전부 일치, 일치율 100.0%), `DEMO-20261026-A`다.
 - 로컬 서버를 HTTP로 읽을 때는 환경 프록시를 우회해야 한다. urllib에 `ProxyHandler({})`를 명시한 전용 오프너를 쓴다. 전역 urlopen은 프록시 캐시 때문에 로컬 응답을 놓치거나 이후 테스트를 오염시킨다(`demo/capture.py`가 이미 겪은 결함이다).
 - 단말 CLI 구동: `python3 -m terminal.simulator`는 촬영→계수→대조 흐름의 JSON을 stdout으로 내고 종료코드 0이다. `python3 -m terminal.report`는 텍스트 리포트를 내며 말미에 `데모 기준` 영향 한 줄이 있고, `--json`이면 조치 우선순위 payload를 낸다.
-- 회귀 확인: `python3 -m unittest discover -s tests`, `python3 -m qa`(체크 17개), `python3 -m qa.standalone`(체크 5개). 셋 다 종료코드 0이어야 한다.
+- 회귀 확인: `python3 -m unittest discover -s tests`, `python3 -m qa`(체크 17개), `python3 -m qa.standalone`(체크 6개, 현재형 주장 감사 통합). 셋 다 종료코드 0이어야 한다.
 - 기능별 상세 절차는 `features/` 아래 파일이 정본이다. 검증 전에 색인 `features/README.md`를 읽고 해당 기능 파일을 따른다.
 
 ## Evidence
