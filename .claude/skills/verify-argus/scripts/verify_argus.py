@@ -529,7 +529,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 6/6 mechanical passed", "BLOCKERS: 2",
+    for needle in ("PRE_SUBMISSION: 8/8 mechanical passed", "BLOCKERS: 2",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -544,10 +544,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 6:
-            problems.append(f"passed 기대 6, 실제 {report.get('passed')}")
-        if report.get("total") != 6:
-            problems.append(f"total 기대 6, 실제 {report.get('total')}")
+        if report.get("passed") != 8:
+            problems.append(f"passed 기대 8, 실제 {report.get('passed')}")
+        if report.get("total") != 8:
+            problems.append(f"total 기대 8, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -560,8 +560,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 6:
-            problems.append(f"checks 기대 6, 실제 {len(checks)}")
+        if len(checks) != 8:
+            problems.append(f"checks 기대 8, 실제 {len(checks)}")
         if not all(c.get("passed") is True for c in checks):
             problems.append("checks 중 passed가 True가 아닌 항목이 있다")
         honesty = report.get("honesty", [])
@@ -569,10 +569,31 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("honesty에 '모의'를 포함한 줄 없음")
         if not any("데모 기준" in line for line in honesty):
             problems.append("honesty에 '데모 기준'을 포함한 줄 없음")
+        readiness = report.get("readiness", {}) or {}
+        sam_r = readiness.get("sam") or {}
+        pi_r = readiness.get("pi") or {}
+        sam_rb = [b["id"] for b in sam_r.get("blockers", [])]
+        pi_rb = [b["id"] for b in pi_r.get("blockers", [])]
+        if sam_rb != ["sam_credit_not_confirmed", "sam_base_url_missing",
+                      "sam_api_key_missing"]:
+            problems.append(f"readiness sam blockers 기대 3종, 실제 {sam_rb}")
+        if pi_rb != ["pi_device_arrival_not_confirmed",
+                     "pi_camera_command_missing"]:
+            problems.append(f"readiness pi blockers 기대 2종, 실제 {pi_rb}")
+        if sam_r.get("ready_for_live_call") is not False:
+            problems.append(
+                f"readiness sam ready 기대 False, 실제 {sam_r.get('ready_for_live_call')}")
+        if pi_r.get("ready_for_real_capture") is not False:
+            problems.append(
+                f"readiness pi ready 기대 False, 실제 {pi_r.get('ready_for_real_capture')}")
+    else:
+        sam_rb, pi_rb = [], []
     summary = {"feature": "pre-submission",
                "mechanical_pass": report.get("mechanical_pass"),
                "passed": report.get("passed"), "total": report.get("total"),
                "blockers": blocker_ids,
+               "readiness_sam_blockers": sam_rb,
+               "readiness_pi_blockers": pi_rb,
                "submission_ready": report.get("submission_ready"),
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,

@@ -268,10 +268,15 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 6)
-            self.assertEqual(summary["total"], 6)
+            self.assertEqual(summary["passed"], 8)
+            self.assertEqual(summary["total"], 8)
             self.assertEqual(summary["blockers"], [
                 "pi_real_capture_pending", "sam_real_call_pending"])
+            self.assertEqual(summary["readiness_sam_blockers"], [
+                "sam_credit_not_confirmed", "sam_base_url_missing",
+                "sam_api_key_missing"])
+            self.assertEqual(summary["readiness_pi_blockers"], [
+                "pi_device_arrival_not_confirmed", "pi_camera_command_missing"])
             self.assertFalse(summary["submission_ready"])
             self.assertTrue((evidence / "pre-submission.json").is_file())
             self.assertTrue((evidence / "transcript.txt").is_file())

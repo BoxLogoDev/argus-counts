@@ -13,7 +13,21 @@ from qa.pre_submission import (
     format_text_report,
     run_pre_submission_checks,
     validate_data_panel,
+    validate_pi_readiness,
+    validate_sam_readiness,
 )
+
+MISSING_PI_PROBE = {
+    "available": False,
+    "command": None,
+    "candidates_checked": ["libcamera-still", "raspistill"],
+}
+
+READY_PI_PROBE = {
+    "available": True,
+    "command": "libcamera-still",
+    "candidates_checked": ["libcamera-still", "raspistill"],
+}
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -187,6 +201,123 @@ class DataPanelTests(unittest.TestCase):
         video = by_name["video_draft_present"]
         self.assertTrue(video.passed, video.detail)
         self.assertIn("data_panel_cuts=9", video.detail)
+
+
+class ReadinessIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_readiness_checks_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
+        )
+        names = [c.name for c in result["checks"]]
+        self.assertEqual(result["total"], 8)
+        self.assertIn("sam_readiness_consistent", names)
+        self.assertIn("pi_readiness_consistent", names)
+        self.assertTrue(result["mechanical_pass"], result["checks"])
+        sam_ids = [b["id"] for b in result["readiness"]["sam"]["blockers"]]
+        self.assertEqual(
+            sam_ids,
+            ["sam_credit_not_confirmed", "sam_base_url_missing", "sam_api_key_missing"],
+        )
+        pi_ids = [b["id"] for b in result["readiness"]["pi"]["blockers"]]
+        self.assertEqual(
+            pi_ids, ["pi_device_arrival_not_confirmed", "pi_camera_command_missing"]
+        )
+        self.assertFalse(result["readiness"]["sam"]["ready_for_live_call"])
+        self.assertFalse(result["readiness"]["pi"]["ready_for_real_capture"])
+
+    def test_sam_ready_fake_env_passes_but_still_not_submission_ready(self):
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        result = run_pre_submission_checks(
+            ROOT, sam_env=env, sam_credit_confirmed=True, pi_probe=MISSING_PI_PROBE
+        )
+        by_name = {c.name: c.passed for c in result["checks"]}
+        self.assertTrue(by_name["sam_readiness_consistent"])
+        self.assertTrue(result["readiness"]["sam"]["ready_for_live_call"])
+        self.assertEqual(result["readiness"]["sam"]["blockers"], [])
+        self.assertFalse(result["submission_ready"])
+
+    def test_sam_sentinel_values_do_not_leak_into_report(self):
+        sentinel = "sentinel-value-must-not-appear"
+        env = {"SAM_API_BASE_URL": sentinel, "SAM_API_KEY": sentinel}
+        report = build_report(ROOT, sam_env=env, pi_probe=MISSING_PI_PROBE)
+        encoded = json.dumps(report, ensure_ascii=False)
+        self.assertNotIn(sentinel, encoded)
+
+    def test_pi_ready_fake_probe_passes(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=READY_PI_PROBE, pi_device_confirmed=True
+        )
+        by_name = {c.name: c.passed for c in result["checks"]}
+        self.assertTrue(by_name["pi_readiness_consistent"])
+        self.assertTrue(result["readiness"]["pi"]["ready_for_real_capture"])
+        self.assertEqual(result["readiness"]["pi"]["blockers"], [])
+
+    def test_validate_sam_detects_ready_contradiction(self):
+        report = {
+            "base_url_present": True,
+            "api_key_present": True,
+            "credit_confirmed": False,
+            "ready_for_live_call": True,
+            "would_select_live": True,
+            "blockers": [{"id": "sam_credit_not_confirmed"}],
+            "honesty": ["준비 완료는 실호출 성공을 뜻하지 않는다"],
+        }
+        problems = validate_sam_readiness(report)
+        self.assertTrue(problems)
+
+    def test_validate_sam_detects_blocker_order(self):
+        report = {
+            "base_url_present": False,
+            "api_key_present": False,
+            "credit_confirmed": True,
+            "ready_for_live_call": False,
+            "would_select_live": False,
+            "blockers": [
+                {"id": "sam_api_key_missing"},
+                {"id": "sam_base_url_missing"},
+            ],
+            "honesty": ["준비 완료는 실호출 성공을 뜻하지 않는다"],
+        }
+        problems = validate_sam_readiness(report)
+        self.assertTrue(any("subsequence" in p for p in problems), problems)
+
+    def test_validate_pi_detects_missing_submission_blocker_link(self):
+        report = {
+            "device_confirmed": False,
+            "camera_available": False,
+            "ready_for_real_capture": False,
+            "blockers": [
+                {"id": "pi_device_arrival_not_confirmed"},
+                {"id": "pi_camera_command_missing"},
+            ],
+            "honesty": ["준비 완료는 Pi 실촬영 성공을 뜻하지 않는다"],
+        }
+        problems = validate_pi_readiness(report, blockers=[])
+        self.assertTrue(
+            any("pi_real_capture_pending" in p for p in problems), problems
+        )
+
+    def test_validate_pi_detects_ready_mismatch(self):
+        report = {
+            "device_confirmed": True,
+            "camera_available": False,
+            "ready_for_real_capture": True,
+            "blockers": [],
+            "honesty": ["준비 완료는 Pi 실촬영 성공을 뜻하지 않는다"],
+        }
+        problems = validate_pi_readiness(report)
+        self.assertTrue(problems)
+
+    def test_minimal_root_with_blocked_readiness_still_mechanical_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            result = run_pre_submission_checks(
+                root, sam_env={}, pi_probe=MISSING_PI_PROBE
+            )
+            self.assertEqual(result["total"], 8)
+            self.assertTrue(result["mechanical_pass"], result["checks"])
+            self.assertFalse(result["submission_ready"])
 
 
 if __name__ == "__main__":

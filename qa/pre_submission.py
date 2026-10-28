@@ -1,14 +1,20 @@
 """제출 전 전수 점검 하네스.
 
 기존 점검들(QA 기준값 대조, standalone 점검, 현재형 주장 감사)과
+SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 데모 자산의 존재·정합을 한 번에 묶어 기계적으로 확인한다.
+기계 점검은 총 8종이다.
+준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
+상태(블로커 존재)는 기계 점검 실패가 아니다. 실패는 준비
+점검 보고가 내부적으로 모순되거나 전수 점검 블로커와
+어긋나는 경우뿐이다.
 video 체크는 MP4 크기와 함께 컷 1~9 데이터 패널 정합도 확인한다.
 기계적 체크가 전부 통과해도 제출 블로커가 남아 있으면 제출 가능
 상태가 아니다. 블로커는 종료코드가 아니라 별도 목록으로 보고한다:
 Pi 실촬영 검증과 SAM 3.1 실호출은 아직 하지 않은 일이다.
 
 실행: 프로젝트 루트에서 `python3 -m qa.pre_submission`
-`--json`을 주면 같은 내용을 JSON으로 출력한다.
+`--json`을 주면 같은 내용을 JSON으로 출력하며 readiness 섹션을 포함한다.
 기계적 체크가 전부 통과하면 종료코드 0, 하나라도 실패하면 1.
 """
 from __future__ import annotations
@@ -20,6 +26,8 @@ from pathlib import Path
 
 from qa.claims_audit import audit_files
 from qa.harness import run_checks as run_qa_checks
+from qa.pi_readiness import check_readiness as check_pi_readiness
+from qa.sam_readiness import check_readiness as check_sam_readiness
 from qa.standalone import run_standalone_checks
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +63,10 @@ HONESTY = [
     "모의 어댑터 동작 중",
     "수치는 데모 기준",
 ]
+
+SAM_READINESS_BLOCKER_ORDER = ("sam_credit_not_confirmed", "sam_base_url_missing", "sam_api_key_missing")
+
+PI_READINESS_BLOCKER_ORDER = ("pi_device_arrival_not_confirmed", "pi_camera_command_missing")
 
 
 @dataclass(frozen=True)
@@ -210,7 +222,196 @@ def _check_video_draft(root: Path) -> PreSubmissionCheck:
     return PreSubmissionCheck(name, True, f"bytes={size}, data_panel_cuts=9")
 
 
-def run_pre_submission_checks(root: Path | None = None) -> dict:
+def _pre_submission_blocker_ids(blockers) -> set:
+    ids = set()
+    if isinstance(blockers, (list, tuple)):
+        for blocker in blockers:
+            if isinstance(blocker, dict):
+                ids.add(blocker.get("id"))
+            else:
+                ids.add(blocker)
+    return ids
+
+
+def _readiness_blocker_ids(report_blockers, problems: list[str], label: str) -> list:
+    if not isinstance(report_blockers, (list, tuple)):
+        problems.append(f"{label}: blockers is not a list: {report_blockers!r}")
+        return []
+    ids: list = []
+    for blocker in report_blockers:
+        if isinstance(blocker, dict) and "id" in blocker:
+            ids.append(blocker["id"])
+        else:
+            problems.append(f"{label}: blocker entry missing 'id': {blocker!r}")
+            ids.append(None)
+    return ids
+
+
+def _check_honesty(report: dict, problems: list[str], label: str, phrase: str) -> None:
+    if "honesty" not in report:
+        return
+    honesty = report["honesty"]
+    if isinstance(honesty, str):
+        lines = [honesty]
+    elif isinstance(honesty, (list, tuple)):
+        lines = [line if isinstance(line, str) else str(line) for line in honesty]
+    else:
+        problems.append(f"{label}: honesty is not a list: {honesty!r}")
+        return
+    if not any(phrase in line for line in lines):
+        problems.append(f"{label}: honesty missing line containing {phrase!r}")
+
+
+def validate_sam_readiness(report, blockers=None) -> list[str]:
+    """SAM 준비 점검 보고가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "base_url_present",
+        "api_key_present",
+        "credit_confirmed",
+        "ready_for_live_call",
+        "blockers",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    ids = _readiness_blocker_ids(report["blockers"], problems, "sam readiness")
+    if isinstance(report["blockers"], (list, tuple)):
+        expected_subsequence = [b for b in SAM_READINESS_BLOCKER_ORDER if b in ids]
+        if ids != expected_subsequence:
+            problems.append(
+                f"sam readiness: blocker ids {ids} are not a subsequence of "
+                f"{list(SAM_READINESS_BLOCKER_ORDER)}"
+            )
+    base_url_present = bool(report["base_url_present"])
+    api_key_present = bool(report["api_key_present"])
+    credit_confirmed = bool(report["credit_confirmed"])
+    ready = bool(report["ready_for_live_call"])
+    if ready != (credit_confirmed and base_url_present and api_key_present):
+        problems.append(
+            f"sam readiness: ready_for_live_call={report['ready_for_live_call']!r} "
+            f"!= (credit_confirmed={report['credit_confirmed']!r} and "
+            f"base_url_present={report['base_url_present']!r} and "
+            f"api_key_present={report['api_key_present']!r})"
+        )
+    if isinstance(report["blockers"], (list, tuple)):
+        if ready != (len(report["blockers"]) == 0):
+            problems.append(
+                f"sam readiness: ready_for_live_call={report['ready_for_live_call']!r} "
+                f"!= (blockers empty: {len(report['blockers']) == 0})"
+            )
+    if "would_select_live" in report:
+        if bool(report["would_select_live"]) != (base_url_present and api_key_present):
+            problems.append(
+                f"sam readiness: would_select_live={report['would_select_live']!r} "
+                f"!= (base_url_present={report['base_url_present']!r} and "
+                f"api_key_present={report['api_key_present']!r})"
+            )
+    if not ready and "sam_real_call_pending" not in _pre_submission_blocker_ids(blockers):
+        problems.append(
+            "sam readiness: ready_for_live_call is False but pre-submission "
+            "blockers missing 'sam_real_call_pending'"
+        )
+    _check_honesty(report, problems, "sam readiness", "실호출 성공")
+    return problems
+
+
+def validate_pi_readiness(report, blockers=None) -> list[str]:
+    """Pi 준비 점검 보고가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "device_confirmed",
+        "camera_available",
+        "ready_for_real_capture",
+        "blockers",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    ids = _readiness_blocker_ids(report["blockers"], problems, "pi readiness")
+    if isinstance(report["blockers"], (list, tuple)):
+        expected_subsequence = [b for b in PI_READINESS_BLOCKER_ORDER if b in ids]
+        if ids != expected_subsequence:
+            problems.append(
+                f"pi readiness: blocker ids {ids} are not a subsequence of "
+                f"{list(PI_READINESS_BLOCKER_ORDER)}"
+            )
+    device_confirmed = bool(report["device_confirmed"])
+    camera_available = bool(report["camera_available"])
+    ready = bool(report["ready_for_real_capture"])
+    if ready != (device_confirmed and camera_available):
+        problems.append(
+            f"pi readiness: ready_for_real_capture={report['ready_for_real_capture']!r} "
+            f"!= (device_confirmed={report['device_confirmed']!r} and "
+            f"camera_available={report['camera_available']!r})"
+        )
+    if isinstance(report["blockers"], (list, tuple)):
+        if ready != (len(report["blockers"]) == 0):
+            problems.append(
+                f"pi readiness: ready_for_real_capture={report['ready_for_real_capture']!r} "
+                f"!= (blockers empty: {len(report['blockers']) == 0})"
+            )
+    if not ready and "pi_real_capture_pending" not in _pre_submission_blocker_ids(blockers):
+        problems.append(
+            "pi readiness: ready_for_real_capture is False but pre-submission "
+            "blockers missing 'pi_real_capture_pending'"
+        )
+    _check_honesty(report, problems, "pi readiness", "실촬영 성공")
+    return problems
+
+
+def _check_sam_readiness(sam_env=None, sam_credit_confirmed=False):
+    name = "sam_readiness_consistent"
+    try:
+        report = check_sam_readiness(env=sam_env, credit_confirmed=sam_credit_confirmed)
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_sam_readiness(report)
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"ready_for_live_call={report['ready_for_live_call']} "
+        f"blockers={[b['id'] for b in report['blockers']]}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
+def _check_pi_readiness(pi_probe=None, pi_device_confirmed=False, pi_which=None):
+    name = "pi_readiness_consistent"
+    try:
+        report = check_pi_readiness(
+            probe=pi_probe, device_confirmed=pi_device_confirmed, which=pi_which
+        )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_pi_readiness(report)
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"ready_for_real_capture={report['ready_for_real_capture']} "
+        f"blockers={[b['id'] for b in report['blockers']]}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
+def run_pre_submission_checks(
+    root: Path | None = None,
+    sam_env=None,
+    sam_credit_confirmed: bool = False,
+    pi_probe=None,
+    pi_device_confirmed: bool = False,
+    pi_which=None,
+) -> dict:
     """전수 점검을 실행한다. 개별 예외는 그 체크만 실패로 기록한다."""
     root = Path(root) if root is not None else ROOT
     checks: list[PreSubmissionCheck] = []
@@ -240,6 +441,16 @@ def run_pre_submission_checks(root: Path | None = None) -> dict:
     except Exception as exc:
         checks.append(PreSubmissionCheck("claims_audit", False, f"raised: {exc!r}"))
 
+    sam_check, sam_report = _check_sam_readiness(
+        sam_env=sam_env, sam_credit_confirmed=sam_credit_confirmed
+    )
+    checks.append(sam_check)
+
+    pi_check, pi_report = _check_pi_readiness(
+        pi_probe=pi_probe, pi_device_confirmed=pi_device_confirmed, pi_which=pi_which
+    )
+    checks.append(pi_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -260,14 +471,29 @@ def run_pre_submission_checks(root: Path | None = None) -> dict:
         "total": len(checks),
         "mechanical_pass": passed == len(checks),
         "blockers": [dict(b) for b in BLOCKERS],
+        "readiness": {"sam": sam_report, "pi": pi_report},
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
     }
 
 
-def build_report(root: Path | None = None) -> dict:
+def build_report(
+    root: Path | None = None,
+    sam_env=None,
+    sam_credit_confirmed: bool = False,
+    pi_probe=None,
+    pi_device_confirmed: bool = False,
+    pi_which=None,
+) -> dict:
     """run_pre_submission_checks 결과를 JSON 직렬화 가능한 dict로 바꾼다."""
-    result = run_pre_submission_checks(root)
+    result = run_pre_submission_checks(
+        root,
+        sam_env=sam_env,
+        sam_credit_confirmed=sam_credit_confirmed,
+        pi_probe=pi_probe,
+        pi_device_confirmed=pi_device_confirmed,
+        pi_which=pi_which,
+    )
     return {
         "checks": [
             {"name": c.name, "passed": c.passed, "detail": c.detail} for c in result["checks"]
@@ -276,6 +502,7 @@ def build_report(root: Path | None = None) -> dict:
         "total": result["total"],
         "mechanical_pass": result["mechanical_pass"],
         "blockers": result["blockers"],
+        "readiness": result["readiness"],
         "submission_ready": result["submission_ready"],
         "honesty": list(HONESTY),
     }
