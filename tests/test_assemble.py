@@ -83,6 +83,55 @@ class TestValidateDetects(unittest.TestCase):
         self.assertTrue(any("placeholder" in p for p in problems))
 
 
+class TestFallbackRef(unittest.TestCase):
+    def test_cut3_has_fallback_ref(self):
+        assembly = build_assembly()
+        seg3 = assembly["segments"][2]
+        self.assertEqual(seg3["index"], 3)
+        self.assertTrue(seg3["placeholder"])
+        self.assertEqual(seg3["source_kind"], "pi-placeholder")
+        fallback = seg3["fallback"]
+        self.assertEqual(fallback["asset"], "demo/assets/fallback.json")
+        self.assertEqual(fallback["cut_index"], 3)
+        self.assertEqual(fallback["decision_date"], "2026-11-02")
+        self.assertIs(fallback["is_pi_real_capture"], False)
+        self.assertEqual(fallback["capture_source"], "file")
+        self.assertEqual(fallback["replaces"], "pi-placeholder")
+        joined = " ".join(HONESTY)
+        self.assertIn("Pi 실촬영이 아닙니다", joined)
+
+    def test_other_cuts_have_no_fallback(self):
+        assembly = build_assembly()
+        for seg in assembly["segments"]:
+            if seg["index"] == 3:
+                continue
+            self.assertNotIn("fallback", seg)
+
+    def test_validate_detects_missing_fallback(self):
+        assembly = copy.deepcopy(build_assembly())
+        del assembly["segments"][2]["fallback"]
+        problems = validate_assembly(assembly)
+        self.assertTrue(any("fallback" in p for p in problems))
+
+    def test_validate_detects_fallback_tamper(self):
+        assembly = copy.deepcopy(build_assembly())
+        assembly["segments"][2]["fallback"]["is_pi_real_capture"] = True
+        assembly["segments"][2]["fallback"]["decision_date"] = "2026-11-03"
+        problems = validate_assembly(assembly)
+        self.assertTrue(any("fallback" in p for p in problems))
+        self.assertTrue(any("is_pi_real_capture" in p for p in problems))
+
+    def test_validate_detects_fallback_on_other_cut_and_text(self):
+        assembly = copy.deepcopy(build_assembly())
+        assembly["segments"][0]["fallback"] = dict(assembly["segments"][2]["fallback"])
+        problems = validate_assembly(assembly)
+        self.assertTrue(any("fallback" in p for p in problems))
+        text = build_assembly_text(build_assembly())
+        self.assertIn("fallback: demo/assets/fallback.json", text)
+        self.assertIn("결정일 2026-11-02", text)
+        self.assertIn("Pi 실촬영 아님", text)
+
+
 class TestWriteAssembly(unittest.TestCase):
     def test_write_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:

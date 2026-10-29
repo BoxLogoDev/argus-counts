@@ -3,6 +3,9 @@
 자막 자산(demo.captions의 CUTS)과 캡처 자산(demo.capture의 CAPTURE_SPECS)을
 컷별로 묶은 편집 결정 목록을 만든다. 실제 영상 파일이 아니라 조립
 매니페스트이며, 그 사실을 HONESTY 목록에 명시한다.
+컷 3 세그먼트에는 파일 입력 폴백 자산(demo/assets/fallback.json)을
+2026-11-02 결정용 후보로 참조하되, 컷 3은 여전히 Pi 플레이스홀더이며
+폴백을 Pi 실촬영으로 주장하지 않는다.
 
 실행: 프로젝트 루트에서 `python3 -m demo.assemble` (기본 출력 demo/assets/)
 표준 라이브러리만 사용한다.
@@ -44,10 +47,29 @@ SEGMENTS: tuple[AssemblySegment, ...] = (
     AssemblySegment(9, 170, 180, "capture", "console-home.html", False),
 )
 
+FALLBACK_ASSET = "demo/assets/fallback.json"
+FALLBACK_CUT_INDEX = 3
+FALLBACK_DECISION_DATE = "2026-11-02"
+FALLBACK_CAPTURE_SOURCE = "file"
+
+
+def build_fallback_ref() -> dict:
+    """컷 3의 파일 입력 폴백 후보 참조. Pi 실촬영이 아니다."""
+    return {
+        "asset": FALLBACK_ASSET,
+        "cut_index": FALLBACK_CUT_INDEX,
+        "decision_date": FALLBACK_DECISION_DATE,
+        "is_pi_real_capture": False,
+        "capture_source": FALLBACK_CAPTURE_SOURCE,
+        "replaces": "pi-placeholder",
+    }
+
+
 HONESTY = [
     "조립 매니페스트 (영상 파일 아님)",
     "모의 어댑터 동작 중",
     "Pi 실촬영 컷은 도착 후 교체",
+    "컷 3 폴백은 파일 입력이며 Pi 실촬영이 아닙니다",
     "수치는 데모 기준",
 ]
 
@@ -57,19 +79,20 @@ def build_assembly() -> dict:
     segments = []
     for seg in SEGMENTS:
         cut = cut_by_index[seg.cut_index]
-        segments.append(
-            {
-                "index": seg.cut_index,
-                "start": seg.start,
-                "end": seg.end,
-                "duration": seg.duration,
-                "caption": cut.caption,
-                "narration": cut.narration,
-                "source_kind": seg.source_kind,
-                "source_ref": seg.source_ref,
-                "placeholder": seg.placeholder,
-            }
-        )
+        segment = {
+            "index": seg.cut_index,
+            "start": seg.start,
+            "end": seg.end,
+            "duration": seg.duration,
+            "caption": cut.caption,
+            "narration": cut.narration,
+            "source_kind": seg.source_kind,
+            "source_ref": seg.source_ref,
+            "placeholder": seg.placeholder,
+        }
+        if seg.cut_index == FALLBACK_CUT_INDEX:
+            segment["fallback"] = build_fallback_ref()
+        segments.append(segment)
     return {
         "title": "Argus 데모 영상 조립 매니페스트",
         "total_seconds": SEGMENTS[-1].end if SEGMENTS else 0,
@@ -122,6 +145,24 @@ def validate_assembly(assembly: dict) -> list[str]:
             problems.append(
                 f"컷 {index}: capture source_ref가 CAPTURE_SPECS에 없다: {source_ref}"
             )
+        fallback = seg.get("fallback")
+        if index == FALLBACK_CUT_INDEX:
+            if not isinstance(fallback, dict):
+                problems.append(f"컷 {index}: fallback 참조가 없다")
+            else:
+                expected = build_fallback_ref()
+                for key, value in expected.items():
+                    if fallback.get(key) != value:
+                        problems.append(
+                            f"컷 {index}: fallback {key} 불일치 "
+                            f"{fallback.get(key)!r} != {value!r}"
+                        )
+                if fallback.get("is_pi_real_capture") is not False:
+                    problems.append(
+                        f"컷 {index}: fallback is_pi_real_capture는 False여야 한다"
+                    )
+        elif fallback is not None:
+            problems.append(f"컷 {index}: fallback 참조는 컷 3에만 있어야 한다")
     if segments and prev_end != 180:
         problems.append(f"마지막 구간 종료 불일치: {prev_end} != 180")
     return problems
@@ -141,6 +182,12 @@ def build_assembly_text(assembly: dict) -> str:
             f"{seg.get('source_kind')}:{seg.get('source_ref')}"
         )
         lines.append(f"  {seg.get('caption', '')}")
+        fallback = seg.get("fallback")
+        if isinstance(fallback, dict):
+            lines.append(
+                f"  fallback: {fallback.get('asset')} "
+                f"(결정일 {fallback.get('decision_date')}, Pi 실촬영 아님)"
+            )
     return "\n".join(lines) + "\n"
 
 

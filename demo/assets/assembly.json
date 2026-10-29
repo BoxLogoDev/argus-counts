@@ -6,6 +6,7 @@
     "조립 매니페스트 (영상 파일 아님)",
     "모의 어댑터 동작 중",
     "Pi 실촬영 컷은 도착 후 교체",
+    "컷 3 폴백은 파일 입력이며 Pi 실촬영이 아닙니다",
     "수치는 데모 기준"
   ],
   "segments": [
@@ -40,7 +41,15 @@
       "narration": "첫 단계는 촬영입니다. 이 컷은 Pi 도착 후 실촬영으로 교체합니다. 지금은 시뮬레이터로 흐름을 보여줍니다.",
       "source_kind": "pi-placeholder",
       "source_ref": "pi-capture-pending",
-      "placeholder": true
+      "placeholder": true,
+      "fallback": {
+        "asset": "demo/assets/fallback.json",
+        "cut_index": 3,
+        "decision_date": "2026-11-02",
+        "is_pi_real_capture": false,
+        "capture_source": "file",
+        "replaces": "pi-placeholder"
+      }
     },
     {
       "index": 4,
@@ -91,8 +100,8 @@
       "start": 155,
       "end": 170,
       "duration": 15,
-      "caption": "리포트. QA 17개와 테스트 389개",
-      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 389개로 기준값을 지킵니다.",
+      "caption": "리포트. QA 17개와 테스트 394개",
+      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 394개로 기준값을 지킵니다.",
       "source_kind": "capture",
       "source_ref": "api-report.json",
       "placeholder": false
