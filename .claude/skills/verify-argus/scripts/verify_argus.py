@@ -14,7 +14,10 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 파일 원문을 읽어 절 순서·블로커·최종 점검 명령을 대조하고 변조 탐지를
 확인한다(제출 준비 완료가 아니다). Pi 실촬영 준비 점검(pi-readiness)은
 실제 촬영 없이 CLI 서브프로세스와 프로세스 내 check_readiness로만
-구동한다(준비 완료는 실촬영 성공이 아님). 응답 원문과 종료 판정을
+구동한다(준비 완료는 실촬영 성공이 아님). 콘솔 준비 상태(console-readiness)는
+임시 포트 HTTP GET /api/readiness와 GET / 홈 패널, 프로세스 내
+build_readiness 가짜 준비 완료로 구동한다(실제 API 호출·실제 촬영 없음,
+준비 완료는 실호출·실촬영 성공이 아님). 응답 원문과 종료 판정을
 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -26,7 +29,7 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
-pi-readiness, all(전부, 기능별 하위 디렉터리).
+pi-readiness, console-readiness, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -60,7 +63,8 @@ SESSION_IDS = ("DEMO-20261027-A", "DEMO-20261027-B", "DEMO-20261026-A")
 FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
-            "sam-readiness", "submission-runbook", "pi-readiness")
+            "sam-readiness", "submission-runbook", "pi-readiness",
+            "console-readiness")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -92,6 +96,23 @@ PI_READINESS_MISSING_PROBE = {"available": False, "command": None,
                               "candidates_checked": ["libcamera-still",
                                                      "raspistill"],
                               "honesty": ["Pi 실촬영 검증 전입니다"]}
+EXPECTED_CONSOLE_SAM_BLOCKERS = ("sam_credit_not_confirmed",
+                                 "sam_base_url_missing",
+                                 "sam_api_key_missing")
+EXPECTED_CONSOLE_PI_BLOCKERS = ("pi_device_arrival_not_confirmed",
+                                "pi_camera_command_missing")
+CONSOLE_READINESS_HOME_MARKERS = ("준비 상태", "SAM 실호출 준비: 준비 안 됨",
+                                  "Pi 실촬영 준비: 준비 안 됨",
+                                  "sam_credit_not_confirmed",
+                                  "pi_camera_command_missing",
+                                  "준비 완료는 실호출·실촬영 성공을 뜻하지 않는다")
+CONSOLE_READINESS_FAKE_URL = "https://console-readiness.example.invalid/sam"
+CONSOLE_READINESS_FAKE_KEY_VALUE = "sentinel-console-readiness-key-not-real"
+CONSOLE_READINESS_FAKE_PROBE = {"available": True,
+                                "command": "libcamera-still",
+                                "candidates_checked": ["libcamera-still",
+                                                       "raspistill"],
+                                "honesty": ["Pi 실촬영 검증 전"]}
 RUNBOOK_REL = "docs/submission-runbook.md"
 RUNBOOK_SECTIONS = ("## 0. 현재 상태", "## 1. 크레딧 확인", "## 2. API 키",
                     "## 3. SAM 전환", "## 4. Pi 촬영", "## 5. 최종 점검",
@@ -1404,6 +1425,136 @@ def drive_submission_runbook(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_console_readiness(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from console.readiness import build_readiness
+    from qa.sam_readiness import ENV_BASE_URL, ENV_KEY_VAR
+
+    port = ctx.ensure_server()
+    status, readiness_text = fetch(port, "/api/readiness")
+    ctx.note(f"GET /api/readiness -> {status}")
+    if status != 200:
+        problems.append(f"/api/readiness 상태 {status}")
+    readiness: dict = {}
+    try:
+        readiness = json.loads(readiness_text)
+    except json.JSONDecodeError as e:
+        problems.append(f"/api/readiness JSON 파싱 실패: {e}")
+    sam_blockers = readiness.get("sam_blockers", []) if readiness else []
+    pi_blockers = readiness.get("pi_blockers", []) if readiness else []
+    blocker_count = readiness.get("blocker_count") if readiness else None
+    if readiness:
+        if sam_blockers != list(EXPECTED_CONSOLE_SAM_BLOCKERS):
+            problems.append(
+                f"sam_blockers 기대 {list(EXPECTED_CONSOLE_SAM_BLOCKERS)}, "
+                f"실제 {sam_blockers}")
+        if pi_blockers != list(EXPECTED_CONSOLE_PI_BLOCKERS):
+            problems.append(
+                f"pi_blockers 기대 {list(EXPECTED_CONSOLE_PI_BLOCKERS)}, "
+                f"실제 {pi_blockers}")
+        if blocker_count != 5:
+            problems.append(f"blocker_count 기대 5, 실제 {blocker_count}")
+        if readiness.get("sam_ready") is not False:
+            problems.append(
+                f"sam_ready 기대 False, 실제 {readiness.get('sam_ready')}")
+        if readiness.get("pi_ready") is not False:
+            problems.append(
+                f"pi_ready 기대 False, 실제 {readiness.get('pi_ready')}")
+        if readiness.get("overall_ready") is not False:
+            problems.append(
+                "overall_ready 기대 False, 실제 "
+                f"{readiness.get('overall_ready')}")
+        sam = readiness.get("sam") or {}
+        pi = readiness.get("pi") or {}
+        if sam.get("ready_for_live_call") is not False:
+            problems.append(
+                "sam.ready_for_live_call 기대 False, 실제 "
+                f"{sam.get('ready_for_live_call')}")
+        if pi.get("ready_for_real_capture") is not False:
+            problems.append(
+                "pi.ready_for_real_capture 기대 False, 실제 "
+                f"{pi.get('ready_for_real_capture')}")
+        honesty = readiness.get("honesty", [])
+        for needle in ("준비 완료는 실호출·실촬영 성공을 뜻하지 않는다",
+                       "실제 API를 호출하지 않는다", "실제 촬영을 하지 않는다"):
+            if not any(needle in line for line in honesty):
+                problems.append(f"honesty에 {needle!r} 없음")
+
+    home_status, home_text = fetch(port, "/")
+    ctx.note(f"GET / -> {home_status}")
+    if home_status != 200:
+        problems.append(f"/ 상태 {home_status}")
+    home_markers = {m: (m in home_text) for m in CONSOLE_READINESS_HOME_MARKERS}
+    for marker, found in home_markers.items():
+        ctx.note(f"홈 준비 상태 마커 {marker!r}: {'발견' if found else '없음'}")
+    missing = [m for m, ok in home_markers.items() if not ok]
+    if missing:
+        problems.append(f"홈 준비 상태 마커 누락 {missing}")
+    try:
+        order = [home_text.index("실사 세션 정보"),
+                 home_text.index("준비 상태"), home_text.index("차이 목록")]
+        if order != sorted(order):
+            problems.append(f"홈 준비 상태 섹션 순서 이상: {order}")
+    except ValueError as e:
+        problems.append(f"홈 섹션 순서 확인 실패: {e}")
+
+    fake_env = {ENV_BASE_URL: CONSOLE_READINESS_FAKE_URL,
+                ENV_KEY_VAR: CONSOLE_READINESS_FAKE_KEY_VALUE}
+    fake_ready = build_readiness(
+        env=fake_env, sam_credit_confirmed=True,
+        pi_probe=dict(CONSOLE_READINESS_FAKE_PROBE), pi_device_confirmed=True)
+    ctx.note(
+        f"build_readiness 가짜 준비 완료 -> overall_ready={fake_ready.get('overall_ready')}")
+    if fake_ready.get("overall_ready") is not True:
+        problems.append(
+            f"가짜 준비 완료 overall_ready 기대 True, 실제 {fake_ready.get('overall_ready')}")
+    if fake_ready.get("sam_blockers") != [] or fake_ready.get("pi_blockers") != []:
+        problems.append(
+            f"가짜 준비 완료 블로커 기대 [], 실제 {fake_ready.get('sam_blockers')}/"
+            f"{fake_ready.get('pi_blockers')}")
+    if fake_ready.get("blocker_count") != 0:
+        problems.append(
+            f"가짜 준비 완료 blocker_count 기대 0, 실제 {fake_ready.get('blocker_count')}")
+
+    sam_only = build_readiness(env=fake_env, sam_credit_confirmed=True)
+    if sam_only.get("sam_ready") is not True or sam_only.get("pi_ready") is not False \
+            or sam_only.get("overall_ready") is not False:
+        problems.append(f"SAM만 준비 완료 분리 이상: {sam_only}")
+    pi_only = build_readiness(
+        env={}, pi_probe=dict(CONSOLE_READINESS_FAKE_PROBE),
+        pi_device_confirmed=True)
+    if pi_only.get("pi_ready") is not True or pi_only.get("sam_ready") is not False \
+            or pi_only.get("overall_ready") is not False:
+        problems.append(f"Pi만 준비 완료 분리 이상: {pi_only}")
+
+    dumped = json.dumps(fake_ready, ensure_ascii=False)
+    sentinel_leaked = (CONSOLE_READINESS_FAKE_KEY_VALUE in dumped
+                       or CONSOLE_READINESS_FAKE_URL in dumped)
+    ctx.note(f"가짜 준비 완료 증거 값 누출 -> {sentinel_leaked}")
+    if sentinel_leaked:
+        problems.append("가짜 환경변수 값이 build_readiness 결과에 새어 나왔다")
+
+    summary = {"feature": "console-readiness",
+               "readiness_status": status, "home_status": home_status,
+               "sam_blockers": sam_blockers, "pi_blockers": pi_blockers,
+               "blocker_count": blocker_count,
+               "sam_ready": readiness.get("sam_ready") if readiness else None,
+               "pi_ready": readiness.get("pi_ready") if readiness else None,
+               "overall_ready": readiness.get("overall_ready") if readiness else None,
+               "home_markers": home_markers,
+               "fake_overall_ready": fake_ready.get("overall_ready") is True,
+               "fake_sam_only_overall": sam_only.get("overall_ready") is True,
+               "fake_pi_only_overall": pi_only.get("overall_ready") is True,
+               "sentinel_leaked": sentinel_leaked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"console-readiness.json": readiness_text,
+                    "console-readiness-ready.json": json.dumps(
+                        fake_ready, ensure_ascii=False, indent=2) + "\n",
+                    "console-readiness-home.html": home_text})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -1416,7 +1567,8 @@ DRIVERS = {"console-home": drive_console_home,
            "sam-live": drive_sam_live,
            "sam-readiness": drive_sam_readiness,
            "submission-runbook": drive_submission_runbook,
-           "pi-readiness": drive_pi_readiness}
+           "pi-readiness": drive_pi_readiness,
+           "console-readiness": drive_console_readiness}
 
 
 def main(argv: list[str] | None = None) -> int:
