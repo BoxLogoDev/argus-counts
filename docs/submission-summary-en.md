@@ -69,7 +69,7 @@ The report module produces a human-readable text report.
 The same module produces a structured payload.
 Argus uses the Python standard library only.
 The QA harness runs 17 baseline checks with literals fixed in the harness file.
-Unit tests currently number 357.
+Unit tests currently number 362.
 
 ## Demo data
 
@@ -86,3 +86,11 @@ Match rate is 66.7%.
 ## Impact
 
 Demo basis: 2 mismatches out of 6 bins, total absolute delta 6, and a 66.7% match rate are organised in one reconciliation pass, with action priorities attached; action priority sorts mismatches by absolute delta descending, ties by bin_id ascending; short -> re-photograph and check receiving/shipping records; over -> check for misplaced stock and check transfer/return records.
+
+## Current status
+
+Blockers that remain before submission:
+
+- `pi_real_capture_pending` — Pi device camera integration is not yet verified.
+- `sam_real_call_pending` — A live SAM 3.1 call has NOT been made yet.
+- `SUBMISSION_READY: false`

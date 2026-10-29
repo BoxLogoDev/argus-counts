@@ -10,9 +10,10 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스�
 블로커와 어긋나지 않는지의 정합, 제출 런북(docs/submission-runbook.md)
 원문이 전수 점검 블로커와 어긋나지 않는지의 정합, 제출 스토리
 (docs/submission-story.md) 원문이 전수 점검 블로커와 어긋나지
-않는지의 정합, 데모 자산의 존재·정합을 한 번에 묶어 기계적으로
-확인한다. 기계 점검은 총 14종이다.
-문안·런북·스토리 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
+않는지의 정합, 영문 제출 요약(docs/submission-summary-en.md) 원문이
+전수 점검 블로커와 어긋나지 않는지의 정합, 데모 자산의 존재·정합을
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 15종이다.
+문안·런북·스토리·영문 요약 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
 스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
@@ -202,6 +203,40 @@ STORY_HONESTY_MARKERS = (
 STORY_THEME_MARKER = "Build for Your World"
 
 STORY_NEW_WORK_MARKER = "2026-10-27 이후 해커톤 기간에 새로 작성했다"
+
+EN_SUMMARY_REL = "docs/submission-summary-en.md"
+
+EN_SUMMARY_SECTIONS = (
+    "## Problem",
+    "## Workflow",
+    "## What we built vs. what already existed",
+    "## Meta AI tools",
+    "## Technical depth",
+    "## Demo data",
+    "## Impact",
+    "## Current status",
+)
+
+EN_SUMMARY_DEMO_MARKERS = (
+    "There are 6 demo bins.",
+    "4 bins matched.",
+    "2 bins mismatched.",
+    "Total absolute delta is 6.",
+    "Match rate is 66.7%.",
+    "Demo basis:",
+)
+
+EN_SUMMARY_HONESTY_MARKERS = (
+    "tentative",
+    "A live SAM 3.1 call has NOT been made yet.",
+    "Argus is currently running on the mock adapter.",
+    "Mock results are never claimed as live results.",
+    "Pi device camera integration is not yet verified.",
+)
+
+EN_SUMMARY_THEME_MARKER = "Build for Your World"
+
+EN_SUMMARY_NEW_WORK_MARKER = "Newly written during the hackathon period starting 2026-10-27."
 
 EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
@@ -1466,6 +1501,130 @@ def _check_story(root):
     return PreSubmissionCheck(name, True, detail), report
 
 
+def validate_en_summary_text(text, blockers=None) -> list[str]:
+    """영문 제출 요약 원문이 절·블로커·정직성 표기 기준과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(text, str):
+        return [f"en_summary: text is not a string: {text!r}"]
+    positions = [text.find(section) for section in EN_SUMMARY_SECTIONS]
+    missing = [s for s, pos in zip(EN_SUMMARY_SECTIONS, positions) if pos < 0]
+    if missing:
+        problems.append(f"en_summary: missing sections {missing}")
+    elif positions != sorted(positions):
+        problems.append(f"en_summary: section order positions {positions}")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    found_ids = [bid for _, bid in sorted(found)]
+    if found_ids != list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS):
+        problems.append(
+            f"en_summary: blocker ids in text {found_ids} != "
+            f"{list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS)}"
+        )
+    elif expected_ids and found_ids != expected_ids:
+        problems.append(
+            f"en_summary: blocker ids {found_ids} != pre-submission blockers {expected_ids}"
+        )
+    if "SUBMISSION_READY: false" not in text or "SUBMISSION_READY: true" in text:
+        problems.append("en_summary: SUBMISSION_READY must be false and never true")
+    for needle in EN_SUMMARY_DEMO_MARKERS:
+        if needle not in text:
+            problems.append(f"en_summary: missing demo marker {needle!r}")
+    for needle in EN_SUMMARY_HONESTY_MARKERS:
+        if needle not in text:
+            problems.append(f"en_summary: missing honesty marker {needle!r}")
+    for needle in (EN_SUMMARY_THEME_MARKER, EN_SUMMARY_NEW_WORK_MARKER):
+        if needle not in text:
+            problems.append(f"en_summary: missing {needle!r}")
+    violations = audit_text(EN_SUMMARY_REL, text)
+    if violations:
+        problems.append(f"en_summary: claims audit violations {violations}")
+    return problems
+
+
+def validate_en_summary_report(report, blockers=None) -> list[str]:
+    """en_summary 보고 dict가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"en_summary report is not a dict: {report!r}"]
+    required = ("section_count", "blockers", "submission_ready", "claims_audit_clean")
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"en_summary: missing required keys: {missing}")
+        return problems
+    if report["section_count"] != len(EN_SUMMARY_SECTIONS):
+        problems.append(
+            f"en_summary: section_count={report['section_count']!r} != {len(EN_SUMMARY_SECTIONS)}"
+        )
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(
+            f"en_summary: blockers {list(report['blockers'])} != {expected_ids}"
+        )
+    if report["submission_ready"] is not False:
+        problems.append(
+            f"en_summary: submission_ready={report['submission_ready']!r} is not False"
+        )
+    if report["claims_audit_clean"] is not True:
+        problems.append("en_summary: claims_audit_clean is not True")
+    return problems
+
+
+def build_en_summary_report(root, blockers=None) -> dict:
+    """영문 요약 파일에서 section_count·블로커·submission_ready 보고를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    path = Path(root) / EN_SUMMARY_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "section_count": 0,
+            "blockers": [],
+            "submission_ready": False,
+            "claims_audit_clean": False,
+        }
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    return {
+        "section_count": sum(1 for s in EN_SUMMARY_SECTIONS if s in text),
+        "blockers": [bid for _, bid in sorted(found)],
+        "submission_ready": "SUBMISSION_READY: true" in text,
+        "claims_audit_clean": audit_text(EN_SUMMARY_REL, text) == [],
+    }
+
+
+def _check_en_summary(root):
+    name = "en_summary_consistent"
+    path = Path(root) / EN_SUMMARY_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        report = build_en_summary_report(root)
+        return PreSubmissionCheck(name, False, f"read failed: {exc!r}"), report
+    problems = validate_en_summary_text(text)
+    report = build_en_summary_report(root)
+    problems.extend(validate_en_summary_report(report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"section_count={report['section_count']} "
+        f"blockers={report['blockers']} "
+        f"submission_ready={report['submission_ready']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -1548,6 +1707,9 @@ def run_pre_submission_checks(
     story_check, story_report = _check_story(root)
     checks.append(story_check)
 
+    en_check, en_report = _check_en_summary(root)
+    checks.append(en_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -1577,6 +1739,7 @@ def run_pre_submission_checks(
             "devpost": devpost_report,
             "runbook": runbook_report,
             "story": story_report,
+            "en_summary": en_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,

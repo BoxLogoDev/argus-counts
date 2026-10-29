@@ -27,6 +27,9 @@ from qa.pre_submission import (
     validate_story_report,
     validate_story_text,
     build_story_report,
+    validate_en_summary_report,
+    validate_en_summary_text,
+    build_en_summary_report,
 )
 
 MISSING_PI_PROBE = {
@@ -161,6 +164,40 @@ def _valid_story_text() -> str:
     ])
 
 
+def _valid_en_summary_text() -> str:
+    return "\n".join([
+        "# Argus — Warehouse Stock-Count Copilot",
+        "Theme: Build for Your World — tentative, pending final confirmation.",
+        "## Problem",
+        "- Manual bin counting is slow.",
+        "## Workflow",
+        "1. Capture. Photograph a bin with the terminal.",
+        "## What we built vs. what already existed",
+        "- All code and documents in this repository.",
+        "- Newly written during the hackathon period starting 2026-10-27.",
+        "## Meta AI tools",
+        "- A live SAM 3.1 call has NOT been made yet.",
+        "- Argus is currently running on the mock adapter.",
+        "- Mock results are never claimed as live results.",
+        "- Pi device camera integration is not yet verified.",
+        "## Technical depth",
+        "- The reconciliation engine produces per-bin results.",
+        "## Demo data",
+        "- There are 6 demo bins.",
+        "- 4 bins matched.",
+        "- 2 bins mismatched.",
+        "- Total absolute delta is 6.",
+        "- Match rate is 66.7%.",
+        "## Impact",
+        "- Demo basis: 2 mismatches out of 6 bins are organised in one pass.",
+        "## Current status",
+        "- `pi_real_capture_pending` — Pi device camera integration is not yet verified.",
+        "- `sam_real_call_pending` — A live SAM 3.1 call has NOT been made yet.",
+        "- `SUBMISSION_READY: false`",
+        "",
+    ])
+
+
 def _minimal_root(root: Path) -> None:
     for rel in (
         "README.md",
@@ -174,7 +211,7 @@ def _minimal_root(root: Path) -> None:
     ):
         _write(root, rel, "ok\n")
     _write(root, "docs/submission-story.md", _valid_story_text())
-    _write(root, "docs/submission-summary-en.md", "mock adapter, Demo basis: figures, tentative theme\n")
+    _write(root, "docs/submission-summary-en.md", _valid_en_summary_text())
     _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
     _write(root, "docs/submission-runbook.md", _valid_runbook_text())
     _write(root, "docs/devpost-submission.md", _valid_devpost_text())
@@ -327,7 +364,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 14)
+        self.assertEqual(result["total"], 15)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -441,7 +478,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 14)
+            self.assertEqual(result["total"], 15)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -813,6 +850,56 @@ class StoryIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["story_consistent"])
+            self.assertFalse(result["mechanical_pass"])
+
+
+class EnSummaryIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_en_summary_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("en_summary_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["en_summary_consistent"].passed, by_name["en_summary_consistent"].detail)
+        self.assertIn("section_count=8", by_name["en_summary_consistent"].detail)
+        en = result["readiness"]["en_summary"]
+        self.assertEqual(en["section_count"], 8)
+        self.assertEqual(en["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertFalse(en["submission_ready"])
+        self.assertTrue(en["claims_audit_clean"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_en_summary_text_accepts_valid_and_detects_tamper(self):
+        text = _valid_en_summary_text()
+        self.assertEqual(validate_en_summary_text(text), [])
+        tampered = text.replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1)
+        problems = validate_en_summary_text(tampered)
+        self.assertTrue(any("SUBMISSION_READY" in p for p in problems), problems)
+
+    def test_validate_en_summary_text_detects_missing_section(self):
+        text = _valid_en_summary_text().replace("## Current status", "## Status", 1)
+        problems = validate_en_summary_text(text)
+        self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_en_summary_report_detects_contradictions(self):
+        report = build_en_summary_report(ROOT)
+        self.assertEqual(validate_en_summary_report(report), [])
+        report["submission_ready"] = True
+        problems = validate_en_summary_report(report)
+        self.assertTrue(any("submission_ready" in p for p in problems), problems)
+        report2 = build_en_summary_report(ROOT)
+        report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
+        problems2 = validate_en_summary_report(report2)
+        self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_minimal_root_tampered_en_summary_fails_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "docs/submission-summary-en.md",
+                   _valid_en_summary_text().replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["en_summary_consistent"])
             self.assertFalse(result["mechanical_pass"])
 
 
