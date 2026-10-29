@@ -8,6 +8,7 @@ Captions(CUTS)와 조립 매니페스트(SEGMENTS)를 이용해 컷별 슬라이
 - 현재 동작은 모의 어댑터 기준이다(SAM 실호출 아님).
 - Pi 실촬영 컷(컷 3)은 도착 후 실촬영으로 교체할 플레이스홀더다.
 - 화면에 등장하는 수치는 전부 데모 기준이다.
+- 폴백 렌더 변형(--fallback)은 컷 3을 파일 입력 폴백 데이터로 보여 주는 별도 파일이며, Pi 실촬영이 아니다. 기본 렌더는 무변경이다.
 - 슬라이드 하단 데이터 패널은 terminal.simulator.run_simulation()이 만든 실제 리포트에서 가져오며 하드코딩 수치가 아니다. 단 그 리포트 자체는 모의 어댑터 기준이고 수치는 데모 기준이다.
 """
 
@@ -29,6 +30,7 @@ VIDEO_WIDTH = 1280
 VIDEO_HEIGHT = 720
 FPS = 30
 DEFAULT_OUT = "demo/assets/argus-demo-draft.mp4"
+FALLBACK_OUT = "demo/assets/argus-demo-fallback-draft.mp4"
 
 FONT_CANDIDATES = (
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -97,7 +99,7 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> lis
     return lines
 
 
-def build_data_panel_lines(cut_index, report=None) -> list[str]:
+def build_data_panel_lines(cut_index, report=None, fallback_manifest=None) -> list[str]:
     """컷 번호에 맞는 데이터 패널 줄을 실제 시뮬레이션 리포트에서 만든다.
 
     리포트를 넘기지 않으면 함수 안에서 지연 import로 시뮬레이션을 한 번 돌린다.
@@ -112,8 +114,33 @@ def build_data_panel_lines(cut_index, report=None) -> list[str]:
     verdict_labels = {"match": "일치", "short": "부족", "over": "초과"}
 
     # 플레이스홀더 컷에는 실데이터인 척하는 패널을 붙이지 않는다.
+    # 단, 폴백 매니페스트가 명시적으로 주어진 경우에만 파일 입력 폴백 패널을 붙인다.
     if cut_index == 3:
-        return ["실촬영 데이터 없음 — Pi 도착 후 교체"]
+        if fallback_manifest is None:
+            return ["실촬영 데이터 없음 — Pi 도착 후 교체"]
+        from demo.fallback import validate_fallback
+
+        problems = validate_fallback(fallback_manifest)
+        if problems:
+            raise ValueError("폴백 매니페스트 검증 실패: " + "; ".join(problems))
+        summary = fallback_manifest["summary"]
+        target = next(
+            b for b in fallback_manifest["bins"] if b["bin_id"] == "A-01-02"
+        )
+        sha8 = str(target["photo"]["sha256"])[:8]
+        return [
+            "파일 입력 폴백 — Pi 실촬영 아님 · 결정일 2026-11-02",
+            f"세션 {fallback_manifest['session_id']} · capture_source=file · source=mock",
+            (
+                f"빈 {summary['counted_bins']} · 일치 {summary['matched']} · "
+                f"불일치 {summary['mismatched']} · 절대 차이 {summary['abs_diff_total']} · "
+                f"순차이 {summary['net_diff']:+d}"
+            ),
+            (
+                f"A-01-02 장부 {target['book_qty']} → 실측 {target['counted_qty']} "
+                f"(차이 {target['diff']:+d}) [부족] · 사진 sha256 {sha8}…"
+            ),
+        ]
     if cut_index not in (1, 2, 4, 5, 6, 7, 8, 9):
         return []
 
@@ -167,7 +194,7 @@ def build_data_panel_lines(cut_index, report=None) -> list[str]:
     return []
 
 
-def build_slide(cut, segment, out_path, report=None) -> Path:
+def build_slide(cut, segment, out_path, report=None, fallback_manifest=None) -> Path:
     """컷 1개짜리 1280x720 슬라이드 PNG를 만든다."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +203,12 @@ def build_slide(cut, segment, out_path, report=None) -> Path:
     draw = ImageDraw.Draw(image)
 
     index = _field(cut, "index")
+    if fallback_manifest is not None and index == 3:
+        from demo.fallback import validate_fallback
+
+        problems = validate_fallback(fallback_manifest)
+        if problems:
+            raise ValueError("폴백 매니페스트 검증 실패: " + "; ".join(problems))
     start = _field(cut, "start")
     end = _field(cut, "end")
     caption = _field(cut, "caption", "")
@@ -188,7 +221,12 @@ def build_slide(cut, segment, out_path, report=None) -> Path:
 
     draw.text((60, 44), f"컷 {index} · {start}-{end}초", font=header_font, fill=FG_ACCENT)
     if placeholder:
-        draw.text((60, 88), "Pi 도착 후 실촬영으로 교체", font=header_font, fill=FG_WARN)
+        header_note = (
+            "파일 입력 폴백 — Pi 실촬영 아님"
+            if index == 3 and fallback_manifest is not None
+            else "Pi 도착 후 실촬영으로 교체"
+        )
+        draw.text((60, 88), header_note, font=header_font, fill=FG_WARN)
 
     caption_lines = wrap_text(draw, caption, caption_font, VIDEO_WIDTH - 120)
     y = 190
@@ -201,7 +239,7 @@ def build_slide(cut, segment, out_path, report=None) -> Path:
         draw.text((60, y), line, font=body_font, fill=FG_SUB)
         y += 44
 
-    lines = build_data_panel_lines(_field(cut, "index"), report=report)
+    lines = build_data_panel_lines(_field(cut, "index"), report=report, fallback_manifest=fallback_manifest)
     if lines:
         draw.rectangle([60, PANEL_Y, VIDEO_WIDTH - 60, 650], fill=PANEL_BG)
         panel_font = find_font(24)
@@ -220,7 +258,7 @@ def build_slide(cut, segment, out_path, report=None) -> Path:
     return out_path
 
 
-def build_slides(workdir, report=None) -> list[Path]:
+def build_slides(workdir, report=None, fallback_manifest=None) -> list[Path]:
     """CUTS와 SEGMENTS를 index로 짝지어 슬라이드 9장을 만든다.
 
     리포트를 넘기지 않으면 시뮬레이션을 한 번만 돌려 9장이 같은 리포트를 공유한다.
@@ -237,7 +275,10 @@ def build_slides(workdir, report=None) -> list[Path]:
         index = _field(cut, "index")
         segment = segments_by_index[index]
         slides.append(
-            build_slide(cut, segment, workdir / f"slide-{index:02d}.png", report=report)
+            build_slide(
+                cut, segment, workdir / f"slide-{index:02d}.png",
+                report=report, fallback_manifest=fallback_manifest,
+            )
         )
     return slides
 
@@ -249,7 +290,7 @@ def _run_ffmpeg(args: list[str]) -> None:
         raise RuntimeError(f"ffmpeg 실패 (code={proc.returncode}): {tail}")
 
 
-def render(out_path=DEFAULT_OUT, workdir=None) -> dict:
+def render(out_path=DEFAULT_OUT, workdir=None, fallback=False) -> dict:
     """슬라이드를 컷별 세그먼트로 인코딩하고 concat으로 병합해 MP4를 만든다."""
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg를 찾을 수 없어 영상을 조립할 수 없습니다")
@@ -263,11 +304,27 @@ def render(out_path=DEFAULT_OUT, workdir=None) -> dict:
         from terminal.simulator import run_simulation
 
         report = run_simulation()
-        slides = build_slides(tmp, report=report)
+        fallback_manifest = None
+        fallback_info = None
+        if fallback:
+            from demo.fallback import build_fallback_manifest
+
+            fallback_manifest = build_fallback_manifest()
+            fallback_info = {
+                "cut_index": 3,
+                "capture_source": "file",
+                "source": "mock",
+                "is_pi_real_capture": False,
+                "decision_date": "2026-11-02",
+                "session_id": fallback_manifest["session_id"],
+            }
+        slides = build_slides(tmp, report=report, fallback_manifest=fallback_manifest)
         data_panel_cuts = sorted(
             int(_field(c, "index"))
             for c in CUTS
-            if build_data_panel_lines(_field(c, "index"), report=report)
+            if build_data_panel_lines(
+                _field(c, "index"), report=report, fallback_manifest=fallback_manifest
+            )
         )
         total_seconds = sum(int(_field(c, "end")) - int(_field(c, "start")) for c in CUTS)
         segment_paths: list[Path] = []
@@ -295,6 +352,7 @@ def render(out_path=DEFAULT_OUT, workdir=None) -> dict:
             "segment_count": len(segment_paths),
             "slides": [str(s) for s in slides],
             "data_panel_cuts": data_panel_cuts,
+            "fallback": fallback_info,
             "honesty": list(HONESTY),
         }
         return result
@@ -322,9 +380,17 @@ def probe_duration(path) -> float | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Argus 데모 영상 초안 조립")
-    parser.add_argument("--out", default=DEFAULT_OUT)
+    parser.add_argument("--out", default=None)
+    parser.add_argument("--fallback", action="store_true", help="컷 3을 파일 입력 폴백으로 렌더")
     args = parser.parse_args(argv)
-    result = render(out_path=args.out)
+    out = args.out or (FALLBACK_OUT if args.fallback else DEFAULT_OUT)
+    result = render(out_path=out, fallback=args.fallback)
+    if result.get("fallback"):
+        fb = result["fallback"]
+        print(
+            f"폴백: 컷 {fb['cut_index']} · capture_source={fb['capture_source']} · "
+            f"Pi 실촬영 아님 · 결정일 {fb['decision_date']}"
+        )
     probed = probe_duration(result["out"])
     print(f"출력: {result['out']}")
     print(f"길이: {result['duration_seconds']}초 (ffprobe 실측: {probed})")

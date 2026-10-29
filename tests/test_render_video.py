@@ -160,6 +160,108 @@ class RenderVideoTests(unittest.TestCase):
                 self.assertEqual(slide.getpixel((65, 465)), render_video.PANEL_BG)
                 self.assertEqual(slide.getpixel((1200, 700)), render_video.BG_NORMAL)
 
+    def test_fallback_out_constant(self):
+        self.assertTrue(
+            render_video.FALLBACK_OUT.endswith("argus-demo-fallback-draft.mp4")
+        )
+        self.assertNotEqual(render_video.FALLBACK_OUT, render_video.DEFAULT_OUT)
+
+    def test_data_panel_cut3_fallback_lines(self):
+        from demo.fallback import build_fallback_manifest
+
+        lines = render_video.build_data_panel_lines(
+            3, fallback_manifest=build_fallback_manifest()
+        )
+        self.assertEqual(len(lines), 4)
+        self.assertIn("파일 입력 폴백", lines[0])
+        self.assertIn("Pi 실촬영 아님", lines[0])
+        self.assertIn("2026-11-02", lines[0])
+        self.assertIn("capture_source=file", lines[1])
+        self.assertIn("source=mock", lines[1])
+        self.assertIn("FALLBACK-FILE-INPUT", lines[1])
+
+    def test_data_panel_cut3_fallback_summary_and_bin(self):
+        from demo.fallback import build_fallback_manifest
+
+        lines = render_video.build_data_panel_lines(
+            3, fallback_manifest=build_fallback_manifest()
+        )
+        self.assertIn("빈 6", lines[2])
+        self.assertIn("일치 4", lines[2])
+        self.assertIn("불일치 2", lines[2])
+        self.assertIn("A-01-02", lines[3])
+        self.assertIn("장부 8", lines[3])
+        self.assertIn("실측 5", lines[3])
+        self.assertIn("sha256 106573c1", lines[3])
+
+    def test_data_panel_cut3_fallback_invalid_real_capture_raises(self):
+        from demo.fallback import build_fallback_manifest
+
+        bad = dict(build_fallback_manifest())
+        bad["is_pi_real_capture"] = True
+        with self.assertRaises(ValueError):
+            render_video.build_data_panel_lines(3, fallback_manifest=bad)
+
+    def test_data_panel_cut3_fallback_invalid_source_raises(self):
+        from demo.fallback import build_fallback_manifest
+
+        bad = dict(build_fallback_manifest())
+        bad["capture_source"] = "pi-camera"
+        with self.assertRaises(ValueError):
+            render_video.build_data_panel_lines(3, fallback_manifest=bad)
+
+    def test_data_panel_fallback_other_cuts_unchanged(self):
+        from demo.fallback import build_fallback_manifest
+
+        manifest = build_fallback_manifest()
+        self.assertEqual(
+            len(render_video.build_data_panel_lines(5, fallback_manifest=manifest)), 6
+        )
+        self.assertEqual(
+            render_video.build_data_panel_lines(3),
+            ["실촬영 데이터 없음 — Pi 도착 후 교체"],
+        )
+
+    def test_build_slides_fallback_changes_only_cut3(self):
+        from demo.fallback import build_fallback_manifest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "base"
+            fb = Path(tmp) / "fb"
+            base_slides = render_video.build_slides(base)
+            fb_slides = render_video.build_slides(
+                fb, fallback_manifest=build_fallback_manifest()
+            )
+            self.assertEqual(base_slides[0].read_bytes(), fb_slides[0].read_bytes())
+            self.assertNotEqual(base_slides[2].read_bytes(), fb_slides[2].read_bytes())
+            with Image.open(fb_slides[2]) as slide:
+                self.assertEqual(slide.getpixel((1200, 700)), render_video.BG_PLACEHOLDER)
+                self.assertEqual(slide.getpixel((65, 465)), render_video.PANEL_BG)
+
+    def test_render_fallback_default_is_false(self):
+        import inspect
+
+        sig = inspect.signature(render_video.render)
+        self.assertIs(sig.parameters["fallback"].default, False)
+
+    def test_render_fallback_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "fallback.mp4"
+            result = render_video.render(out_path=out, fallback=True)
+            self.assertTrue(out.exists())
+            self.assertGreater(out.stat().st_size, 0)
+            fb = result["fallback"]
+            self.assertEqual(fb["cut_index"], 3)
+            self.assertEqual(fb["capture_source"], "file")
+            self.assertEqual(fb["source"], "mock")
+            self.assertIs(fb["is_pi_real_capture"], False)
+            self.assertEqual(fb["decision_date"], "2026-11-02")
+            self.assertIn(3, result["data_panel_cuts"])
+            probed = render_video.probe_duration(out)
+            self.assertIsNotNone(probed)
+            self.assertGreater(probed, 179.0)
+            self.assertLess(probed, 181.0)
+
     def test_probe_duration_missing_file_returns_none(self):
         self.assertIsNone(render_video.probe_duration("/nonexistent/nope.mp4"))
 
