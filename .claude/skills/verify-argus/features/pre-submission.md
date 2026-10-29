@@ -20,6 +20,7 @@
 - `pre-runbook` 제출 런북 정합: 제출 런북(`docs/submission-runbook.md`) 원문의 절 7개 순서·블로커 2건·`SUBMISSION_READY: false`·최종 점검 명령 8종이 전수 점검 블로커와 어긋나지 않는지 확인하며, JSON의 `readiness.runbook`에 section_count와 블로커·final_command_count가 그대로 기록된다. 런북 정합은 파일 원문 대조만 하며 실제로 제출하지 않는다.
 - `pre-pi-smoke` Pi 스모크 정합: Pi 단일 빈 스모크(`qa.pi_smoke`) 보고가 Pi 준비 점검 보고와 어긋나지 않는지 확인하며, JSON의 `readiness.pi_smoke`에 status와 블로커가 그대로 기록된다. 스모크 정합은 전수 점검 전용 가짜 session으로만 구동하며 실제 촬영을 하지 않는다. 준비가 안 된 상태에서는 스모크가 blocked이고 가짜 session 호출이 0건이어야 한다.
 - `pre-video-panel` 영상 데이터 패널 정합: `video_draft_present` 체크가 MP4 크기에 더해 컷 1~9 데이터 패널(컷 5 전체 빈 6줄·컷 6 불일치 2줄·컷 3 플레이스홀더 정직 표기·컷 9 '데모 기준')이 현재 시뮬레이션 리포트와 맞는지 확인하고, 통과 detail에 `data_panel_cuts=9`가 포함된다.
+- `pre-assembly-fallback` 조립 폴백 정합: `demo_assets_consistent` 체크가 조립 매니페스트 컷 3에만 파일 입력 폴백 참조(asset·cut_index 3·결정일 2026-11-02·is_pi_real_capture false·capture_source file·replaces pi-placeholder)가 있고 정직성 표기가 포함되는지 확인하며, 통과 detail에 `assembly_fallback_cut=3`가 포함되고 증거 summary에 `demo_assembly_fallback_cut`으로 남는다. 조립 폴백 대조는 저장 자산 대조만이며 Pi 실촬영이나 컷 3 전환 확정으로 주장하지 않는다.
 
 ## How to get to it (user POV)
 
@@ -47,6 +48,7 @@ Preconditions:
 - **제출 스토리 확인.** JSON `readiness.story`의 section_count가 7, blockers가 전수 점검 블로커 2종과 같고, submission_ready가 false, claims_audit_clean이 true인지 확인한다. 증거 summary에도 `readiness_story_section_count`·`readiness_story_blockers`로 남는다. 스토리 정합은 원문 대조만이며 실제 제출이 아니다.
 - **제출 런북 확인.** JSON `readiness.runbook`의 section_count가 7, blockers가 전수 점검 블로커 2종과 같고, submission_ready가 false, claims_audit_clean이 true, final_command_count가 8인지 확인한다. 증거 summary에도 `readiness_runbook_section_count`·`readiness_runbook_blockers`로 남는다. 런북 정합은 원문 대조만이며 실제 제출이 아니다.
 - **Pi 스모크 확인.** JSON `readiness.pi_smoke`의 status가 blocked, attempted가 false, blockers가 Pi 준비 점검 블로커 2종과 같은지 확인한다. 증거 summary에도 `readiness_pi_smoke_status`·`readiness_pi_smoke_blockers`로 남는다. 스모크 정합은 가짜 session으로만 구동하므로 실제 촬영이 아니다.
+- **조립 폴백 확인.** checks에서 `demo_assets_consistent`의 detail에 `assembly_fallback_cut=3`가 포함되는지 확인한다. 증거 summary에도 `demo_assembly_fallback_cut`으로 남는다. 조립 폴백은 파일 입력이며 Pi 실촬영이 아니다.
 - **SAM 스모크 확인.** JSON `readiness.smoke`의 status가 blocked, attempted가 false, blockers가 SAM 준비 점검 블로커 3종과 같은지 확인한다. 증거 summary에도 `readiness_smoke_status`·`readiness_smoke_blockers`로 남는다. 스모크 정합은 가짜 counter로만 구동하므로 실제 API 호출이 아니다.
 - **블로커 확인.** blockers의 id 목록이 `pi_real_capture_pending`·`sam_real_call_pending` 순서 그대로 2건(BLOCKERS: 2)인지 확인한다.
 - **제출 가능 아님 확인.** `submission_ready`가 false(SUBMISSION_READY: false)인지 확인한다. true이면 심각한 문제다.

@@ -39,6 +39,7 @@ from qa.pre_submission import (
     validate_fallback_manifest,
     validate_fallback_report,
     build_fallback_report,
+    validate_assembly_fallback,
 )
 
 MISSING_PI_PROBE = {
@@ -301,9 +302,24 @@ def _minimal_root(root: Path) -> None:
             {
                 "total_seconds": 180,
                 "segment_count": 9,
-                "segments": [{"index": 3, "placeholder": True}]
+                "honesty": ["컷 3 폴백은 파일 입력이며 Pi 실촬영이 아닙니다"],
+                "segments": [
+                    {
+                        "index": 3,
+                        "placeholder": True,
+                        "fallback": {
+                            "asset": "demo/assets/fallback.json",
+                            "cut_index": 3,
+                            "decision_date": "2026-11-02",
+                            "is_pi_real_capture": False,
+                            "capture_source": "file",
+                            "replaces": "pi-placeholder",
+                        },
+                    }
+                ]
                 + [{"index": i, "placeholder": False} for i in (1, 2, 4, 5, 6, 7, 8, 9)],
-            }
+            },
+            ensure_ascii=False,
         ),
     )
     _write(
@@ -1132,6 +1148,56 @@ class FallbackIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["fallback_consistent"])
+            self.assertFalse(result["mechanical_pass"])
+
+
+def _valid_assembly() -> dict:
+    from demo.assemble import build_assembly
+
+    return build_assembly()
+
+
+class AssemblyFallbackIntegrationTests(unittest.TestCase):
+    def test_real_root_demo_consistency_includes_assembly_fallback(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        by_name = {c.name: c for c in result["checks"]}
+        demo = by_name["demo_assets_consistent"]
+        self.assertTrue(demo.passed, demo.detail)
+        self.assertIn("assembly_fallback_cut=3", demo.detail)
+        self.assertEqual(result["total"], 18)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
+        assembly = _valid_assembly()
+        self.assertEqual(validate_assembly_fallback(assembly), [])
+        assembly["segments"][2]["fallback"]["is_pi_real_capture"] = True
+        problems = validate_assembly_fallback(assembly)
+        self.assertTrue(any("is_pi_real_capture" in p for p in problems), problems)
+
+    def test_validate_assembly_fallback_detects_missing_cut3_fallback(self):
+        assembly = _valid_assembly()
+        del assembly["segments"][2]["fallback"]
+        problems = validate_assembly_fallback(assembly)
+        self.assertTrue(any("fallback" in p for p in problems), problems)
+
+    def test_validate_assembly_fallback_detects_fallback_on_other_cut(self):
+        assembly = _valid_assembly()
+        assembly["segments"][0]["fallback"] = dict(assembly["segments"][2]["fallback"])
+        problems = validate_assembly_fallback(assembly)
+        self.assertTrue(any("only cut 3" in p for p in problems), problems)
+
+    def test_minimal_root_tampered_assembly_fallback_fails_demo_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            assembly = json.loads(
+                (root / "demo/assets/assembly.json").read_text(encoding="utf-8")
+            )
+            assembly["segments"][0]["fallback"]["capture_source"] = "pi-camera"
+            _write(root, "demo/assets/assembly.json", json.dumps(assembly, ensure_ascii=False))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["demo_assets_consistent"])
             self.assertFalse(result["mechanical_pass"])
 
 if __name__ == "__main__":

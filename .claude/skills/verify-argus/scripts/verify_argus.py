@@ -724,6 +724,13 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 readme_consistent 없음")
         if "fallback_consistent" not in check_names:
             problems.append("checks에 fallback_consistent 없음")
+        demo_check = next((c for c in checks if c.get("name") == "demo_assets_consistent"), {})
+        demo_fallback_cut = 3 if "assembly_fallback_cut=3" in str(demo_check.get("detail") or "") else None
+        if demo_fallback_cut != 3:
+            problems.append(
+                f"demo_assets_consistent detail에 assembly_fallback_cut=3 없음: {demo_check.get('detail')}")
+        else:
+            demo_fallback_cut = 3
         if not all(c.get("passed") is True for c in checks):
             problems.append("checks 중 passed가 True가 아닌 항목이 있다")
         honesty = report.get("honesty", [])
@@ -892,6 +899,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         ds_sc, ds_rb = None, []
         rd_sc, rd_rb = None, []
         fb_cut, fb_source = None, None
+        demo_fallback_cut = None
     summary = {"feature": "pre-submission",
                "mechanical_pass": report.get("mechanical_pass"),
                "passed": report.get("passed"), "total": report.get("total"),
@@ -919,6 +927,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_readme_blockers": rd_rb,
                "readiness_fallback_cut_index": fb_cut,
                "readiness_fallback_source": fb_source,
+               "demo_assembly_fallback_cut": demo_fallback_cut,
                "submission_ready": report.get("submission_ready"),
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,

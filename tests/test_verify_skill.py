@@ -352,6 +352,7 @@ class HelperRunTests(unittest.TestCase):
                 "pi_device_arrival_not_confirmed", "pi_camera_command_missing"])
             self.assertEqual(summary["readiness_console_blocker_count"], 5)
             self.assertFalse(summary["readiness_console_overall_ready"])
+            self.assertEqual(summary["demo_assembly_fallback_cut"], 3)
             self.assertFalse(summary["submission_ready"])
             self.assertTrue((evidence / "pre-submission.json").is_file())
             self.assertTrue((evidence / "transcript.txt").is_file())

@@ -18,6 +18,11 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스�
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 데모 자산의 존재·정합을
 한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 18종이다.
+데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
+(demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
+자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
+저장된 JSON 자산을 읽어 대조만 하며, 폴백 참조를 Pi 실촬영이나
+컷 3 전환 확정으로 주장하지 않는다.
 문안·런북·스토리·영문 요약·데모 대본·README 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
 폴백 정합은 저장된 JSON 자산을 읽어 대조만 하며 Pi 실촬영으로 주장하지 않는다.
 스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
@@ -323,6 +328,19 @@ FALLBACK_HONESTY_MARKERS = (
     "데모 기준",
 )
 
+ASSEMBLY_FALLBACK_ASSET = "demo/assets/fallback.json"
+
+ASSEMBLY_FALLBACK_HONESTY_MARKER = "컷 3 폴백은 파일 입력이며 Pi 실촬영이 아닙니다"
+
+ASSEMBLY_FALLBACK_EXPECTED = {
+    "asset": ASSEMBLY_FALLBACK_ASSET,
+    "cut_index": FALLBACK_CUT_INDEX,
+    "decision_date": FALLBACK_DECISION_DATE,
+    "is_pi_real_capture": False,
+    "capture_source": "file",
+    "replaces": "pi-placeholder",
+}
+
 EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
 
@@ -337,6 +355,51 @@ def _aggregate(name: str, checks) -> PreSubmissionCheck:
     total = len(checks)
     passed = sum(1 for c in checks if c.passed)
     return PreSubmissionCheck(name, passed == total, f"{passed}/{total} passed")
+
+
+def validate_assembly_fallback(assembly) -> list[str]:
+    """조립 매니페스트 컷 3의 파일 입력 폴백 참조가 기준과 맞는지 검사한다."""
+    problems: list[str] = []
+    if not isinstance(assembly, dict):
+        return [f"assembly fallback: assembly is not a dict: {assembly!r}"]
+    segments = assembly.get("segments")
+    if not isinstance(segments, list):
+        problems.append(f"assembly fallback: segments is not a list: {segments!r}")
+        segments = []
+    cut3 = None
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        fallback = seg.get("fallback")
+        if seg.get("index") == FALLBACK_CUT_INDEX:
+            cut3 = seg
+            if not isinstance(fallback, dict):
+                problems.append("assembly fallback: cut 3 fallback missing")
+            else:
+                for key, expected in ASSEMBLY_FALLBACK_EXPECTED.items():
+                    actual = fallback.get(key)
+                    if key == "is_pi_real_capture":
+                        if actual is not False:
+                            problems.append(
+                                f"assembly fallback: cut 3 is_pi_real_capture={actual!r} is not False"
+                            )
+                    elif actual != expected:
+                        problems.append(
+                            f"assembly fallback: cut 3 {key}={actual!r} != {expected!r}"
+                        )
+        elif fallback is not None:
+            problems.append(
+                f"assembly fallback: fallback present on cut {seg.get('index')!r}, expected only cut 3"
+            )
+    if cut3 is None:
+        problems.append("assembly fallback: cut 3 segment missing")
+    honesty = assembly.get("honesty") or []
+    joined = " ".join(str(line) for line in honesty) if isinstance(honesty, list) else ""
+    if ASSEMBLY_FALLBACK_HONESTY_MARKER not in joined:
+        problems.append(
+            f"assembly fallback: missing honesty marker {ASSEMBLY_FALLBACK_HONESTY_MARKER!r}"
+        )
+    return problems
 
 
 def _check_demo_consistency(root: Path) -> PreSubmissionCheck:
@@ -372,9 +435,10 @@ def _check_demo_consistency(root: Path) -> PreSubmissionCheck:
         problems.append(
             f"manifest all_ok={manifest.get('all_ok')} capture_count={manifest.get('capture_count')}"
         )
+    problems.extend(validate_assembly_fallback(assembly))
     if problems:
         return PreSubmissionCheck(name, False, "; ".join(problems))
-    return PreSubmissionCheck(name, True, "shot/assembly/narration/manifest consistent at 180s, 9 cuts")
+    return PreSubmissionCheck(name, True, "shot/assembly/narration/manifest consistent at 180s, 9 cuts, assembly_fallback_cut=3")
 
 
 def validate_data_panel(panel) -> list[str]:
