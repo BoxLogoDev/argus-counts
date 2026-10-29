@@ -24,6 +24,9 @@ from qa.pre_submission import (
     validate_runbook_report,
     validate_runbook_text,
     build_runbook_report,
+    validate_story_report,
+    validate_story_text,
+    build_story_report,
 )
 
 MISSING_PI_PROBE = {
@@ -126,6 +129,38 @@ def _valid_runbook_text() -> str:
     ])
 
 
+def _valid_story_text() -> str:
+    return "\n".join([
+        "# Argus. 창고 재고실사 코파일럿",
+        "테마는 Build for Your World를 전제로 한다. 주인님 최종 확정 전 가안이다.",
+        "## 문제",
+        "- 빈마다 세는 데 시간이 걸린다.",
+        "## 해결",
+        "- 촬영하고 세고 대조해 리포트를 만든다.",
+        "## 이번에 만든 것과 기존에 있던 것",
+        "- 이번에 만든 것은 이 저장소의 모든 코드와 문서이며 2026-10-27 이후 해커톤 기간에 새로 작성했다.",
+        "## Meta AI 도구 활용",
+        "- 현재는 모의(mock) 어댑터로 동작한다.",
+        "- SAM 3.1 실호출은 아직 하지 않았다.",
+        "- 모의 결과를 실호출 결과로 주장하지 않는다.",
+        "- Pi 실기 카메라 연동은 아직 검증 전이다.",
+        "## 기술 깊이",
+        "- 예시는 전부 가상 데모 데이터다.",
+        "- 데모 빈은 6개다.",
+        "- 일치는 4건이다.",
+        "- 불일치는 2건이다.",
+        "- 절대 차이 합계는 6이다.",
+        "- 일치율은 66.7%다.",
+        "## 영향",
+        "- 데모 기준. 빈 6개 중 불일치 2건과 절대 차이 6개를 한 번의 대조로 정리한다.",
+        "## 현재 상태",
+        "- `pi_real_capture_pending` — Pi 검증 전이다.",
+        "- `sam_real_call_pending` — SAM 미실시이다.",
+        "- 현재 정답은 `SUBMISSION_READY: false` 다.",
+        "",
+    ])
+
+
 def _minimal_root(root: Path) -> None:
     for rel in (
         "README.md",
@@ -138,7 +173,7 @@ def _minimal_root(root: Path) -> None:
         ".claude/skills/verify-argus/features/README.md",
     ):
         _write(root, rel, "ok\n")
-    _write(root, "docs/submission-story.md", "모의 어댑터, 데모 기준 수치, 테마 가안\n")
+    _write(root, "docs/submission-story.md", _valid_story_text())
     _write(root, "docs/submission-summary-en.md", "mock adapter, Demo basis: figures, tentative theme\n")
     _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
     _write(root, "docs/submission-runbook.md", _valid_runbook_text())
@@ -292,7 +327,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 13)
+        self.assertEqual(result["total"], 14)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -406,7 +441,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 13)
+            self.assertEqual(result["total"], 14)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -728,6 +763,56 @@ class RunbookIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["runbook_consistent"])
+            self.assertFalse(result["mechanical_pass"])
+
+
+class StoryIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_story_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("story_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["story_consistent"].passed, by_name["story_consistent"].detail)
+        self.assertIn("section_count=7", by_name["story_consistent"].detail)
+        story = result["readiness"]["story"]
+        self.assertEqual(story["section_count"], 7)
+        self.assertEqual(story["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertFalse(story["submission_ready"])
+        self.assertTrue(story["claims_audit_clean"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_story_text_accepts_valid_and_detects_tamper(self):
+        text = _valid_story_text()
+        self.assertEqual(validate_story_text(text), [])
+        tampered = text.replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1)
+        problems = validate_story_text(tampered)
+        self.assertTrue(any("SUBMISSION_READY" in p for p in problems), problems)
+
+    def test_validate_story_text_detects_missing_section(self):
+        text = _valid_story_text().replace("## 현재 상태", "## 상태", 1)
+        problems = validate_story_text(text)
+        self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_story_report_detects_contradictions(self):
+        report = build_story_report(ROOT)
+        self.assertEqual(validate_story_report(report), [])
+        report["submission_ready"] = True
+        problems = validate_story_report(report)
+        self.assertTrue(any("submission_ready" in p for p in problems), problems)
+        report2 = build_story_report(ROOT)
+        report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
+        problems2 = validate_story_report(report2)
+        self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_minimal_root_tampered_story_fails_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "docs/submission-story.md",
+                   _valid_story_text().replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["story_consistent"])
             self.assertFalse(result["mechanical_pass"])
 
 
