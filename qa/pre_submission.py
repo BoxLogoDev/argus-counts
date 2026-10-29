@@ -3,9 +3,11 @@
 기존 점검들(QA 기준값 대조, standalone 점검, 현재형 주장 감사)과
 SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 콘솔 준비 상태(console.readiness)가 같은 조건의 두 준비 점검과
-어긋나지 않는지의 정합, 데모 자산의 존재·정합을 한 번에 묶어
-기계적으로 확인한다.
-기계 점검은 총 9종이다.
+어긋나지 않는지의 정합, SAM 단일 빈 스모크(qa.sam_smoke) 보고가
+SAM 준비 점검 보고와 어긋나지 않는지의 정합, 데모 자산의
+존재·정합을 한 번에 묶어 기계적으로 확인한다.
+기계 점검은 총 10종이다.
+스모크 정합은 가짜 counter로만 구동하며 실제 API를 호출하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
 상태(블로커 존재)는 기계 점검 실패가 아니다. 실패는 준비
 점검 보고가 내부적으로 모순되거나 전수 점검 블로커와
@@ -25,12 +27,14 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from console.readiness import build_readiness as build_console_readiness
 from qa.claims_audit import audit_files
 from qa.harness import run_checks as run_qa_checks
 from qa.pi_readiness import check_readiness as check_pi_readiness
 from qa.sam_readiness import check_readiness as check_sam_readiness
+from qa.sam_smoke import run_smoke
 from qa.standalone import run_standalone_checks
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,6 +74,10 @@ HONESTY = [
 SAM_READINESS_BLOCKER_ORDER = ("sam_credit_not_confirmed", "sam_base_url_missing", "sam_api_key_missing")
 
 PI_READINESS_BLOCKER_ORDER = ("pi_device_arrival_not_confirmed", "pi_camera_command_missing")
+
+SMOKE_BIN_ID = "A-01-02"
+
+SMOKE_FAKE_COUNT = 5
 
 
 @dataclass(frozen=True)
@@ -489,6 +497,144 @@ def validate_console_readiness(report, sam_report=None, pi_report=None) -> list[
     return problems
 
 
+class _SmokeFakeCounter:
+    """전수 점검 전용 가짜 counter. 실제 API를 부르지 않는다."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def count(self, bin_id, image_ref=None):
+        self.calls += 1
+        return SimpleNamespace(source="sam", counted_qty=SMOKE_FAKE_COUNT)
+
+
+def validate_sam_smoke(report, sam_report=None, blockers=None) -> list[str]:
+    """SAM 스모크 보고가 내부적으로, 그리고 SAM 준비 보고와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "status",
+        "attempted",
+        "ready_for_live_call",
+        "blockers",
+        "bin_id",
+        "source",
+        "counted_qty",
+        "book_qty",
+        "diff",
+        "error_type",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    ids = _readiness_blocker_ids(report["blockers"], problems, "sam smoke")
+    if isinstance(report["blockers"], (list, tuple)):
+        expected_subsequence = [b for b in SAM_READINESS_BLOCKER_ORDER if b in ids]
+        if ids != expected_subsequence:
+            problems.append(
+                f"sam smoke: blocker ids {ids} are not a subsequence of "
+                f"{list(SAM_READINESS_BLOCKER_ORDER)}"
+            )
+    ready = bool(report["ready_for_live_call"])
+    if isinstance(sam_report, dict):
+        if "ready_for_live_call" in sam_report:
+            if ready != bool(sam_report["ready_for_live_call"]):
+                problems.append(
+                    f"sam smoke: ready_for_live_call={report['ready_for_live_call']!r} "
+                    f"!= sam readiness ready_for_live_call="
+                    f"{sam_report['ready_for_live_call']!r}"
+                )
+        if isinstance(sam_report.get("blockers"), (list, tuple)):
+            sam_ids = _readiness_blocker_ids(
+                sam_report["blockers"], problems, "sam readiness"
+            )
+            if ids != sam_ids:
+                problems.append(
+                    f"sam smoke: blocker ids {ids} != "
+                    f"sam readiness blocker ids {sam_ids}"
+                )
+    status = report["status"]
+    if status not in ("blocked", "passed", "failed"):
+        problems.append(
+            f"sam smoke: status={status!r} is not one of "
+            f"['blocked', 'passed', 'failed']"
+        )
+    if not ready:
+        if status != "blocked":
+            problems.append(
+                f"sam smoke: status={status!r} != 'blocked' "
+                f"when ready_for_live_call is False"
+            )
+        if bool(report["attempted"]):
+            problems.append(
+                f"sam smoke: attempted={report['attempted']!r} != False "
+                f"when ready_for_live_call is False"
+            )
+        for key in ("source", "counted_qty", "diff", "error_type"):
+            if report[key] is not None:
+                problems.append(
+                    f"sam smoke: {key}={report[key]!r} is not None "
+                    f"when ready_for_live_call is False"
+                )
+        if "sam_real_call_pending" not in _pre_submission_blocker_ids(blockers):
+            problems.append(
+                "sam smoke: ready_for_live_call is False but pre-submission "
+                "blockers missing 'sam_real_call_pending'"
+            )
+    if ready and status == "passed":
+        if not report["attempted"]:
+            problems.append(
+                f"sam smoke: attempted={report['attempted']!r} != True "
+                f"when ready_for_live_call is True and status is 'passed'"
+            )
+        if report["source"] != "sam":
+            problems.append(
+                f"sam smoke: source={report['source']!r} != 'sam' "
+                f"when ready_for_live_call is True and status is 'passed'"
+            )
+        counted_qty = report["counted_qty"]
+        book_qty = report["book_qty"]
+        counted_is_int = isinstance(counted_qty, int) and not isinstance(
+            counted_qty, bool
+        )
+        book_is_int = isinstance(book_qty, int) and not isinstance(book_qty, bool)
+        if not counted_is_int:
+            problems.append(
+                f"sam smoke: counted_qty={counted_qty!r} is not an int "
+                f"when ready_for_live_call is True and status is 'passed'"
+            )
+        if not book_is_int:
+            problems.append(
+                f"sam smoke: book_qty={book_qty!r} is not an int "
+                f"when ready_for_live_call is True and status is 'passed'"
+            )
+        if counted_is_int and book_is_int:
+            if report["diff"] != counted_qty - book_qty:
+                problems.append(
+                    f"sam smoke: diff={report['diff']!r} != "
+                    f"counted_qty - book_qty={counted_qty - book_qty}"
+                )
+    if ready and status == "failed":
+        error_type = report["error_type"]
+        if not isinstance(error_type, str) or not error_type:
+            problems.append(
+                f"sam smoke: error_type={error_type!r} is not a non-empty "
+                f"string when ready_for_live_call is True and status is 'failed'"
+            )
+        if error_type != "unknown_bin" and not report["attempted"]:
+            problems.append(
+                f"sam smoke: attempted={report['attempted']!r} != True "
+                f"when ready_for_live_call is True and status is 'failed'"
+            )
+    _check_honesty(report, problems, "sam smoke", "호출하지 않는다")
+    _check_honesty(report, problems, "sam smoke", "대체하지 않는다")
+    return problems
+
+
 def _check_sam_readiness(sam_env=None, sam_credit_confirmed=False):
     name = "sam_readiness_consistent"
     try:
@@ -557,6 +703,40 @@ def _check_console_readiness(
     return PreSubmissionCheck(name, True, detail), report
 
 
+def _check_sam_smoke(sam_env=None, sam_credit_confirmed=False, sam_report=None):
+    name = "sam_smoke_consistent"
+    fake = _SmokeFakeCounter()
+    try:
+        report = run_smoke(
+            env=sam_env,
+            credit_confirmed=sam_credit_confirmed,
+            bin_id=SMOKE_BIN_ID,
+            counter=fake,
+        )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_sam_smoke(report, sam_report=sam_report)
+    if isinstance(report, dict) and "ready_for_live_call" in report:
+        if not bool(report["ready_for_live_call"]) and fake.calls != 0:
+            problems.append(
+                f"sam smoke: fake counter calls={fake.calls} != 0 "
+                f"when ready_for_live_call is False"
+            )
+        if bool(report["ready_for_live_call"]) and fake.calls != 1:
+            problems.append(
+                f"sam smoke: fake counter calls={fake.calls} != 1 "
+                f"when ready_for_live_call is True"
+            )
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} attempted={report['attempted']} "
+        f"blockers={[b['id'] for b in report['blockers']]} "
+        f"fake_calls={fake.calls}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -615,6 +795,13 @@ def run_pre_submission_checks(
     )
     checks.append(console_check)
 
+    smoke_check, smoke_report = _check_sam_smoke(
+        sam_env=sam_env,
+        sam_credit_confirmed=sam_credit_confirmed,
+        sam_report=sam_report,
+    )
+    checks.append(smoke_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -635,7 +822,12 @@ def run_pre_submission_checks(
         "total": len(checks),
         "mechanical_pass": passed == len(checks),
         "blockers": [dict(b) for b in BLOCKERS],
-        "readiness": {"sam": sam_report, "pi": pi_report, "console": console_report},
+        "readiness": {
+            "sam": sam_report,
+            "pi": pi_report,
+            "console": console_report,
+            "smoke": smoke_report,
+        },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
     }

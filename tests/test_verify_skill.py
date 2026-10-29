@@ -285,10 +285,14 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 9)
-            self.assertEqual(summary["total"], 9)
+            self.assertEqual(summary["passed"], 10)
+            self.assertEqual(summary["total"], 10)
             self.assertEqual(summary["blockers"], [
                 "pi_real_capture_pending", "sam_real_call_pending"])
+            self.assertEqual(summary["readiness_smoke_status"], "blocked")
+            self.assertEqual(summary["readiness_smoke_blockers"], [
+                "sam_credit_not_confirmed", "sam_base_url_missing",
+                "sam_api_key_missing"])
             self.assertEqual(summary["readiness_sam_blockers"], [
                 "sam_credit_not_confirmed", "sam_base_url_missing",
                 "sam_api_key_missing"])

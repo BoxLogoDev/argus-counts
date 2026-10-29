@@ -16,6 +16,7 @@ from qa.pre_submission import (
     validate_data_panel,
     validate_pi_readiness,
     validate_sam_readiness,
+    validate_sam_smoke,
 )
 
 MISSING_PI_PROBE = {
@@ -210,7 +211,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 9)
+        self.assertEqual(result["total"], 10)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -324,7 +325,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 9)
+            self.assertEqual(result["total"], 10)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -382,6 +383,84 @@ class ReadinessIntegrationTests(unittest.TestCase):
         report["honesty"] = ["다른 문구만 있다"]
         problems = validate_console_readiness(report)
         self.assertTrue(any("honesty" in p for p in problems), problems)
+
+    def test_real_root_includes_smoke_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
+        )
+        names = [c.name for c in result["checks"]]
+        self.assertIn("sam_smoke_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["sam_smoke_consistent"].passed)
+        self.assertIn("fake_calls=0", by_name["sam_smoke_consistent"].detail)
+        smoke = result["readiness"]["smoke"]
+        self.assertEqual(smoke["status"], "blocked")
+        self.assertFalse(smoke["attempted"])
+        self.assertFalse(smoke["ready_for_live_call"])
+        self.assertIsNone(smoke["counted_qty"])
+        self.assertEqual(
+            [b["id"] for b in smoke["blockers"]],
+            [b["id"] for b in result["readiness"]["sam"]["blockers"]],
+        )
+        self.assertFalse(result["submission_ready"])
+
+    def test_smoke_ready_fake_env_passes_with_fake_counter(self):
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        result = run_pre_submission_checks(
+            ROOT,
+            sam_env=env,
+            sam_credit_confirmed=True,
+            pi_probe=MISSING_PI_PROBE,
+        )
+        by_name = {c.name: c.passed for c in result["checks"]}
+        self.assertTrue(by_name["sam_smoke_consistent"])
+        smoke = result["readiness"]["smoke"]
+        self.assertEqual(smoke["status"], "passed")
+        self.assertTrue(smoke["attempted"])
+        self.assertEqual(smoke["source"], "sam")
+        self.assertEqual(smoke["counted_qty"], 5)
+        self.assertEqual(smoke["book_qty"], 8)
+        self.assertEqual(smoke["diff"], -3)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_smoke_detects_blocked_attempted(self):
+        from qa.sam_smoke import run_smoke
+
+        report = run_smoke(env={}, credit_confirmed=False)
+        self.assertEqual(validate_sam_smoke(report), [])
+        report["attempted"] = True
+        problems = validate_sam_smoke(report)
+        self.assertTrue(any("attempted" in p for p in problems), problems)
+
+    def test_validate_smoke_detects_cross_mismatch_with_sam_report(self):
+        from qa.sam_readiness import check_readiness as check_sam
+        from qa.sam_smoke import run_smoke
+
+        smoke = run_smoke(env={}, credit_confirmed=False)
+        sam_report = check_sam(
+            env={"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"},
+            credit_confirmed=True,
+        )
+        problems = validate_sam_smoke(smoke, sam_report=sam_report)
+        self.assertTrue(any("sam smoke" in p for p in problems), problems)
+
+    def test_validate_smoke_detects_passed_diff_tamper(self):
+        from qa.sam_smoke import run_smoke
+
+        class _Counter:
+            def count(self, bin_id, image_ref=None):
+                from types import SimpleNamespace
+
+                return SimpleNamespace(source="sam", counted_qty=5)
+
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        report = run_smoke(
+            env=env, credit_confirmed=True, counter=_Counter()
+        )
+        self.assertEqual(validate_sam_smoke(report), [])
+        report["diff"] = 99
+        problems = validate_sam_smoke(report)
+        self.assertTrue(any("diff" in p for p in problems), problems)
 
 
 if __name__ == "__main__":
