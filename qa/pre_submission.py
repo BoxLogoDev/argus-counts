@@ -4,10 +4,12 @@
 SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 콘솔 준비 상태(console.readiness)가 같은 조건의 두 준비 점검과
 어긋나지 않는지의 정합, SAM 단일 빈 스모크(qa.sam_smoke) 보고가
-SAM 준비 점검 보고와 어긋나지 않는지의 정합, 데모 자산의
-존재·정합을 한 번에 묶어 기계적으로 확인한다.
-기계 점검은 총 10종이다.
-스모크 정합은 가짜 counter로만 구동하며 실제 API를 호출하지 않는다.
+SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스모크
+(qa.pi_smoke) 보고가 Pi 준비 점검 보고와 어긋나지 않는지의 정합,
+데모 자산의 존재·정합을 한 번에 묶어 기계적으로 확인한다.
+기계 점검은 총 11종이다.
+스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
+API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
 상태(블로커 존재)는 기계 점검 실패가 아니다. 실패는 준비
 점검 보고가 내부적으로 모순되거나 전수 점검 블로커와
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,7 +37,8 @@ from qa.claims_audit import audit_files
 from qa.harness import run_checks as run_qa_checks
 from qa.pi_readiness import check_readiness as check_pi_readiness
 from qa.sam_readiness import check_readiness as check_sam_readiness
-from qa.sam_smoke import run_smoke
+from qa.pi_smoke import run_smoke as run_pi_smoke
+from qa.sam_smoke import run_smoke as run_sam_smoke
 from qa.standalone import run_standalone_checks
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,6 +82,12 @@ PI_READINESS_BLOCKER_ORDER = ("pi_device_arrival_not_confirmed", "pi_camera_comm
 SMOKE_BIN_ID = "A-01-02"
 
 SMOKE_FAKE_COUNT = 5
+
+PI_SMOKE_BIN_ID = "A-01-02"
+
+PI_SMOKE_FAKE_COUNT = 5
+
+PI_SMOKE_FAKE_SHA = "f" * 64
 
 
 @dataclass(frozen=True)
@@ -707,7 +717,7 @@ def _check_sam_smoke(sam_env=None, sam_credit_confirmed=False, sam_report=None):
     name = "sam_smoke_consistent"
     fake = _SmokeFakeCounter()
     try:
-        report = run_smoke(
+        report = run_sam_smoke(
             env=sam_env,
             credit_confirmed=sam_credit_confirmed,
             bin_id=SMOKE_BIN_ID,
@@ -733,6 +743,218 @@ def _check_sam_smoke(sam_env=None, sam_credit_confirmed=False, sam_report=None):
         f"status={report['status']} attempted={report['attempted']} "
         f"blockers={[b['id'] for b in report['blockers']]} "
         f"fake_calls={fake.calls}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
+class _PiSmokeFakeSession:
+    """전수 점검 전용 가짜 session. 실제 촬영을 하지 않는다."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, output_dir, bin_ids=None, session_id=None, runner=None, which=None):
+        self.calls.append(
+            {"output_dir": output_dir, "bin_ids": bin_ids, "session_id": session_id}
+        )
+        return {
+            "session_id": "PI-SMOKE",
+            "source": "mock",
+            "capture_source": "pi-camera",
+            "bins": [
+                {
+                    "bin_id": PI_SMOKE_BIN_ID,
+                    "book_qty": 8,
+                    "counted_qty": PI_SMOKE_FAKE_COUNT,
+                    "diff": PI_SMOKE_FAKE_COUNT - 8,
+                    "photo": {
+                        "sha256": PI_SMOKE_FAKE_SHA,
+                        "image_ref": PI_SMOKE_BIN_ID + ".jpg",
+                    },
+                }
+            ],
+        }
+
+
+def _pi_which_from_probe(probe, fallback_which):
+    if probe is None:
+        return fallback_which
+    if probe.get("available") and probe.get("command"):
+        command = probe["command"]
+
+        def _which(name, _command=command):
+            return f"/usr/bin/{_command}" if name == _command else None
+
+        return _which
+
+    def _none(name):
+        return None
+
+    return _none
+
+
+def validate_pi_smoke(report, pi_report=None, blockers=None) -> list[str]:
+    """Pi 스모크 보고가 내부적으로, 그리고 Pi 준비 보고와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "status",
+        "attempted",
+        "ready_for_real_capture",
+        "blockers",
+        "bin_id",
+        "source",
+        "capture_source",
+        "counted_qty",
+        "book_qty",
+        "diff",
+        "photo_sha256",
+        "error_type",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    ids = _readiness_blocker_ids(report["blockers"], problems, "pi smoke")
+    if isinstance(report["blockers"], (list, tuple)):
+        expected_subsequence = [b for b in PI_READINESS_BLOCKER_ORDER if b in ids]
+        if ids != expected_subsequence:
+            problems.append(
+                f"pi smoke: blocker ids {ids} are not a subsequence of "
+                f"{list(PI_READINESS_BLOCKER_ORDER)}"
+            )
+    ready = bool(report["ready_for_real_capture"])
+    if isinstance(pi_report, dict):
+        if "ready_for_real_capture" in pi_report:
+            if ready != bool(pi_report["ready_for_real_capture"]):
+                problems.append(
+                    f"pi smoke: ready_for_real_capture={report['ready_for_real_capture']!r} "
+                    f"!= pi readiness ready_for_real_capture="
+                    f"{pi_report['ready_for_real_capture']!r}"
+                )
+        if isinstance(pi_report.get("blockers"), (list, tuple)):
+            pi_ids = _readiness_blocker_ids(
+                pi_report["blockers"], problems, "pi readiness"
+            )
+            if ids != pi_ids:
+                problems.append(
+                    f"pi smoke: blocker ids {ids} != "
+                    f"pi readiness blocker ids {pi_ids}"
+                )
+    status = report["status"]
+    if status not in ("blocked", "passed", "failed"):
+        problems.append(
+            f"pi smoke: status={status!r} is not one of "
+            f"['blocked', 'passed', 'failed']"
+        )
+    if not ready:
+        if status != "blocked":
+            problems.append(
+                f"pi smoke: status={status!r} != 'blocked' "
+                f"when ready_for_real_capture is False"
+            )
+        if bool(report["attempted"]):
+            problems.append(
+                f"pi smoke: attempted={report['attempted']!r} != False "
+                f"when ready_for_real_capture is False"
+            )
+        for key in ("source", "capture_source", "counted_qty", "diff", "photo_sha256", "error_type"):
+            if report[key] is not None:
+                problems.append(
+                    f"pi smoke: {key}={report[key]!r} is not None "
+                    f"when ready_for_real_capture is False"
+                )
+        if "pi_real_capture_pending" not in _pre_submission_blocker_ids(blockers):
+            problems.append(
+                "pi smoke: ready_for_real_capture is False but pre-submission "
+                "blockers missing 'pi_real_capture_pending'"
+            )
+    if ready and status == "passed":
+        if not report["attempted"]:
+            problems.append(
+                f"pi smoke: attempted={report['attempted']!r} != True "
+                f"when ready_for_real_capture is True and status is 'passed'"
+            )
+        if report["capture_source"] != "pi-camera":
+            problems.append(
+                f"pi smoke: capture_source={report['capture_source']!r} != 'pi-camera' "
+                f"when ready_for_real_capture is True and status is 'passed'"
+            )
+        if not isinstance(report["source"], str) or not report["source"]:
+            problems.append(
+                f"pi smoke: source={report['source']!r} is not a non-empty string "
+                f"when ready_for_real_capture is True and status is 'passed'"
+            )
+        counted_qty = report["counted_qty"]
+        book_qty = report["book_qty"]
+        counted_is_int = isinstance(counted_qty, int) and not isinstance(counted_qty, bool)
+        book_is_int = isinstance(book_qty, int) and not isinstance(book_qty, bool)
+        if not counted_is_int:
+            problems.append(f"pi smoke: counted_qty={counted_qty!r} is not an int")
+        if not book_is_int:
+            problems.append(f"pi smoke: book_qty={book_qty!r} is not an int")
+        if counted_is_int and book_is_int:
+            if report["diff"] != counted_qty - book_qty:
+                problems.append(
+                    f"pi smoke: diff={report['diff']!r} != "
+                    f"counted_qty - book_qty={counted_qty - book_qty}"
+                )
+        if not isinstance(report["photo_sha256"], str) or not report["photo_sha256"]:
+            problems.append(
+                f"pi smoke: photo_sha256={report['photo_sha256']!r} is not a non-empty string"
+            )
+    if ready and status == "failed":
+        error_type = report["error_type"]
+        if not isinstance(error_type, str) or not error_type:
+            problems.append(
+                f"pi smoke: error_type={error_type!r} is not a non-empty "
+                f"string when ready_for_real_capture is True and status is 'failed'"
+            )
+        if error_type != "unknown_bin" and not report["attempted"]:
+            problems.append(
+                f"pi smoke: attempted={report['attempted']!r} != True "
+                f"when ready_for_real_capture is True and status is 'failed'"
+            )
+    _check_honesty(report, problems, "pi smoke", "촬영하지 않는다")
+    _check_honesty(report, problems, "pi smoke", "대체하지 않는다")
+    return problems
+
+
+def _check_pi_smoke(pi_probe=None, pi_device_confirmed=False, pi_which=None, pi_report=None):
+    name = "pi_smoke_consistent"
+    fake = _PiSmokeFakeSession()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = run_pi_smoke(
+                output_dir=Path(tmp) / "pi-smoke-captures",
+                device_confirmed=pi_device_confirmed,
+                bin_id=PI_SMOKE_BIN_ID,
+                which=_pi_which_from_probe(pi_probe, pi_which),
+                session_fn=fake,
+            )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_pi_smoke(report, pi_report=pi_report)
+    if isinstance(report, dict) and "ready_for_real_capture" in report:
+        if not bool(report["ready_for_real_capture"]) and len(fake.calls) != 0:
+            problems.append(
+                f"pi smoke: fake session calls={len(fake.calls)} != 0 "
+                f"when ready_for_real_capture is False"
+            )
+        if bool(report["ready_for_real_capture"]) and len(fake.calls) != 1:
+            problems.append(
+                f"pi smoke: fake session calls={len(fake.calls)} != 1 "
+                f"when ready_for_real_capture is True"
+            )
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} attempted={report['attempted']} "
+        f"blockers={[b['id'] for b in report['blockers']]} "
+        f"fake_calls={len(fake.calls)}"
     )
     return PreSubmissionCheck(name, True, detail), report
 
@@ -802,6 +1024,14 @@ def run_pre_submission_checks(
     )
     checks.append(smoke_check)
 
+    pi_smoke_check, pi_smoke_report = _check_pi_smoke(
+        pi_probe=pi_probe,
+        pi_device_confirmed=pi_device_confirmed,
+        pi_which=pi_which,
+        pi_report=pi_report,
+    )
+    checks.append(pi_smoke_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -827,6 +1057,7 @@ def run_pre_submission_checks(
             "pi": pi_report,
             "console": console_report,
             "smoke": smoke_report,
+            "pi_smoke": pi_smoke_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,

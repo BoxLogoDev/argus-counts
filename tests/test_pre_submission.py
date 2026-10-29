@@ -15,6 +15,7 @@ from qa.pre_submission import (
     validate_console_readiness,
     validate_data_panel,
     validate_pi_readiness,
+    validate_pi_smoke,
     validate_sam_readiness,
     validate_sam_smoke,
 )
@@ -211,7 +212,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 10)
+        self.assertEqual(result["total"], 11)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -325,7 +326,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 10)
+            self.assertEqual(result["total"], 11)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -460,6 +461,91 @@ class ReadinessIntegrationTests(unittest.TestCase):
         self.assertEqual(validate_sam_smoke(report), [])
         report["diff"] = 99
         problems = validate_sam_smoke(report)
+        self.assertTrue(any("diff" in p for p in problems), problems)
+
+    def test_real_root_includes_pi_smoke_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
+        )
+        names = [c.name for c in result["checks"]]
+        self.assertIn("pi_smoke_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["pi_smoke_consistent"].passed)
+        self.assertIn("fake_calls=0", by_name["pi_smoke_consistent"].detail)
+        pi_smoke = result["readiness"]["pi_smoke"]
+        self.assertEqual(pi_smoke["status"], "blocked")
+        self.assertFalse(pi_smoke["attempted"])
+        self.assertFalse(pi_smoke["ready_for_real_capture"])
+        self.assertIsNone(pi_smoke["counted_qty"])
+        self.assertEqual(
+            [b["id"] for b in pi_smoke["blockers"]],
+            [b["id"] for b in result["readiness"]["pi"]["blockers"]],
+        )
+        self.assertFalse(result["submission_ready"])
+
+    def test_pi_smoke_ready_fake_probe_passes_with_fake_session(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=READY_PI_PROBE, pi_device_confirmed=True
+        )
+        by_name = {c.name: c.passed for c in result["checks"]}
+        self.assertTrue(by_name["pi_smoke_consistent"])
+        pi_smoke = result["readiness"]["pi_smoke"]
+        self.assertEqual(pi_smoke["status"], "passed")
+        self.assertTrue(pi_smoke["attempted"])
+        self.assertEqual(pi_smoke["capture_source"], "pi-camera")
+        self.assertEqual(pi_smoke["source"], "mock")
+        self.assertEqual(pi_smoke["counted_qty"], 5)
+        self.assertEqual(pi_smoke["book_qty"], 8)
+        self.assertEqual(pi_smoke["diff"], -3)
+        self.assertTrue(pi_smoke["photo_sha256"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_pi_smoke_detects_blocked_attempted(self):
+        from qa.pi_smoke import run_smoke
+
+        report = run_smoke(device_confirmed=False, which=lambda name: None)
+        self.assertEqual(validate_pi_smoke(report), [])
+        report["attempted"] = True
+        problems = validate_pi_smoke(report)
+        self.assertTrue(any("attempted" in p for p in problems), problems)
+
+    def test_validate_pi_smoke_detects_cross_mismatch_with_pi_report(self):
+        from qa.pi_readiness import check_readiness as check_pi
+        from qa.pi_smoke import run_smoke
+
+        pi_smoke = run_smoke(device_confirmed=False, which=lambda name: None)
+        pi_report = check_pi(probe=READY_PI_PROBE, device_confirmed=True)
+        problems = validate_pi_smoke(pi_smoke, pi_report=pi_report)
+        self.assertTrue(any("pi smoke" in p for p in problems), problems)
+
+    def test_validate_pi_smoke_detects_passed_diff_tamper(self):
+        from qa.pi_smoke import run_smoke
+
+        def _session(output_dir, bin_ids=None, session_id=None, runner=None, which=None):
+            return {
+                "session_id": "PI-SMOKE",
+                "source": "mock",
+                "capture_source": "pi-camera",
+                "bins": [
+                    {
+                        "bin_id": "A-01-02",
+                        "book_qty": 8,
+                        "counted_qty": 5,
+                        "diff": -3,
+                        "photo": {"sha256": "f" * 64, "image_ref": "A-01-02.jpg"},
+                    }
+                ],
+            }
+
+        def _libcamera(name):
+            return "/usr/bin/libcamera-still" if name == "libcamera-still" else None
+
+        report = run_smoke(
+            device_confirmed=True, which=_libcamera, session_fn=_session
+        )
+        self.assertEqual(validate_pi_smoke(report), [])
+        report["diff"] = 99
+        problems = validate_pi_smoke(report)
         self.assertTrue(any("diff" in p for p in problems), problems)
 
 
