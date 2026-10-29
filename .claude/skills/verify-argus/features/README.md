@@ -49,3 +49,4 @@
 - [Pi 실촬영 준비 점검](pi-readiness.md) — Pi 실촬영 준비 점검(장치 도착 외부 확인·카메라 명령 존재만 탐지, 실제 촬영 없음)을 구동한다. 준비 완료는 Pi 실촬영 성공이 아니다.
 - [콘솔 준비 상태](console-readiness.md) — 콘솔 준비 상태 패널과 /api/readiness JSON(SAM 블로커 3건·Pi 블로커 2건, 가짜 환경·가짜 probe 준비 완료, 환경변수 값 누출 없음)을 구동한다. 준비 완료는 실호출·실촬영 성공이 아니다.
 - [SAM 단일 빈 스모크](sam-smoke.md) — SAM 단일 빈 스모크(준비 점검 차단 시 호출 없음·가짜 counter 성공·모의 source/오류 차단)를 구동한다. 성공해도 전체 세션 성공이 아니며 실제 API 호출은 없다.
+- [Pi 단일 빈 스모크](pi-smoke.md) — Pi 단일 빈 스모크(준비 점검 차단 시 촬영 없음·가짜 session 성공·실제 pi_session+가짜 runner 성공·capture_source/오류 차단)를 구동한다. 성공해도 전체 세션 성공이나 Pi 실촬영 검증 완료가 아니며 실제 촬영은 없다.

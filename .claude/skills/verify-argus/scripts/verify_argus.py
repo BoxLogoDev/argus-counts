@@ -20,6 +20,9 @@ build_readiness 가짜 준비 완료로 구동한다(실제 API 호출·실제 �
 준비 완료는 실호출·실촬영 성공이 아님). SAM 단일 빈 스모크(sam-smoke)는
 실제 API 호출 없이 CLI 기본 차단과 프로세스 내 가짜 counter 주입으로만
 구동한다(차단 시 counter를 부르지 않으며, 성공해도 전체 세션 성공이 아님).
+Pi 단일 빈 스모크(pi-smoke)는 실제 촬영 없이 CLI 기본 차단과 프로세스 내
+가짜 session 주입으로만 구동한다(차단 시 session을 부르지 않으며,
+성공해도 전체 세션 성공이나 Pi 실촬영 검증 완료가 아님).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -31,7 +34,7 @@ build_readiness 가짜 준비 완료로 구동한다(실제 API 호출·실제 �
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
-pi-readiness, console-readiness, sam-smoke, all(전부, 기능별 하위 디렉터리).
+pi-readiness, console-readiness, sam-smoke, pi-smoke, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -66,7 +69,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
             "sam-readiness", "submission-runbook", "pi-readiness",
-            "console-readiness", "sam-smoke")
+            "console-readiness", "sam-smoke", "pi-smoke")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -90,6 +93,12 @@ SAM_SMOKE_FAKE_KEY_VALUE = "sentinel-smoke-key-not-real"
 SAM_SMOKE_BIN_ID = "A-01-02"
 SAM_SMOKE_FAKE_COUNT = 5
 SAM_SMOKE_BOOK_QTY = 8
+PI_SMOKE_BIN_ID = "A-01-02"
+PI_SMOKE_FAKE_COUNT = 5
+PI_SMOKE_BOOK_QTY = 8
+PI_SMOKE_FAKE_CONTENT = b"fake-pi-smoke-jpeg"
+PI_SMOKE_FAKE_SHA = "f" * 64
+PI_SMOKE_SENTINEL = "sentinel-pi-smoke-not-real"
 EXPECTED_PI_READINESS_BLOCKER_IDS = ("pi_device_arrival_not_confirmed",
                                      "pi_camera_command_missing")
 PI_READINESS_READY_PROBE = {"available": True,
@@ -1815,6 +1824,345 @@ def drive_sam_smoke(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_pi_smoke(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.pi_smoke import run_smoke
+    from terminal.pi_capture import PiCaptureError
+
+    def _libcamera(name):
+        return "/usr/bin/libcamera-still" if name == "libcamera-still" else None
+
+    def _no_command(name):
+        return None
+
+    class FakeSession:
+        def __init__(self, result=None) -> None:
+            self.calls: list = []
+            if result is None:
+                result = {"session_id": "PI-SMOKE", "source": "mock",
+                          "capture_source": "pi-camera",
+                          "bins": [{"bin_id": PI_SMOKE_BIN_ID,
+                                    "book_qty": 8, "counted_qty": 5, "diff": -3,
+                                    "photo": {"sha256": PI_SMOKE_FAKE_SHA,
+                                              "image_ref": "A-01-02.jpg"}}]}
+            self.result = result
+
+        def __call__(self, output_dir, bin_ids=None, session_id=None,
+                     runner=None, which=None):
+            self.calls.append({"output_dir": output_dir, "bin_ids": bin_ids,
+                               "session_id": session_id, "runner": runner,
+                               "which": which})
+            return copy.deepcopy(self.result)
+
+    class _PiErrorSession:
+        def __call__(self, output_dir, bin_ids=None, session_id=None,
+                     runner=None, which=None):
+            raise PiCaptureError("fake pi smoke failure")
+
+    class _BoomSession:
+        def __call__(self, output_dir, bin_ids=None, session_id=None,
+                     runner=None, which=None):
+            raise RuntimeError(f"boom {PI_SMOKE_SENTINEL}")
+
+    result = run_cli(["-m", "qa.pi_smoke"])
+    ctx.note(f"python3 -m qa.pi_smoke -> 종료코드 {result.returncode}")
+    if result.returncode != 1:
+        problems.append(
+            f"pi_smoke 기본 종료코드 기대 1, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("STATUS: blocked", "ATTEMPTED: false", "BLOCKERS: 2",
+                   "SMOKE_PASSED: false"):
+        if needle not in result.stdout:
+            problems.append(f"pi_smoke 텍스트에 {needle!r} 없음")
+    positions = [result.stdout.find(blocker_id)
+                 for blocker_id in EXPECTED_PI_READINESS_BLOCKER_IDS]
+    if any(position < 0 for position in positions):
+        problems.append(f"pi_smoke 텍스트에 블로커 id 누락: 위치 {positions}")
+    elif positions != sorted(positions):
+        problems.append(f"pi_smoke 블로커 id 순서 이상: 위치 {positions}")
+
+    result_j = run_cli(["-m", "qa.pi_smoke", "--json"])
+    ctx.note(f"python3 -m qa.pi_smoke --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 1:
+        problems.append(
+            f"pi_smoke --json 종료코드 기대 1, 실제 {result_j.returncode}: "
+            f"{result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocked_blockers: list = []
+    if report:
+        if report.get("status") != "blocked":
+            problems.append(
+                f"status 기대 blocked, 실제 {report.get('status')}")
+        if report.get("attempted") is not False:
+            problems.append(
+                f"attempted 기대 False, 실제 {report.get('attempted')}")
+        if report.get("ready_for_real_capture") is not False:
+            problems.append(
+                "ready_for_real_capture 기대 False, 실제 "
+                f"{report.get('ready_for_real_capture')}")
+        blocked_blockers = [b["id"] for b in report.get("blockers", [])]
+        if blocked_blockers != list(EXPECTED_PI_READINESS_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_PI_READINESS_BLOCKER_IDS)}, "
+                f"실제 {blocked_blockers}")
+        if report.get("counted_qty") is not None:
+            problems.append(
+                f"counted_qty 기대 None, 실제 {report.get('counted_qty')}")
+        if report.get("source") is not None:
+            problems.append(f"source 기대 None, 실제 {report.get('source')}")
+        if report.get("capture_source") is not None:
+            problems.append(
+                f"capture_source 기대 None, 실제 {report.get('capture_source')}")
+        if not any("촬영하지 않는다" in line
+                   for line in report.get("honesty", [])):
+            problems.append("honesty에 '촬영하지 않는다'를 포함한 줄 없음")
+        if not any("대체하지 않는다" in line
+                   for line in report.get("honesty", [])):
+            problems.append("honesty에 '대체하지 않는다'를 포함한 줄 없음")
+
+    cli_device = run_cli(["-m", "qa.pi_smoke", "--device-confirmed", "--json"])
+    ctx.note(
+        "python3 -m qa.pi_smoke --device-confirmed --json -> "
+        f"종료코드 {cli_device.returncode}")
+    if cli_device.returncode != 1:
+        problems.append(
+            f"장치 확인 CLI 종료코드 기대 1, 실제 {cli_device.returncode}: "
+            f"{cli_device.stderr[:200]}")
+    device_confirmed_blockers: list = []
+    try:
+        cli_device_report = json.loads(cli_device.stdout)
+        device_confirmed_blockers = [
+            b["id"] for b in cli_device_report.get("blockers", [])]
+    except json.JSONDecodeError as e:
+        problems.append(f"장치 확인 CLI --json 파싱 실패: {e}")
+    if device_confirmed_blockers != ["pi_camera_command_missing"]:
+        problems.append(
+            f"장치 확인 CLI blockers 기대 ['pi_camera_command_missing'], "
+            f"실제 {device_confirmed_blockers}")
+
+    passed: dict = {}
+    blocked_inproc: dict = {}
+    real: dict = {}
+    wrong_source: dict = {}
+    error_report: dict = {}
+    boom: dict = {}
+    unknown: dict = {}
+    fake_session = FakeSession()
+    blocked_session = FakeSession()
+    unknown_session = FakeSession()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        passed = run_smoke(output_dir=root / "c", device_confirmed=True,
+                           which=_libcamera, session_fn=fake_session)
+        ctx.note(
+            f"run_smoke 가짜 session -> status={passed.get('status')}, "
+            f"counted_qty={passed.get('counted_qty')}, diff={passed.get('diff')}")
+        if passed.get("status") != "passed":
+            problems.append(
+                f"가짜 session status 기대 passed, 실제 {passed.get('status')}")
+        if passed.get("attempted") is not True:
+            problems.append(
+                f"가짜 session attempted 기대 True, 실제 {passed.get('attempted')}")
+        if passed.get("ready_for_real_capture") is not True:
+            problems.append(
+                "가짜 session ready_for_real_capture 기대 True, 실제 "
+                f"{passed.get('ready_for_real_capture')}")
+        if passed.get("source") != "mock":
+            problems.append(
+                f"가짜 session source 기대 mock, 실제 {passed.get('source')}")
+        if passed.get("capture_source") != "pi-camera":
+            problems.append(
+                "가짜 session capture_source 기대 pi-camera, 실제 "
+                f"{passed.get('capture_source')}")
+        if passed.get("counted_qty") != PI_SMOKE_FAKE_COUNT:
+            problems.append(
+                f"counted_qty 기대 {PI_SMOKE_FAKE_COUNT}, "
+                f"실제 {passed.get('counted_qty')}")
+        if passed.get("book_qty") != PI_SMOKE_BOOK_QTY:
+            problems.append(
+                f"book_qty 기대 {PI_SMOKE_BOOK_QTY}, 실제 {passed.get('book_qty')}")
+        if passed.get("diff") != PI_SMOKE_FAKE_COUNT - PI_SMOKE_BOOK_QTY:
+            problems.append(
+                f"diff 기대 {PI_SMOKE_FAKE_COUNT - PI_SMOKE_BOOK_QTY}, "
+                f"실제 {passed.get('diff')}")
+        if passed.get("photo_sha256") != PI_SMOKE_FAKE_SHA:
+            problems.append(
+                f"photo_sha256 기대 {PI_SMOKE_FAKE_SHA}, "
+                f"실제 {passed.get('photo_sha256')}")
+        if passed.get("photo_image_ref") != "A-01-02.jpg":
+            problems.append(
+                "photo_image_ref 기대 A-01-02.jpg, 실제 "
+                f"{passed.get('photo_image_ref')}")
+        if passed.get("session_id") != "PI-SMOKE":
+            problems.append(
+                f"session_id 기대 PI-SMOKE, 실제 {passed.get('session_id')}")
+        if len(fake_session.calls) != 1:
+            problems.append(
+                f"가짜 session 호출 기대 1회, 실제 {len(fake_session.calls)}회")
+        elif fake_session.calls[0].get("bin_ids") != [PI_SMOKE_BIN_ID] \
+                or fake_session.calls[0].get("session_id") != "PI-SMOKE":
+            problems.append(
+                f"가짜 session 호출 인자 이상: {fake_session.calls[0]}")
+
+        blocked_dir = root / "blocked"
+        blocked_inproc = run_smoke(output_dir=blocked_dir,
+                                   device_confirmed=False, which=_no_command,
+                                   session_fn=blocked_session)
+        ctx.note(
+            f"run_smoke 차단 -> status={blocked_inproc.get('status')}, "
+            f"session 호출 {len(blocked_session.calls)}건")
+        if blocked_inproc.get("status") != "blocked":
+            problems.append(
+                "차단 시 status 기대 blocked, 실제 "
+                f"{blocked_inproc.get('status')}")
+        if blocked_inproc.get("attempted") is not False:
+            problems.append(
+                "차단 시 attempted 기대 False, 실제 "
+                f"{blocked_inproc.get('attempted')}")
+        if blocked_session.calls != []:
+            problems.append(
+                f"차단 시 session을 부르면 안 된다: 호출 {blocked_session.calls}")
+        if blocked_dir.exists():
+            problems.append("차단 시 output_dir이 생기면 안 된다")
+
+        def fake_runner(argv, capture_output=True, text=True, timeout=30):
+            Path(argv[argv.index("-o") + 1]).write_bytes(PI_SMOKE_FAKE_CONTENT)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        out_dir = root / "captures"
+        real = run_smoke(output_dir=out_dir, device_confirmed=True,
+                         which=_libcamera, runner=fake_runner)
+        ctx.note(
+            f"run_smoke 실제 pi_session+가짜 runner -> status={real.get('status')}, "
+            f"counted_qty={real.get('counted_qty')}, diff={real.get('diff')}")
+        if real.get("status") != "passed":
+            problems.append(
+                "실제 pi_session+가짜 runner status 기대 passed, 실제 "
+                f"{real.get('status')}")
+        if real.get("counted_qty") != PI_SMOKE_FAKE_COUNT:
+            problems.append(
+                f"실제 pi_session counted_qty 기대 {PI_SMOKE_FAKE_COUNT}, "
+                f"실제 {real.get('counted_qty')}")
+        if real.get("diff") != PI_SMOKE_FAKE_COUNT - PI_SMOKE_BOOK_QTY:
+            problems.append(
+                f"실제 pi_session diff 기대 "
+                f"{PI_SMOKE_FAKE_COUNT - PI_SMOKE_BOOK_QTY}, 실제 {real.get('diff')}")
+        expected_sha = hashlib.sha256(PI_SMOKE_FAKE_CONTENT).hexdigest()
+        if real.get("photo_sha256") != expected_sha:
+            problems.append(
+                f"실제 pi_session photo_sha256 기대 {expected_sha}, "
+                f"실제 {real.get('photo_sha256')}")
+        if not (out_dir / "A-01-02.jpg").is_file():
+            problems.append("실제 pi_session 캡처 파일 A-01-02.jpg 가 없다")
+
+        wrong_result = copy.deepcopy(FakeSession().result)
+        wrong_result["capture_source"] = "file"
+        wrong_source = run_smoke(output_dir=root / "wrong",
+                                 device_confirmed=True, which=_libcamera,
+                                 session_fn=FakeSession(result=wrong_result))
+        ctx.note(
+            f"run_smoke capture_source file -> status={wrong_source.get('status')}, "
+            f"error_type={wrong_source.get('error_type')}")
+        if wrong_source.get("status") != "failed":
+            problems.append(
+                "capture_source file status 기대 failed, 실제 "
+                f"{wrong_source.get('status')}")
+        if wrong_source.get("error_type") != "unexpected_capture_source":
+            problems.append(
+                "capture_source file error_type 기대 unexpected_capture_source, "
+                f"실제 {wrong_source.get('error_type')}")
+
+        error_report = run_smoke(output_dir=root / "error",
+                                 device_confirmed=True, which=_libcamera,
+                                 session_fn=_PiErrorSession())
+        ctx.note(
+            f"run_smoke PiCaptureError -> status={error_report.get('status')}, "
+            f"error_type={error_report.get('error_type')}")
+        if error_report.get("status") != "failed":
+            problems.append(
+                f"오류 시 status 기대 failed, 실제 {error_report.get('status')}")
+        if error_report.get("error_type") != "PiCaptureError":
+            problems.append(
+                "오류 시 error_type 기대 PiCaptureError, 실제 "
+                f"{error_report.get('error_type')}")
+        if error_report.get("counted_qty") is not None:
+            problems.append(
+                "오류 시 counted_qty 기대 None(대체하지 않는다), 실제 "
+                f"{error_report.get('counted_qty')}")
+
+        boom = run_smoke(output_dir=root / "boom", device_confirmed=True,
+                         which=_libcamera, session_fn=_BoomSession())
+        ctx.note(
+            f"run_smoke RuntimeError -> status={boom.get('status')}, "
+            f"error_type={boom.get('error_type')}")
+        if boom.get("status") != "failed":
+            problems.append(
+                f"일반 예외 시 status 기대 failed, 실제 {boom.get('status')}")
+        if boom.get("error_type") != "RuntimeError":
+            problems.append(
+                "일반 예외 시 error_type 기대 RuntimeError, 실제 "
+                f"{boom.get('error_type')}")
+
+        unknown = run_smoke(output_dir=root / "unknown", device_confirmed=True,
+                            which=_libcamera, bin_id="Z-99-99",
+                            session_fn=unknown_session)
+        ctx.note(
+            f"run_smoke 알 수 없는 빈 -> status={unknown.get('status')}, "
+            f"error_type={unknown.get('error_type')}")
+        if unknown.get("status") != "failed":
+            problems.append(
+                f"알 수 없는 빈 status 기대 failed, 실제 {unknown.get('status')}")
+        if unknown.get("error_type") != "unknown_bin":
+            problems.append(
+                "알 수 없는 빈 error_type 기대 unknown_bin, 실제 "
+                f"{unknown.get('error_type')}")
+        if unknown.get("attempted") is not False:
+            problems.append(
+                f"알 수 없는 빈 attempted 기대 False, 실제 {unknown.get('attempted')}")
+        if unknown_session.calls != []:
+            problems.append(
+                f"알 수 없는 빈에서 session을 부르면 안 된다: 호출 {unknown_session.calls}")
+
+    dumped = "".join(
+        json.dumps(item, ensure_ascii=False)
+        for item in (passed, blocked_inproc, real, wrong_source, error_report,
+                     boom, unknown, report)) + result.stdout + result_j.stdout
+    sentinel_leaked = PI_SMOKE_SENTINEL in dumped
+    ctx.note(f"예외 원본 문자열 누출 -> {sentinel_leaked}")
+    if sentinel_leaked:
+        problems.append("일반 예외 원본 문자열이 pi_smoke 보고나 CLI 출력에 새어 나왔다")
+
+    summary = {"feature": "pi-smoke",
+               "blocked_blockers": blocked_blockers,
+               "default_exit_code": result.returncode,
+               "device_confirmed_blockers": device_confirmed_blockers,
+               "fake_passed": passed.get("status") == "passed",
+               "counted_qty": passed.get("counted_qty"),
+               "book_qty": passed.get("book_qty"),
+               "diff": passed.get("diff"),
+               "blocked_session_calls": len(blocked_session.calls),
+               "real_session_passed": real.get("status") == "passed",
+               "fake_capture_sha256":
+                   hashlib.sha256(PI_SMOKE_FAKE_CONTENT).hexdigest(),
+               "unexpected_capture_source_blocked":
+                   wrong_source.get("error_type") == "unexpected_capture_source",
+               "pi_capture_error_blocked":
+                   error_report.get("error_type") == "PiCaptureError",
+               "unknown_bin_blocked":
+                   unknown.get("error_type") == "unknown_bin",
+               "sentinel_leaked": sentinel_leaked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"pi-smoke-blocked.json": result_j.stdout,
+                    "pi-smoke-passed.json": json.dumps(
+                        passed, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -1829,7 +2177,8 @@ DRIVERS = {"console-home": drive_console_home,
            "submission-runbook": drive_submission_runbook,
            "pi-readiness": drive_pi_readiness,
            "console-readiness": drive_console_readiness,
-           "sam-smoke": drive_sam_smoke}
+           "sam-smoke": drive_sam_smoke,
+           "pi-smoke": drive_pi_smoke}
 
 
 def main(argv: list[str] | None = None) -> int:
