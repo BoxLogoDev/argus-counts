@@ -83,6 +83,57 @@ def _card(label: str, value: str) -> str:
     )
 
 
+_HONESTY_LINE = "준비 완료는 실호출·실촬영 성공을 뜻하지 않는다"
+
+
+def _blocker_ids(readiness: dict, key: str, nested: dict) -> list[str]:
+    ids = readiness.get(key)
+    if ids is None:
+        ids = [
+            str(blocker.get("id", ""))
+            for blocker in (nested.get("blockers") or [])
+            if isinstance(blocker, dict)
+        ]
+    return [str(blocker_id) for blocker_id in (ids or [])]
+
+
+def _blocker_line(blockers: list[str]) -> str:
+    if blockers:
+        return ", ".join(blockers)
+    return "블로커 없음"
+
+
+def _readiness_section(readiness: dict) -> str:
+    sam = readiness.get("sam") or {}
+    pi = readiness.get("pi") or {}
+    sam_ready = readiness.get("sam_ready", sam.get("ready_for_live_call", False))
+    pi_ready = readiness.get(
+        "pi_ready", pi.get("ready_for_real_capture", False)
+    )
+    sam_blockers = _blocker_ids(readiness, "sam_blockers", sam)
+    pi_blockers = _blocker_ids(readiness, "pi_blockers", pi)
+    honesty = [str(item) for item in (readiness.get("honesty") or [])]
+    if _HONESTY_LINE not in honesty:
+        honesty.append(_HONESTY_LINE)
+    honesty_html = "".join(
+        f'<p class="meta">{html.escape(item)}</p>' for item in honesty
+    )
+    sam_line = "SAM 실호출 준비: " + ("준비 완료" if sam_ready else "준비 안 됨")
+    pi_line = "Pi 실촬영 준비: " + ("준비 완료" if pi_ready else "준비 안 됨")
+    return (
+        "<section>\n"
+        "<h2>준비 상태</h2>\n"
+        f'<p class="meta">{html.escape(sam_line)}</p>\n'
+        f'<p class="meta">{html.escape(pi_line)}</p>\n'
+        f'<p class="meta">SAM 블로커: '
+        f"{html.escape(_blocker_line(sam_blockers))}</p>\n"
+        f'<p class="meta">Pi 블로커: '
+        f"{html.escape(_blocker_line(pi_blockers))}</p>\n"
+        f"{honesty_html}"
+        "</section>\n"
+    )
+
+
 def render_html(view: dict) -> str:
     metrics = view["metrics"]
     badge = '<span class="badge">모의 데이터</span>' if view["is_mock"] else ""
@@ -112,6 +163,8 @@ def render_html(view: dict) -> str:
         f'<p class="meta">{html.escape(str(view.get("impact_line", "")))}</p>'
     )
 
+    readiness_html = _readiness_section(view.get("readiness") or {})
+
     return f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -133,7 +186,7 @@ def render_html(view: dict) -> str:
 <p class="meta">생성 시각: {html.escape(str(view["generated_at"]))}</p>
 <p class="meta">계수 출처: {html.escape(str(view["source_label"]))}</p>
 </section>
-<section>
+{readiness_html}<section>
 <h2>차이 목록</h2>
 {differences_html}
 </section>

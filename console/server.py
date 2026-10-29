@@ -5,6 +5,7 @@ GET /api/report는 같은 시뮬레이션 리포트를 JSON으로 돌려준다.
 GET /sessions는 데모 세션 목록을 HTML로, GET /api/sessions는 JSON으로
 돌려준다. GET /sessions/<id>와 GET /api/sessions/<id>는 한 세션의
 상세를 돌려주고, 없는 세션이면 404다.
+GET /api/readiness는 같은 준비 상태를 JSON으로 돌려주며 실제 API 호출·촬영은 하지 않는다.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from urllib.parse import urlparse
 
 from terminal.simulator import run_simulation
 
+from .readiness import build_readiness
 from .render import render_html, render_sessions_html
 from .sessions import build_session_list_view, get_session_report
 from .view import build_view
@@ -30,6 +32,11 @@ def create_handler():
             elif path == "/api/report":
                 body = json.dumps(
                     run_simulation(), ensure_ascii=False
+                ).encode("utf-8")
+                self._send(200, "application/json", body)
+            elif path == "/api/readiness":
+                body = json.dumps(
+                    build_readiness(), ensure_ascii=False
                 ).encode("utf-8")
                 self._send(200, "application/json", body)
             elif path == "/sessions":

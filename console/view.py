@@ -1,6 +1,7 @@
 """시뮬레이터 리포트를 콘솔 화면용 뷰 모델로 바꾼다."""
 from __future__ import annotations
 
+from console.readiness import build_readiness
 from terminal.report import build_actions, impact_line
 
 
@@ -12,7 +13,9 @@ def _verdict_label(verdict: str) -> str:
     return "초과"
 
 
-def build_view(report: dict) -> dict:
+def build_view(report: dict, readiness=None) -> dict:
+    if readiness is None:
+        readiness = build_readiness()
     summary = report["summary"]
     match_rate = float(summary["match_rate"])
 
@@ -48,4 +51,5 @@ def build_view(report: dict) -> dict:
         "bins": bins,
         "actions": actions,
         "impact_line": impact_line(report),
+        "readiness": readiness,
     }

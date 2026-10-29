@@ -14,7 +14,7 @@
       "file": "console-home.html",
       "kind": "html",
       "status": 200,
-      "bytes": 3952,
+      "bytes": 4501,
       "markers_found": {
         "조치 우선순위": true,
         "모의 데이터": true,
@@ -46,7 +46,7 @@
       "file": "console-session-detail.html",
       "kind": "html",
       "status": 200,
-      "bytes": 3208,
+      "bytes": 3757,
       "markers_found": {
         "DEMO-20261027-B": true,
         "100.0%": true
