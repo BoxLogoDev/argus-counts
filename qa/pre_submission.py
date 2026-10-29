@@ -2,8 +2,10 @@
 
 기존 점검들(QA 기준값 대조, standalone 점검, 현재형 주장 감사)과
 SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
-데모 자산의 존재·정합을 한 번에 묶어 기계적으로 확인한다.
-기계 점검은 총 8종이다.
+콘솔 준비 상태(console.readiness)가 같은 조건의 두 준비 점검과
+어긋나지 않는지의 정합, 데모 자산의 존재·정합을 한 번에 묶어
+기계적으로 확인한다.
+기계 점검은 총 9종이다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
 상태(블로커 존재)는 기계 점검 실패가 아니다. 실패는 준비
 점검 보고가 내부적으로 모순되거나 전수 점검 블로커와
@@ -24,6 +26,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from console.readiness import build_readiness as build_console_readiness
 from qa.claims_audit import audit_files
 from qa.harness import run_checks as run_qa_checks
 from qa.pi_readiness import check_readiness as check_pi_readiness
@@ -370,6 +373,122 @@ def validate_pi_readiness(report, blockers=None) -> list[str]:
     return problems
 
 
+def validate_console_readiness(report, sam_report=None, pi_report=None) -> list[str]:
+    """콘솔 준비 상태가 내부적으로, 그리고 두 준비 점검 보고와 맞는지 검사한다."""
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "sam",
+        "pi",
+        "sam_blockers",
+        "pi_blockers",
+        "blocker_count",
+        "sam_ready",
+        "pi_ready",
+        "overall_ready",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    sam_blockers = report["sam_blockers"]
+    pi_blockers = report["pi_blockers"]
+    if not isinstance(sam_blockers, (list, tuple)):
+        problems.append(f"console readiness: sam_blockers is not a list: {sam_blockers!r}")
+        sam_blockers = []
+    if not isinstance(pi_blockers, (list, tuple)):
+        problems.append(f"console readiness: pi_blockers is not a list: {pi_blockers!r}")
+        pi_blockers = []
+    sam = report["sam"] if isinstance(report["sam"], dict) else None
+    pi = report["pi"] if isinstance(report["pi"], dict) else None
+    if sam is None:
+        problems.append(f"console readiness: sam is not a dict: {report['sam']!r}")
+    if pi is None:
+        problems.append(f"console readiness: pi is not a dict: {report['pi']!r}")
+    if sam is not None and isinstance(sam.get("blockers"), (list, tuple)):
+        sam_ids = _readiness_blocker_ids(sam["blockers"], problems, "console sam")
+        if list(sam_blockers) != sam_ids:
+            problems.append(
+                f"console readiness: sam_blockers {list(sam_blockers)} != "
+                f"console sam blocker ids {sam_ids}"
+            )
+    if pi is not None and isinstance(pi.get("blockers"), (list, tuple)):
+        pi_ids = _readiness_blocker_ids(pi["blockers"], problems, "console pi")
+        if list(pi_blockers) != pi_ids:
+            problems.append(
+                f"console readiness: pi_blockers {list(pi_blockers)} != "
+                f"console pi blocker ids {pi_ids}"
+            )
+    if report["blocker_count"] != len(sam_blockers) + len(pi_blockers):
+        problems.append(
+            f"console readiness: blocker_count={report['blocker_count']!r} "
+            f"!= len(sam_blockers)+len(pi_blockers)="
+            f"{len(sam_blockers) + len(pi_blockers)}"
+        )
+    sam_ready = bool(report["sam_ready"])
+    pi_ready = bool(report["pi_ready"])
+    if sam is not None and "ready_for_live_call" in sam:
+        if sam_ready != bool(sam["ready_for_live_call"]):
+            problems.append(
+                f"console readiness: sam_ready={report['sam_ready']!r} "
+                f"!= sam.ready_for_live_call={sam['ready_for_live_call']!r}"
+            )
+    if pi is not None and "ready_for_real_capture" in pi:
+        if pi_ready != bool(pi["ready_for_real_capture"]):
+            problems.append(
+                f"console readiness: pi_ready={report['pi_ready']!r} "
+                f"!= pi.ready_for_real_capture={pi['ready_for_real_capture']!r}"
+            )
+    if bool(report["overall_ready"]) != (sam_ready and pi_ready):
+        problems.append(
+            f"console readiness: overall_ready={report['overall_ready']!r} "
+            f"!= (sam_ready={report['sam_ready']!r} and pi_ready={report['pi_ready']!r})"
+        )
+    if sam_report is not None and isinstance(sam_report, dict):
+        ext_ids: list[str] = []
+        ext_problems: list[str] = []
+        if isinstance(sam_report.get("blockers"), (list, tuple)):
+            ext_ids = _readiness_blocker_ids(
+                sam_report["blockers"], ext_problems, "sam readiness"
+            )
+            problems.extend(ext_problems)
+            if list(sam_blockers) != ext_ids:
+                problems.append(
+                    f"console readiness: sam_blockers {list(sam_blockers)} != "
+                    f"sam readiness blocker ids {ext_ids}"
+                )
+        if "ready_for_live_call" in sam_report:
+            if sam_ready != bool(sam_report["ready_for_live_call"]):
+                problems.append(
+                    f"console readiness: sam_ready={report['sam_ready']!r} "
+                    f"!= sam readiness ready_for_live_call="
+                    f"{sam_report['ready_for_live_call']!r}"
+                )
+    if pi_report is not None and isinstance(pi_report, dict):
+        ext_ids = []
+        ext_problems = []
+        if isinstance(pi_report.get("blockers"), (list, tuple)):
+            ext_ids = _readiness_blocker_ids(
+                pi_report["blockers"], ext_problems, "pi readiness"
+            )
+            problems.extend(ext_problems)
+            if list(pi_blockers) != ext_ids:
+                problems.append(
+                    f"console readiness: pi_blockers {list(pi_blockers)} != "
+                    f"pi readiness blocker ids {ext_ids}"
+                )
+        if "ready_for_real_capture" in pi_report:
+            if pi_ready != bool(pi_report["ready_for_real_capture"]):
+                problems.append(
+                    f"console readiness: pi_ready={report['pi_ready']!r} "
+                    f"!= pi readiness ready_for_real_capture="
+                    f"{pi_report['ready_for_real_capture']!r}"
+                )
+    _check_honesty(report, problems, "console readiness", "실호출·실촬영 성공")
+    return problems
+
+
 def _check_sam_readiness(sam_env=None, sam_credit_confirmed=False):
     name = "sam_readiness_consistent"
     try:
@@ -400,6 +519,40 @@ def _check_pi_readiness(pi_probe=None, pi_device_confirmed=False, pi_which=None)
     detail = (
         f"ready_for_real_capture={report['ready_for_real_capture']} "
         f"blockers={[b['id'] for b in report['blockers']]}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
+def _check_console_readiness(
+    sam_env=None,
+    sam_credit_confirmed=False,
+    pi_probe=None,
+    pi_device_confirmed=False,
+    pi_which=None,
+    sam_report=None,
+    pi_report=None,
+):
+    name = "console_readiness_consistent"
+    try:
+        report = build_console_readiness(
+            env=sam_env,
+            sam_credit_confirmed=sam_credit_confirmed,
+            pi_device_confirmed=pi_device_confirmed,
+            pi_probe=pi_probe,
+            pi_which=pi_which,
+        )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_console_readiness(
+        report, sam_report=sam_report, pi_report=pi_report
+    )
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"overall_ready={report['overall_ready']} "
+        f"blocker_count={report['blocker_count']} "
+        f"sam_blockers={report['sam_blockers']} "
+        f"pi_blockers={report['pi_blockers']}"
     )
     return PreSubmissionCheck(name, True, detail), report
 
@@ -451,6 +604,17 @@ def run_pre_submission_checks(
     )
     checks.append(pi_check)
 
+    console_check, console_report = _check_console_readiness(
+        sam_env=sam_env,
+        sam_credit_confirmed=sam_credit_confirmed,
+        pi_probe=pi_probe,
+        pi_device_confirmed=pi_device_confirmed,
+        pi_which=pi_which,
+        sam_report=sam_report,
+        pi_report=pi_report,
+    )
+    checks.append(console_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -471,7 +635,7 @@ def run_pre_submission_checks(
         "total": len(checks),
         "mechanical_pass": passed == len(checks),
         "blockers": [dict(b) for b in BLOCKERS],
-        "readiness": {"sam": sam_report, "pi": pi_report},
+        "readiness": {"sam": sam_report, "pi": pi_report, "console": console_report},
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
     }

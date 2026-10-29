@@ -12,6 +12,7 @@ from qa.pre_submission import (
     build_report,
     format_text_report,
     run_pre_submission_checks,
+    validate_console_readiness,
     validate_data_panel,
     validate_pi_readiness,
     validate_sam_readiness,
@@ -209,9 +210,10 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 8)
+        self.assertEqual(result["total"], 9)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
+        self.assertIn("console_readiness_consistent", names)
         self.assertTrue(result["mechanical_pass"], result["checks"])
         sam_ids = [b["id"] for b in result["readiness"]["sam"]["blockers"]]
         self.assertEqual(
@@ -224,6 +226,13 @@ class ReadinessIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(result["readiness"]["sam"]["ready_for_live_call"])
         self.assertFalse(result["readiness"]["pi"]["ready_for_real_capture"])
+        console = result["readiness"]["console"]
+        self.assertEqual(console["blocker_count"], 5)
+        self.assertFalse(console["overall_ready"])
+        self.assertFalse(console["sam_ready"])
+        self.assertFalse(console["pi_ready"])
+        self.assertEqual(console["sam_blockers"], sam_ids)
+        self.assertEqual(console["pi_blockers"], pi_ids)
 
     def test_sam_ready_fake_env_passes_but_still_not_submission_ready(self):
         env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
@@ -315,9 +324,64 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 8)
+            self.assertEqual(result["total"], 9)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
+
+    def test_console_ready_fake_env_and_probe_still_not_submission_ready(self):
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        result = run_pre_submission_checks(
+            ROOT,
+            sam_env=env,
+            sam_credit_confirmed=True,
+            pi_probe=READY_PI_PROBE,
+            pi_device_confirmed=True,
+        )
+        by_name = {c.name: c.passed for c in result["checks"]}
+        self.assertTrue(by_name["console_readiness_consistent"])
+        console = result["readiness"]["console"]
+        self.assertTrue(console["overall_ready"])
+        self.assertEqual(console["blocker_count"], 0)
+        self.assertEqual(console["sam_blockers"], [])
+        self.assertEqual(console["pi_blockers"], [])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_console_detects_overall_contradiction(self):
+        from console.readiness import build_readiness
+
+        report = build_readiness(env={}, pi_probe=MISSING_PI_PROBE)
+        self.assertEqual(validate_console_readiness(report), [])
+        report["overall_ready"] = True
+        problems = validate_console_readiness(report)
+        self.assertTrue(any("overall_ready" in p for p in problems), problems)
+
+    def test_validate_console_detects_blocker_count_mismatch(self):
+        from console.readiness import build_readiness
+
+        report = build_readiness(env={}, pi_probe=MISSING_PI_PROBE)
+        report["blocker_count"] = 99
+        problems = validate_console_readiness(report)
+        self.assertTrue(any("blocker_count" in p for p in problems), problems)
+
+    def test_validate_console_detects_cross_mismatch_with_sam_report(self):
+        from console.readiness import build_readiness
+        from qa.sam_readiness import check_readiness as check_sam
+
+        console = build_readiness(env={}, pi_probe=MISSING_PI_PROBE)
+        sam_report = check_sam(
+            env={"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"},
+            credit_confirmed=True,
+        )
+        problems = validate_console_readiness(console, sam_report=sam_report)
+        self.assertTrue(any("sam" in p for p in problems), problems)
+
+    def test_validate_console_detects_missing_honesty(self):
+        from console.readiness import build_readiness
+
+        report = build_readiness(env={}, pi_probe=MISSING_PI_PROBE)
+        report["honesty"] = ["다른 문구만 있다"]
+        problems = validate_console_readiness(report)
+        self.assertTrue(any("honesty" in p for p in problems), problems)
 
 
 if __name__ == "__main__":
