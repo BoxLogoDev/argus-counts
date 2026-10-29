@@ -410,6 +410,60 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(all("장부" in line and "→ 실측" in line
                                 for line in panel["5"]))
 
+    def test_demo_video_assembly_fallback_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("assembly-fallback.json", skill)
+        self.assertIn("build_fallback_ref", skill)
+        feature = (SKILL_DIR / "features" / "demo-video-draft.md").read_text(
+            encoding="utf-8")
+        for marker in ("video-assembly-fallback", "build_fallback_ref",
+                       "validate_assembly", "assembly-fallback.json",
+                       "2026-11-02", "Pi 실촬영이 아니다",
+                       "demo/assets/fallback.json"):
+            self.assertIn(marker, feature)
+
+    def test_demo_video_drives_and_records_assembly_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-fallback"
+            result = self._run_helper("--feature", "demo-video-draft",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "demo-video-draft")
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(summary["assembly_fallback_cut_index"], 3)
+            self.assertEqual(summary["assembly_fallback_capture_source"], "file")
+            self.assertIs(summary["assembly_fallback_is_pi_real_capture"], False)
+            self.assertEqual(summary["assembly_fallback_decision_date"],
+                             "2026-11-02")
+            self.assertTrue(summary["assembly_fallback_tamper_detected"])
+            self.assertTrue(summary["assembly_fallback_missing_detected"])
+            payload = json.loads((evidence / "assembly-fallback.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(payload["fallback"]["asset"],
+                             "demo/assets/fallback.json")
+            self.assertEqual(payload["fallback"]["replaces"], "pi-placeholder")
+            self.assertTrue(payload["tamper_detected"])
+            self.assertTrue(payload["missing_detected"])
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_demo_video_assembly_fallback_evidence_keeps_honesty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-fallback-honesty"
+            result = self._run_helper("--feature", "demo-video-draft",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "assembly-fallback.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(payload["is_pi_real_capture"], False)
+            self.assertEqual(payload["capture_source"], "file")
+            self.assertTrue(any("Pi 실촬영이 아닙니다" in line
+                                for line in payload["honesty"]))
+            self.assertTrue(any("Pi 실촬영 아님" in line
+                                for line in payload["honesty"]))
+
     def test_pi_capture_drives_and_records_fake_hash(self):
         import hashlib
 

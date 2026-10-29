@@ -9,6 +9,7 @@
 - `video-honesty` 전 컷 하단에 `모의 데이터 · 데모 기준` 표기가 있다.
 - `video-placeholder` 컷 3은 Pi 도착 후 실촬영으로 교체한다는 경고 문구가 있는 플레이스홀더 화면이다.
 - `video-data-panel` 컷별 데이터 패널 줄을 실제 시뮬레이션 리포트에서 구해 대조한다(컷 5 전체 빈 6줄, 컷 6 불일치만 2줄, 컷 9 `데모 기준` 영향 한 줄).
+- `video-assembly-fallback` 조립 매니페스트 컷 3에만 파일 입력 폴백 참조가 있고 `build_fallback_ref`·`validate_assembly`로 대조한다(자산 `demo/assets/fallback.json`, 결정일 2026-11-02, Pi 실촬영이 아니다).
 
 ## How to get to it (user POV)
 
@@ -28,6 +29,7 @@ Preconditions:
 - **프레임 확인.** Run `ffmpeg -y -v error -ss 5 -i demo/assets/argus-demo-draft.mp4 -frames:v 1 /tmp/argus-verify-evidence/<run-id>/cut1.png`와 `-ss 40`으로 컷 3 프레임을 뽑는다. 컷 1에는 제목과 `모의 데이터 · 데모 기준` 표기가, 컷 3에는 Pi 교체 경고가 보여야 한다.
 - **자산 정합.** `demo/assets/narration.json`의 pace_warnings가 빈 배열이고, `demo/assets/assembly.json`의 총 길이가 180초인지 확인한다.
 - **데이터 패널.** 헬퍼가 `demo.render_video.build_data_panel_lines`로 컷 1~9 패널을 구동한다. 컷 5는 전체 빈 6줄, 컷 6은 불일치 2줄, 컷 3은 `실촬영 데이터 없음 — Pi 도착 후 교체`만 있어야 하며, 변조 리포트(counted_qty 999)가 `실측 999`로 반영돼 하드코딩이 아님을 증명한다. 증거는 `data-panel.json`에 남는다.
+- **조립 폴백.** 헬퍼가 `demo.assemble.build_fallback_ref`와 `validate_assembly`로 조립 매니페스트를 구동한다. 컷 3 세그먼트의 fallback은 자산 `demo/assets/fallback.json`·cut_index 3·결정일 2026-11-02·is_pi_real_capture False·capture_source file·replaces pi-placeholder와 일치하고 다른 컷에는 없어야 하며, fallback을 지우거나 is_pi_real_capture를 True로 바꾸면 `validate_assembly`가 지목해야 한다. 조립 텍스트에는 `fallback: demo/assets/fallback.json`와 `Pi 실촬영 아님`이 있어야 한다. 증거는 `assembly-fallback.json`에 남으며, 이 폴백은 Pi 실촬영이 아니고 컷 3 전환 확정도 아니다.
 
 ## Gotchas
 

@@ -172,6 +172,15 @@ FALLBACK_EXPECTED_SUMMARY = {"counted_bins": 6, "matched": 4,
                              "net_diff": 0}
 FALLBACK_HONESTY_MARKERS = ("Pi 실촬영이 아닙니다", "Pi 실촬영 검증 전",
                             "SAM 실호출 미실시", "데모 기준")
+ASSEMBLY_FALLBACK_ASSET = "demo/assets/fallback.json"
+ASSEMBLY_FALLBACK_CUT_INDEX = 3
+ASSEMBLY_FALLBACK_DECISION_DATE = "2026-11-02"
+ASSEMBLY_FALLBACK_EXPECTED = {"asset": ASSEMBLY_FALLBACK_ASSET,
+                              "cut_index": ASSEMBLY_FALLBACK_CUT_INDEX,
+                              "decision_date": ASSEMBLY_FALLBACK_DECISION_DATE,
+                              "is_pi_real_capture": False,
+                              "capture_source": "file",
+                              "replaces": "pi-placeholder"}
 
 
 def clean_env() -> dict:
@@ -444,6 +453,64 @@ def drive_demo_video(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"assembly total_seconds 기대 180, 실제 {assembly.get('total_seconds')}")
     probe["pace_warnings"] = narration.get("pace_warnings")
     probe["assembly_total_seconds"] = assembly.get("total_seconds")
+    # 조립 폴백 참조: 컷 3에만 파일 입력 폴백 후보가 있어야 한다(Pi 실촬영 아님).
+    from demo.assemble import (build_assembly, build_assembly_text,
+                               build_fallback_ref, validate_assembly)
+
+    if build_fallback_ref() != ASSEMBLY_FALLBACK_EXPECTED:
+        problems.append(
+            f"build_fallback_ref 기대 {ASSEMBLY_FALLBACK_EXPECTED}, "
+            f"실제 {build_fallback_ref()}")
+    segments = assembly.get("segments", [])
+    cut3_segments = [s for s in segments if s.get("index") == ASSEMBLY_FALLBACK_CUT_INDEX]
+    assembly_fallback = cut3_segments[0].get("fallback") if cut3_segments else None
+    if assembly_fallback != ASSEMBLY_FALLBACK_EXPECTED:
+        problems.append(
+            f"assembly 컷 3 fallback 기대 {ASSEMBLY_FALLBACK_EXPECTED}, "
+            f"실제 {assembly_fallback}")
+    other_fallback = [s.get("index") for s in segments
+                      if s.get("index") != ASSEMBLY_FALLBACK_CUT_INDEX
+                      and "fallback" in s]
+    if other_fallback:
+        problems.append(f"컷 3 외 fallback 참조가 있는 컷 {other_fallback}")
+    built_assembly = build_assembly()
+    built_problems = validate_assembly(built_assembly)
+    if built_problems:
+        problems.append(f"build_assembly validate_assembly 문제: {built_problems}")
+    tampered_assembly = copy.deepcopy(built_assembly)
+    tampered_assembly["segments"][2]["fallback"]["is_pi_real_capture"] = True
+    assembly_fallback_tamper_detected = any(
+        "fallback" in p for p in validate_assembly(tampered_assembly))
+    if not assembly_fallback_tamper_detected:
+        problems.append("컷 3 fallback is_pi_real_capture 변조를 탐지하지 못했다")
+    missing_assembly = copy.deepcopy(built_assembly)
+    del missing_assembly["segments"][2]["fallback"]
+    assembly_fallback_missing_detected = any(
+        "fallback" in p for p in validate_assembly(missing_assembly))
+    if not assembly_fallback_missing_detected:
+        problems.append("컷 3 fallback 누락을 탐지하지 못했다")
+    assembly_text = build_assembly_text(built_assembly)
+    if f"fallback: {ASSEMBLY_FALLBACK_ASSET}" not in assembly_text:
+        problems.append("조립 텍스트에 fallback 자산 표기가 없다")
+    if "Pi 실촬영 아님" not in assembly_text:
+        problems.append("조립 텍스트에 'Pi 실촬영 아님' 표기가 없다")
+    ctx.note(
+        f"조립 폴백 참조 -> 컷 {ASSEMBLY_FALLBACK_CUT_INDEX} "
+        f"fallback={assembly_fallback}, "
+        f"변조 탐지 {assembly_fallback_tamper_detected}, "
+        f"누락 탐지 {assembly_fallback_missing_detected}")
+    probe["assembly_fallback"] = assembly_fallback
+    assembly_fallback_payload = {
+        "fallback": assembly_fallback,
+        "expected": ASSEMBLY_FALLBACK_EXPECTED,
+        "cut_index": ASSEMBLY_FALLBACK_CUT_INDEX,
+        "decision_date": ASSEMBLY_FALLBACK_DECISION_DATE,
+        "is_pi_real_capture": (assembly_fallback or {}).get("is_pi_real_capture"),
+        "capture_source": (assembly_fallback or {}).get("capture_source"),
+        "tamper_detected": assembly_fallback_tamper_detected,
+        "missing_detected": assembly_fallback_missing_detected,
+        "honesty": ["컷 3 폴백은 파일 입력이며 Pi 실촬영이 아닙니다",
+                    "Pi 실촬영 아님"]}
     from demo.render_video import build_data_panel_lines
     from terminal.simulator import run_simulation
 
@@ -504,10 +571,17 @@ def drive_demo_video(ctx: Ctx, evidence: Path) -> dict:
                           **panel}
     summary = {"feature": "demo-video-draft", "probe": probe,
                "data_panel_cuts": data_panel_cuts,
+               "assembly_fallback_cut_index": (assembly_fallback or {}).get("cut_index"),
+               "assembly_fallback_capture_source": (assembly_fallback or {}).get("capture_source"),
+               "assembly_fallback_is_pi_real_capture": (assembly_fallback or {}).get("is_pi_real_capture"),
+               "assembly_fallback_decision_date": (assembly_fallback or {}).get("decision_date"),
+               "assembly_fallback_tamper_detected": assembly_fallback_tamper_detected,
+               "assembly_fallback_missing_detected": assembly_fallback_missing_detected,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"video-probe.json": json.dumps(probe, ensure_ascii=False, indent=2) + "\n",
-                    "data-panel.json": json.dumps(data_panel_payload, ensure_ascii=False, indent=2) + "\n"})
+                    "data-panel.json": json.dumps(data_panel_payload, ensure_ascii=False, indent=2) + "\n",
+                    "assembly-fallback.json": json.dumps(assembly_fallback_payload, ensure_ascii=False, indent=2) + "\n"})
     return summary
 
 
