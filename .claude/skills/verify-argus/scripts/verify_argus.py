@@ -25,6 +25,9 @@ Pi 단일 빈 스모크(pi-smoke)는 실제 촬영 없이 CLI 기본 차단과 �
 성공해도 전체 세션 성공이나 Pi 실촬영 검증 완료가 아님).
 제출 문안 패키지(devpost-submission)는 파일 원문을 읽어 절 순서·데모
 수치·블로커를 대조하고 변조 탐지를 확인한다(제출 준비 완료가 아니다).
+파일 입력 폴백(file-fallback)은 demo.fallback CLI를 임시 출력 디렉터리로
+구동해 컷 3 폴백 자산(파일 입력·모의 계수)을 대조하고 변조 탐지를
+확인한다(Pi 실촬영이 아니다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -37,7 +40,7 @@ Pi 단일 빈 스모크(pi-smoke)는 실제 촬영 없이 CLI 기본 차단과 �
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
-all(전부, 기능별 하위 디렉터리).
+file-fallback, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -73,7 +76,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
             "sam-readiness", "submission-runbook", "pi-readiness",
             "console-readiness", "sam-smoke", "pi-smoke",
-            "devpost-submission")
+            "devpost-submission", "file-fallback")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -161,6 +164,14 @@ DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이고 SAM 실호출�
 DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
 DEVPOST_DEADLINE_ET = "2026-11-04 21:00 ET"
 DEVPOST_DEADLINE_KST = "2026-11-05 11:00 KST"
+FALLBACK_CUT_INDEX = 3
+FALLBACK_DECISION_DATE = "2026-11-02"
+FALLBACK_SESSION_ID = "FALLBACK-FILE-INPUT"
+FALLBACK_EXPECTED_SUMMARY = {"counted_bins": 6, "matched": 4,
+                             "mismatched": 2, "abs_diff_total": 6,
+                             "net_diff": 0}
+FALLBACK_HONESTY_MARKERS = ("Pi 실촬영이 아닙니다", "Pi 실촬영 검증 전",
+                            "SAM 실호출 미실시", "데모 기준")
 
 
 def clean_env() -> dict:
@@ -2420,6 +2431,172 @@ def drive_pi_smoke(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+
+def drive_file_fallback(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from demo.fallback import (build_fallback_manifest, fake_photo_bytes,
+                               validate_fallback)
+
+    manifest: dict = {}
+    fallback_text = ""
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp) / "assets"
+        result = subprocess.run(
+            [sys.executable, "-m", "demo.fallback", "--out", str(out_dir)],
+            cwd=ROOT, env=clean_env(), capture_output=True, text=True,
+            timeout=120)
+        ctx.note(
+            f"python3 -m demo.fallback --out <tmp> -> 종료코드 {result.returncode}")
+        if result.returncode != 0:
+            problems.append(
+                f"demo.fallback CLI 종료코드 기대 0, 실제 {result.returncode}: "
+                f"{result.stderr[:200]}")
+        if "검증 통과" not in result.stdout:
+            problems.append("demo.fallback CLI stdout에 '검증 통과' 없음")
+        json_path = out_dir / "fallback.json"
+        txt_path = out_dir / "fallback.txt"
+        if json_path.is_file():
+            try:
+                manifest = json.loads(json_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                problems.append(f"fallback.json 파싱 실패: {e}")
+        else:
+            problems.append("CLI가 fallback.json을 만들지 않았다")
+        if txt_path.is_file():
+            fallback_text = txt_path.read_text(encoding="utf-8")
+        else:
+            problems.append("CLI가 fallback.txt를 만들지 않았다")
+
+    validate_problems: list[str] = []
+    if manifest:
+        validate_problems = validate_fallback(manifest)
+        ctx.note(f"validate_fallback(CLI manifest) -> 문제 {len(validate_problems)}건")
+        if validate_problems:
+            problems.append(f"validate_fallback 문제: {validate_problems}")
+        if manifest.get("cut_index") != FALLBACK_CUT_INDEX:
+            problems.append(
+                f"cut_index 기대 {FALLBACK_CUT_INDEX}, 실제 {manifest.get('cut_index')}")
+        if manifest.get("replaces") != "pi-placeholder":
+            problems.append(
+                f"replaces 기대 pi-placeholder, 실제 {manifest.get('replaces')}")
+        if manifest.get("decision_date") != FALLBACK_DECISION_DATE:
+            problems.append(
+                f"decision_date 기대 {FALLBACK_DECISION_DATE}, "
+                f"실제 {manifest.get('decision_date')}")
+        if manifest.get("is_pi_real_capture") is not False:
+            problems.append(
+                "is_pi_real_capture 기대 False, 실제 "
+                f"{manifest.get('is_pi_real_capture')}")
+        if manifest.get("capture_source") != "file":
+            problems.append(
+                f"capture_source 기대 file, 실제 {manifest.get('capture_source')}")
+        if manifest.get("source") != "mock":
+            problems.append(f"source 기대 mock, 실제 {manifest.get('source')}")
+        if manifest.get("session_id") != FALLBACK_SESSION_ID:
+            problems.append(
+                f"session_id 기대 {FALLBACK_SESSION_ID}, "
+                f"실제 {manifest.get('session_id')}")
+        summary_map = manifest.get("summary") or {}
+        for key, expected in FALLBACK_EXPECTED_SUMMARY.items():
+            if summary_map.get(key) != expected:
+                problems.append(
+                    f"summary.{key} 기대 {expected}, 실제 {summary_map.get(key)}")
+        bins = manifest.get("bins") or []
+        if len(bins) != 6:
+            problems.append(f"bins 기대 6개, 실제 {len(bins)}개")
+        for entry in bins:
+            bin_id = entry.get("bin_id")
+            expected_sha = hashlib.sha256(fake_photo_bytes(str(bin_id))).hexdigest()
+            photo = entry.get("photo") or {}
+            if photo.get("sha256") != expected_sha:
+                problems.append(
+                    f"bin {bin_id} photo sha256 기대 {expected_sha}, "
+                    f"실제 {photo.get('sha256')}")
+        by_bin = {b.get("bin_id"): b for b in bins}
+        a0102 = by_bin.get("A-01-02") or {}
+        if a0102.get("verdict") != "short":
+            problems.append(f"A-01-02 verdict 기대 short, 실제 {a0102.get('verdict')}")
+        if a0102.get("diff") != -3:
+            problems.append(f"A-01-02 diff 기대 -3, 실제 {a0102.get('diff')}")
+        if a0102.get("book_qty") != 8:
+            problems.append(f"A-01-02 book_qty 기대 8, 실제 {a0102.get('book_qty')}")
+        if a0102.get("counted_qty") != 5:
+            problems.append(
+                f"A-01-02 counted_qty 기대 5, 실제 {a0102.get('counted_qty')}")
+        joined_honesty = " ".join(
+            str(line) for line in manifest.get("honesty", []))
+        for marker in FALLBACK_HONESTY_MARKERS:
+            if marker not in joined_honesty:
+                problems.append(f"honesty에 {marker!r} 없음")
+        built = build_fallback_manifest()
+        if built.get("summary") != manifest.get("summary"):
+            problems.append("build_fallback_manifest summary가 CLI manifest와 다르다")
+        if built.get("session_id") != manifest.get("session_id"):
+            problems.append("build_fallback_manifest session_id가 CLI manifest와 다르다")
+    if fallback_text:
+        if "파일 입력 폴백" not in fallback_text:
+            problems.append("fallback.txt에 '파일 입력 폴백' 없음")
+        if "데모 기준" not in fallback_text:
+            problems.append("fallback.txt에 '데모 기준' 없음")
+        if "Pi 실촬영이 아닙니다" not in fallback_text:
+            problems.append("fallback.txt에 'Pi 실촬영이 아닙니다' 없음")
+
+    asset_valid = False
+    asset_path = ROOT / "demo" / "assets" / "fallback.json"
+    if asset_path.is_file():
+        try:
+            asset = json.loads(asset_path.read_text(encoding="utf-8"))
+            asset_problems = validate_fallback(asset)
+            asset_summary = asset.get("summary") or {}
+            asset_valid = asset_problems == [] \
+                and all(asset_summary.get(key) == expected
+                        for key, expected in FALLBACK_EXPECTED_SUMMARY.items())
+            ctx.note(f"저장소 자산 fallback.json 유효 -> {asset_valid}")
+            if not asset_valid:
+                problems.append(f"저장소 자산 fallback.json 문제: {asset_problems}")
+        except json.JSONDecodeError as e:
+            problems.append(f"저장소 자산 fallback.json 파싱 실패: {e}")
+    else:
+        problems.append("저장소 자산 demo/assets/fallback.json이 없다")
+
+    tamper_detected = False
+    capture_tamper_detected = False
+    if manifest:
+        tampered = copy.deepcopy(manifest)
+        tampered["is_pi_real_capture"] = True
+        tamper_detected = bool(validate_fallback(tampered))
+        tampered2 = copy.deepcopy(manifest)
+        tampered2["capture_source"] = "pi-camera"
+        capture_tamper_detected = bool(validate_fallback(tampered2))
+    ctx.note(f"폴백 변조 탐지 -> 실촬영 변조 {tamper_detected}, "
+             f"capture_source 변조 {capture_tamper_detected}")
+    if not tamper_detected:
+        problems.append("변조 탐지 실패: is_pi_real_capture를 True로 바꿔도 문제를 찾지 못했다")
+    if not capture_tamper_detected:
+        problems.append("변조 탐지 실패: capture_source를 pi-camera로 바꿔도 문제를 찾지 못했다")
+
+    summary = {"feature": "file-fallback",
+               "cut_index": manifest.get("cut_index"),
+               "decision_date": manifest.get("decision_date"),
+               "is_pi_real_capture": manifest.get("is_pi_real_capture"),
+               "capture_source": manifest.get("capture_source"),
+               "source": manifest.get("source"),
+               "session_id": manifest.get("session_id"),
+               "manifest_summary": manifest.get("summary"),
+               "validate_problems": validate_problems,
+               "tamper_detected": tamper_detected,
+               "capture_source_tamper_detected": capture_tamper_detected,
+               "asset_valid": asset_valid,
+               "fake_photo_sha256": hashlib.sha256(
+                   fake_photo_bytes("A-01-02")).hexdigest(),
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"fallback.json": json.dumps(
+                       manifest, ensure_ascii=False, indent=2) + "\n",
+                    "fallback.txt": fallback_text})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -2436,7 +2613,8 @@ DRIVERS = {"console-home": drive_console_home,
            "console-readiness": drive_console_readiness,
            "sam-smoke": drive_sam_smoke,
            "pi-smoke": drive_pi_smoke,
-           "devpost-submission": drive_devpost_submission}
+           "devpost-submission": drive_devpost_submission,
+           "file-fallback": drive_file_fallback}
 
 
 def main(argv: list[str] | None = None) -> int:
