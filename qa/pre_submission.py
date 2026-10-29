@@ -14,9 +14,12 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스�
 전수 점검 블로커와 어긋나지 않는지의 정합, 데모 대본
 (docs/demo-script.md) 원문이 전수 점검 블로커와 어긋나지 않는지의
 정합, README(README.md) 원문이 전수 점검 블로커와 어긋나지
-않는지의 정합, 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 17종이다.
+않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
+Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
+정합, 데모 자산의 존재·정합을
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 18종이다.
 문안·런북·스토리·영문 요약·데모 대본·README 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
+폴백 정합은 저장된 JSON 자산을 읽어 대조만 하며 Pi 실촬영으로 주장하지 않는다.
 스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
@@ -296,6 +299,29 @@ README_HONESTY_MARKERS = (
 README_THEME_MARKER = "Build for Your World"
 
 README_NEW_WORK_MARKER = "이 저장소의 모든 코드는 행사 기간 안에 새로 작성했다"
+
+FALLBACK_REL = "demo/assets/fallback.json"
+
+FALLBACK_CUT_INDEX = 3
+
+FALLBACK_DECISION_DATE = "2026-11-02"
+
+FALLBACK_SESSION_ID = "FALLBACK-FILE-INPUT"
+
+FALLBACK_EXPECTED_SUMMARY = {
+    "counted_bins": 6,
+    "matched": 4,
+    "mismatched": 2,
+    "abs_diff_total": 6,
+    "net_diff": 0,
+}
+
+FALLBACK_HONESTY_MARKERS = (
+    "Pi 실촬영이 아닙니다",
+    "Pi 실촬영 검증 전",
+    "SAM 실호출 미실시",
+    "데모 기준",
+)
 
 EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
@@ -1932,6 +1958,145 @@ def _check_readme(root):
     return PreSubmissionCheck(name, True, detail), report
 
 
+def validate_fallback_manifest(manifest, blockers=None) -> list[str]:
+    """폴백 자산 dict가 컷·플래그·요약·해시·정직성 기준과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(manifest, dict):
+        return [f"fallback: manifest is not a dict: {manifest!r}"]
+    if manifest.get("cut_index") != FALLBACK_CUT_INDEX:
+        problems.append(f"fallback: cut_index={manifest.get('cut_index')!r} != {FALLBACK_CUT_INDEX}")
+    if manifest.get("replaces") != "pi-placeholder":
+        problems.append(f"fallback: replaces={manifest.get('replaces')!r} != 'pi-placeholder'")
+    if manifest.get("decision_date") != FALLBACK_DECISION_DATE:
+        problems.append(f"fallback: decision_date={manifest.get('decision_date')!r} != {FALLBACK_DECISION_DATE!r}")
+    if manifest.get("is_pi_real_capture") is not False:
+        problems.append(f"fallback: is_pi_real_capture={manifest.get('is_pi_real_capture')!r} is not False")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if "pi_real_capture_pending" in expected_ids and manifest.get("is_pi_real_capture") is not False:
+        problems.append("fallback: pi blocker present but is_pi_real_capture is not False")
+    if manifest.get("capture_source") != "file":
+        problems.append(f"fallback: capture_source={manifest.get('capture_source')!r} != 'file'")
+    if manifest.get("source") != "mock":
+        problems.append(f"fallback: source={manifest.get('source')!r} != 'mock'")
+    if manifest.get("session_id") != FALLBACK_SESSION_ID:
+        problems.append(f"fallback: session_id={manifest.get('session_id')!r} != {FALLBACK_SESSION_ID!r}")
+    summary = manifest.get("summary") or {}
+    if not isinstance(summary, dict):
+        problems.append(f"fallback: summary is not a dict: {summary!r}")
+        summary = {}
+    for key, expected in FALLBACK_EXPECTED_SUMMARY.items():
+        if summary.get(key) != expected:
+            problems.append(f"fallback: summary.{key}={summary.get(key)!r} != {expected}")
+    bins = manifest.get("bins") or []
+    if not isinstance(bins, list) or len(bins) != 6:
+        problems.append(f"fallback: bins len={len(bins) if isinstance(bins, list) else bins!r} != 6")
+        bins = bins if isinstance(bins, list) else []
+    bin_ids = [e.get("bin_id") if isinstance(e, dict) else None for e in bins]
+    if bin_ids != list(EXPECTED_BIN_IDS):
+        problems.append(f"fallback: bin ids {bin_ids} != {list(EXPECTED_BIN_IDS)}")
+    try:
+        from demo.fallback import fake_photo_bytes as _fake_bytes
+        import hashlib as _hl
+        for entry in bins:
+            if not isinstance(entry, dict):
+                continue
+            bin_id = entry.get("bin_id")
+            photo = entry.get("photo") or {}
+            expected_sha = _hl.sha256(_fake_bytes(str(bin_id))).hexdigest()
+            if photo.get("sha256") != expected_sha:
+                problems.append(f"fallback: bin {bin_id} photo sha256 mismatch")
+            if bin_id == "A-01-02":
+                if entry.get("verdict") != "short":
+                    problems.append(f"fallback: A-01-02 verdict={entry.get('verdict')!r} != 'short'")
+                if entry.get("diff") != -3:
+                    problems.append(f"fallback: A-01-02 diff={entry.get('diff')!r} != -3")
+                if entry.get("book_qty") != 8:
+                    problems.append(f"fallback: A-01-02 book_qty={entry.get('book_qty')!r} != 8")
+                if entry.get("counted_qty") != 5:
+                    problems.append(f"fallback: A-01-02 counted_qty={entry.get('counted_qty')!r} != 5")
+    except Exception as exc:
+        problems.append(f"fallback: hash check raised: {exc!r}")
+    honesty = manifest.get("honesty") or []
+    joined = " ".join(str(line) for line in honesty) if isinstance(honesty, list) else ""
+    for needle in FALLBACK_HONESTY_MARKERS:
+        if needle not in joined:
+            problems.append(f"fallback: missing honesty marker {needle!r}")
+    return problems
+
+
+def validate_fallback_report(report, blockers=None) -> list[str]:
+    """fallback 보고 dict가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"fallback report is not a dict: {report!r}"]
+    required = ("cut_index", "is_pi_real_capture", "capture_source", "source", "blockers", "submission_ready")
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"fallback: missing required keys: {missing}")
+        return problems
+    if report["cut_index"] != FALLBACK_CUT_INDEX:
+        problems.append(f"fallback: cut_index={report['cut_index']!r} != {FALLBACK_CUT_INDEX}")
+    if report["is_pi_real_capture"] is not False:
+        problems.append(f"fallback: is_pi_real_capture={report['is_pi_real_capture']!r} is not False")
+    if report["capture_source"] != "file":
+        problems.append(f"fallback: capture_source={report['capture_source']!r} != 'file'")
+    if report["source"] != "mock":
+        problems.append(f"fallback: source={report['source']!r} != 'mock'")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(f"fallback: blockers {list(report['blockers'])} != {expected_ids}")
+    if report["submission_ready"] is not False:
+        problems.append(f"fallback: submission_ready={report['submission_ready']!r} is not False")
+    return problems
+
+
+def build_fallback_report(root, blockers=None) -> dict:
+    """폴백 JSON 파일에서 cut·플래그·블로커·submission_ready 보고를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    path = Path(root) / FALLBACK_REL
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"cut_index": 0, "is_pi_real_capture": True, "capture_source": "", "source": "", "blockers": [], "submission_ready": False}
+    if not isinstance(manifest, dict):
+        return {"cut_index": 0, "is_pi_real_capture": True, "capture_source": "", "source": "", "blockers": [], "submission_ready": False}
+    return {
+        "cut_index": manifest.get("cut_index"),
+        "is_pi_real_capture": manifest.get("is_pi_real_capture"),
+        "capture_source": manifest.get("capture_source"),
+        "source": manifest.get("source"),
+        "blockers": [b["id"] if isinstance(b, dict) else b for b in blockers],
+        "submission_ready": False,
+    }
+
+
+def _check_fallback(root):
+    name = "fallback_consistent"
+    path = Path(root) / FALLBACK_REL
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        report = build_fallback_report(root)
+        return PreSubmissionCheck(name, False, f"read failed: {exc!r}"), report
+    problems = validate_fallback_manifest(manifest)
+    report = build_fallback_report(root)
+    problems.extend(validate_fallback_report(report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"cut_index={report['cut_index']} "
+        f"capture_source={report['capture_source']} "
+        f"source={report['source']} "
+        f"is_pi_real_capture={report['is_pi_real_capture']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -2023,6 +2188,9 @@ def run_pre_submission_checks(
     readme_check, readme_report = _check_readme(root)
     checks.append(readme_check)
 
+    fallback_check, fallback_report = _check_fallback(root)
+    checks.append(fallback_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -2055,6 +2223,7 @@ def run_pre_submission_checks(
             "en_summary": en_report,
             "demo_script": demo_script_report,
             "readme": readme_report,
+            "fallback": fallback_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
