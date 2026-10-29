@@ -23,6 +23,8 @@ build_readiness 가짜 준비 완료로 구동한다(실제 API 호출·실제 �
 Pi 단일 빈 스모크(pi-smoke)는 실제 촬영 없이 CLI 기본 차단과 프로세스 내
 가짜 session 주입으로만 구동한다(차단 시 session을 부르지 않으며,
 성공해도 전체 세션 성공이나 Pi 실촬영 검증 완료가 아님).
+제출 문안 패키지(devpost-submission)는 파일 원문을 읽어 절 순서·데모
+수치·블로커를 대조하고 변조 탐지를 확인한다(제출 준비 완료가 아니다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -34,7 +36,8 @@ Pi 단일 빈 스모크(pi-smoke)는 실제 촬영 없이 CLI 기본 차단과 �
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
-pi-readiness, console-readiness, sam-smoke, pi-smoke, all(전부, 기능별 하위 디렉터리).
+pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
+all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -69,7 +72,8 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
             "sam-readiness", "submission-runbook", "pi-readiness",
-            "console-readiness", "sam-smoke", "pi-smoke")
+            "console-readiness", "sam-smoke", "pi-smoke",
+            "devpost-submission")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -142,6 +146,21 @@ RUNBOOK_FINAL_COMMANDS = ("python3 -m unittest discover -s tests",
                           "python3 -m demo.render_video")
 RUNBOOK_CREDIT_AT = "2026-10-29 09:30"
 RUNBOOK_DEADLINE_KST = "2026-11-05 11:00"
+DEVPOST_REL = "docs/devpost-submission.md"
+DEVPOST_SECTIONS = ("## 프로젝트 이름", "## 한 줄 소개", "## 소개",
+                    "## 동작 방식", "## Meta AI 도구 활용", "## 기술 구성",
+                    "## 데모 데이터", "## 해커톤 기간 중 신규 제작",
+                    "## 데모 영상", "## 현재 블로커와 제출 상태",
+                    "## 제출 전 교체할 항목")
+DEVPOST_DEMO_MARKERS = ("데모 기준: 빈 6개 중 일치 4건, 불일치 2건",
+                        "데모 기준: 절대 차이 6개, 순차이 0, 일치율 66.7%",
+                        "실제 창고 성과가 아니다")
+DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이고 SAM 실호출은 미실시",
+                           "가짜 transport", "Secure Vault", "가안",
+                           "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더")
+DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
+DEVPOST_DEADLINE_ET = "2026-11-04 21:00 ET"
+DEVPOST_DEADLINE_KST = "2026-11-05 11:00 KST"
 
 
 def clean_env() -> dict:
@@ -1493,6 +1512,116 @@ def drive_submission_runbook(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def validate_devpost_text(text: str) -> list[str]:
+    problems: list[str] = []
+    positions = [text.find(section) for section in DEVPOST_SECTIONS]
+    if any(position < 0 for position in positions):
+        missing = [section for section, position
+                   in zip(DEVPOST_SECTIONS, positions) if position < 0]
+        problems.append(f"문안 절 누락 {missing}")
+    elif positions != sorted(positions):
+        problems.append(f"문안 절 순서 이상: 위치 {positions}")
+    blocker_positions = [text.find(blocker_id)
+                         for blocker_id in EXPECTED_BLOCKER_IDS]
+    if any(position < 0 for position in blocker_positions) \
+            or blocker_positions != sorted(blocker_positions):
+        problems.append(
+            f"문안 블로커 id 누락 또는 순서 이상: 위치 {blocker_positions}, "
+            f"기대 {list(EXPECTED_BLOCKER_IDS)}")
+    if "SUBMISSION_READY: false" not in text \
+            or "SUBMISSION_READY: true" in text:
+        problems.append(
+            "SUBMISSION_READY 표기 이상: SUBMISSION_READY: false가 없거나 "
+            "SUBMISSION_READY: true가 있다")
+    for needle in DEVPOST_DEMO_MARKERS:
+        if needle not in text:
+            problems.append(f"문안 데모 수치 표기 {needle!r} 없음")
+    for needle in DEVPOST_HONESTY_MARKERS:
+        if needle not in text:
+            problems.append(f"문안 정직성 표기 {needle!r} 없음")
+    for needle in (DEVPOST_REPO_URL, DEVPOST_DEADLINE_ET, DEVPOST_DEADLINE_KST):
+        if needle not in text:
+            problems.append(f"문안에 {needle!r} 없음")
+    from qa.claims_audit import audit_text
+
+    audit_problems = audit_text(DEVPOST_REL, text)
+    if audit_problems:
+        problems.append(f"문안 주장 감사 문제 {audit_problems}")
+    return problems
+
+
+def drive_devpost_submission(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    devpost_path = ROOT / DEVPOST_REL
+    if devpost_path.is_file():
+        text = devpost_path.read_text(encoding="utf-8")
+        problems = validate_devpost_text(text)
+    else:
+        text = ""
+        problems.append(f"제출 문안 파일이 없다: {DEVPOST_REL}")
+    ctx.note(f"제출 문안 읽기 -> {DEVPOST_REL}, {len(text)}자")
+    tampered = text.replace("SUBMISSION_READY: false",
+                            "SUBMISSION_READY: true", 1)
+    tamper_problems = validate_devpost_text(tampered) if text else []
+    tamper_detected = bool(tamper_problems)
+    ctx.note(f"문안 변조 탐지 -> {tamper_detected}")
+    if not tamper_detected:
+        problems.append(
+            "변조 탐지 실패: SUBMISSION_READY를 true로 바꾼 텍스트에서 "
+            "문제를 찾지 못했다")
+    result = run_cli(["-m", "qa.pre_submission", "--json"])
+    ctx.note(
+        f"python3 -m qa.pre_submission --json -> 종료코드 {result.returncode}")
+    pre_blockers: list = []
+    report: dict = {}
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"qa.pre_submission --json 파싱 실패: {e}")
+    if report:
+        pre_blockers = [b.get("id") if isinstance(b, dict) else b
+                        for b in report.get("blockers", [])]
+        if pre_blockers != list(EXPECTED_BLOCKER_IDS):
+            problems.append(
+                f"pre_submission blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, "
+                f"실제 {pre_blockers}")
+        if report.get("submission_ready") is not False:
+            problems.append(
+                "pre_submission submission_ready 기대 False, 실제 "
+                f"{report.get('submission_ready')}")
+    claims_audit_clean = False
+    if text:
+        from qa.claims_audit import audit_text
+
+        claims_audit_clean = audit_text(DEVPOST_REL, text) == []
+    ctx.note(f"문안 주장 감사 깨끗함 -> {claims_audit_clean}")
+    extracted = {"sections": list(DEVPOST_SECTIONS),
+                 "blockers": list(EXPECTED_BLOCKER_IDS),
+                 "submission_ready": False,
+                 "demo_markers": list(DEVPOST_DEMO_MARKERS),
+                 "deadline_et": DEVPOST_DEADLINE_ET,
+                 "deadline_kst": DEVPOST_DEADLINE_KST,
+                 "repo_url": DEVPOST_REPO_URL}
+    summary = {"feature": "devpost-submission",
+               "sections": list(DEVPOST_SECTIONS),
+               "section_count": len(DEVPOST_SECTIONS),
+               "blockers": list(EXPECTED_BLOCKER_IDS),
+               "submission_ready": False,
+               "demo_markers": list(DEVPOST_DEMO_MARKERS),
+               "deadline_et": DEVPOST_DEADLINE_ET,
+               "deadline_kst": DEVPOST_DEADLINE_KST,
+               "repo_url": DEVPOST_REPO_URL,
+               "claims_audit_clean": claims_audit_clean,
+               "tamper_detected": tamper_detected,
+               "pre_submission_blockers": pre_blockers,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"devpost-submission.json": json.dumps(
+                       extracted, ensure_ascii=False, indent=2) + "\n",
+                    "devpost-submission.md": text})
+    return summary
+
+
 def drive_console_readiness(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
     from console.readiness import build_readiness
@@ -2194,7 +2323,8 @@ DRIVERS = {"console-home": drive_console_home,
            "pi-readiness": drive_pi_readiness,
            "console-readiness": drive_console_readiness,
            "sam-smoke": drive_sam_smoke,
-           "pi-smoke": drive_pi_smoke}
+           "pi-smoke": drive_pi_smoke,
+           "devpost-submission": drive_devpost_submission}
 
 
 def main(argv: list[str] | None = None) -> int:
