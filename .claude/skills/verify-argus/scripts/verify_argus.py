@@ -17,8 +17,10 @@ Pi 캡처 경계는 탐지·기대 실패·가짜 runner 성공으로 구동하�
 구동한다(준비 완료는 실촬영 성공이 아님). 콘솔 준비 상태(console-readiness)는
 임시 포트 HTTP GET /api/readiness와 GET / 홈 패널, 프로세스 내
 build_readiness 가짜 준비 완료로 구동한다(실제 API 호출·실제 촬영 없음,
-준비 완료는 실호출·실촬영 성공이 아님). 응답 원문과 종료 판정을
-증거 디렉터리에 남긴다.
+준비 완료는 실호출·실촬영 성공이 아님). SAM 단일 빈 스모크(sam-smoke)는
+실제 API 호출 없이 CLI 기본 차단과 프로세스 내 가짜 counter 주입으로만
+구동한다(차단 시 counter를 부르지 않으며, 성공해도 전체 세션 성공이 아님).
+응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
 사용:
@@ -29,7 +31,7 @@ build_readiness 가짜 준비 완료로 구동한다(실제 API 호출·실제 �
 기능: console-home(기본), terminal-simulator, session-list,
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
-pi-readiness, console-readiness, all(전부, 기능별 하위 디렉터리).
+pi-readiness, console-readiness, sam-smoke, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -64,7 +66,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "difference-report", "demo-video-draft", "photo-intake",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
             "sam-readiness", "submission-runbook", "pi-readiness",
-            "console-readiness")
+            "console-readiness", "sam-smoke")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -83,6 +85,11 @@ EXPECTED_READINESS_BLOCKER_IDS = ("sam_credit_not_confirmed",
                                   "sam_api_key_missing")
 SAM_READINESS_FAKE_URL = "https://sentinel-readiness.example.invalid/sam"
 SAM_READINESS_FAKE_KEY_VALUE = "sentinel-readiness-key-not-real"
+SAM_SMOKE_FAKE_URL = "https://sentinel-smoke.example.invalid/sam"
+SAM_SMOKE_FAKE_KEY_VALUE = "sentinel-smoke-key-not-real"
+SAM_SMOKE_BIN_ID = "A-01-02"
+SAM_SMOKE_FAKE_COUNT = 5
+SAM_SMOKE_BOOK_QTY = 8
 EXPECTED_PI_READINESS_BLOCKER_IDS = ("pi_device_arrival_not_confirmed",
                                      "pi_camera_command_missing")
 PI_READINESS_READY_PROBE = {"available": True,
@@ -1575,6 +1582,223 @@ def drive_console_readiness(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_sam_smoke(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.sam_readiness import ENV_BASE_URL, ENV_KEY_VAR
+    from qa.sam_smoke import run_smoke
+    from terminal.models import CountResult
+    from terminal.sam_adapter import SamCountingError
+
+    class _FakeCounter:
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        def count(self, bin_id: str, image_ref: str | None = None):
+            self.calls.append((bin_id, image_ref))
+            return CountResult(bin_id, SAM_SMOKE_FAKE_COUNT, source="sam")
+
+    class _MockCounter:
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        def count(self, bin_id: str, image_ref: str | None = None):
+            self.calls.append((bin_id, image_ref))
+            return CountResult(bin_id, SAM_SMOKE_FAKE_COUNT, source="mock")
+
+    class _RaisingCounter:
+        def count(self, bin_id: str, image_ref: str | None = None):
+            raise SamCountingError("fake smoke failure")
+
+    result = run_cli(["-m", "qa.sam_smoke"])
+    ctx.note(f"python3 -m qa.sam_smoke -> 종료코드 {result.returncode}")
+    if result.returncode != 1:
+        problems.append(
+            f"sam_smoke 기본 종료코드 기대 1, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("STATUS: blocked", "ATTEMPTED: false", "BLOCKERS: 3",
+                   "SMOKE_PASSED: false"):
+        if needle not in result.stdout:
+            problems.append(f"sam_smoke 텍스트에 {needle!r} 없음")
+    positions = [result.stdout.find(blocker_id)
+                 for blocker_id in EXPECTED_READINESS_BLOCKER_IDS]
+    if any(position < 0 for position in positions):
+        problems.append(f"sam_smoke 텍스트에 블로커 id 누락: 위치 {positions}")
+    elif positions != sorted(positions):
+        problems.append(f"sam_smoke 블로커 id 순서 이상: 위치 {positions}")
+
+    result_j = run_cli(["-m", "qa.sam_smoke", "--json"])
+    ctx.note(f"python3 -m qa.sam_smoke --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 1:
+        problems.append(
+            f"sam_smoke --json 종료코드 기대 1, 실제 {result_j.returncode}: "
+            f"{result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocked_blockers: list = []
+    if report:
+        if report.get("status") != "blocked":
+            problems.append(
+                f"status 기대 blocked, 실제 {report.get('status')}")
+        if report.get("attempted") is not False:
+            problems.append(
+                f"attempted 기대 False, 실제 {report.get('attempted')}")
+        if report.get("ready_for_live_call") is not False:
+            problems.append(
+                "ready_for_live_call 기대 False, 실제 "
+                f"{report.get('ready_for_live_call')}")
+        blocked_blockers = [b["id"] for b in report.get("blockers", [])]
+        if blocked_blockers != list(EXPECTED_READINESS_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_READINESS_BLOCKER_IDS)}, "
+                f"실제 {blocked_blockers}")
+        if report.get("counted_qty") is not None:
+            problems.append(
+                f"counted_qty 기대 None, 실제 {report.get('counted_qty')}")
+        if report.get("source") is not None:
+            problems.append(f"source 기대 None, 실제 {report.get('source')}")
+        if not any("호출하지 않는다" in line
+                   for line in report.get("honesty", [])):
+            problems.append("honesty에 '호출하지 않는다'를 포함한 줄 없음")
+        if not any("대체하지 않는다" in line
+                   for line in report.get("honesty", [])):
+            problems.append("honesty에 '대체하지 않는다'를 포함한 줄 없음")
+
+    fake_env = {ENV_BASE_URL: SAM_SMOKE_FAKE_URL,
+                ENV_KEY_VAR: SAM_SMOKE_FAKE_KEY_VALUE}
+    fake_counter = _FakeCounter()
+    passed = run_smoke(env=fake_env, credit_confirmed=True,
+                       counter=fake_counter)
+    ctx.note(
+        f"run_smoke 가짜 counter -> status={passed.get('status')}, "
+        f"counted_qty={passed.get('counted_qty')}, diff={passed.get('diff')}")
+    if passed.get("status") != "passed":
+        problems.append(
+            f"가짜 counter status 기대 passed, 실제 {passed.get('status')}")
+    if passed.get("attempted") is not True:
+        problems.append(
+            f"가짜 counter attempted 기대 True, 실제 {passed.get('attempted')}")
+    if passed.get("source") != "sam":
+        problems.append(
+            f"가짜 counter source 기대 sam, 실제 {passed.get('source')}")
+    if passed.get("counted_qty") != SAM_SMOKE_FAKE_COUNT:
+        problems.append(
+            f"counted_qty 기대 {SAM_SMOKE_FAKE_COUNT}, "
+            f"실제 {passed.get('counted_qty')}")
+    if passed.get("book_qty") != SAM_SMOKE_BOOK_QTY:
+        problems.append(
+            f"book_qty 기대 {SAM_SMOKE_BOOK_QTY}, 실제 {passed.get('book_qty')}")
+    if passed.get("diff") != SAM_SMOKE_FAKE_COUNT - SAM_SMOKE_BOOK_QTY:
+        problems.append(
+            f"diff 기대 {SAM_SMOKE_FAKE_COUNT - SAM_SMOKE_BOOK_QTY}, "
+            f"실제 {passed.get('diff')}")
+    if fake_counter.calls != [(SAM_SMOKE_BIN_ID, None)]:
+        problems.append(
+            f"가짜 counter 호출 기대 [('A-01-02', None)], 실제 {fake_counter.calls}")
+
+    blocked_counter = _FakeCounter()
+    blocked_inproc = run_smoke(env={}, credit_confirmed=False,
+                               counter=blocked_counter)
+    ctx.note(
+        f"run_smoke 차단 -> status={blocked_inproc.get('status')}, "
+        f"counter 호출 {len(blocked_counter.calls)}건")
+    if blocked_inproc.get("status") != "blocked":
+        problems.append(
+            "차단 시 status 기대 blocked, 실제 "
+            f"{blocked_inproc.get('status')}")
+    if blocked_inproc.get("attempted") is not False:
+        problems.append(
+            "차단 시 attempted 기대 False, 실제 "
+            f"{blocked_inproc.get('attempted')}")
+    if blocked_counter.calls != []:
+        problems.append(
+            f"차단 시 counter를 부르면 안 된다: 호출 {blocked_counter.calls}")
+
+    mock_report = run_smoke(env=fake_env, credit_confirmed=True,
+                            counter=_MockCounter())
+    ctx.note(
+        f"run_smoke 모의 source -> status={mock_report.get('status')}, "
+        f"error_type={mock_report.get('error_type')}")
+    if mock_report.get("status") != "failed":
+        problems.append(
+            f"모의 source status 기대 failed, 실제 {mock_report.get('status')}")
+    if mock_report.get("error_type") != "unexpected_source":
+        problems.append(
+            "모의 source error_type 기대 unexpected_source, 실제 "
+            f"{mock_report.get('error_type')}")
+
+    error_report = run_smoke(env=fake_env, credit_confirmed=True,
+                             counter=_RaisingCounter())
+    ctx.note(
+        f"run_smoke SamCountingError -> status={error_report.get('status')}, "
+        f"error_type={error_report.get('error_type')}")
+    if error_report.get("status") != "failed":
+        problems.append(
+            f"오류 시 status 기대 failed, 실제 {error_report.get('status')}")
+    if error_report.get("error_type") != "SamCountingError":
+        problems.append(
+            "오류 시 error_type 기대 SamCountingError, 실제 "
+            f"{error_report.get('error_type')}")
+    if error_report.get("counted_qty") is not None:
+        problems.append(
+            "오류 시 counted_qty 기대 None(모의로 대체하지 않는다), 실제 "
+            f"{error_report.get('counted_qty')}")
+
+    unknown_counter = _FakeCounter()
+    unknown = run_smoke(env=fake_env, credit_confirmed=True, bin_id="Z-99-99",
+                        counter=unknown_counter)
+    ctx.note(
+        f"run_smoke 알 수 없는 빈 -> status={unknown.get('status')}, "
+        f"error_type={unknown.get('error_type')}")
+    if unknown.get("status") != "failed":
+        problems.append(
+            f"알 수 없는 빈 status 기대 failed, 실제 {unknown.get('status')}")
+    if unknown.get("error_type") != "unknown_bin":
+        problems.append(
+            "알 수 없는 빈 error_type 기대 unknown_bin, 실제 "
+            f"{unknown.get('error_type')}")
+    if unknown.get("attempted") is not False:
+        problems.append(
+            f"알 수 없는 빈 attempted 기대 False, 실제 {unknown.get('attempted')}")
+    if unknown_counter.calls != []:
+        problems.append(
+            f"알 수 없는 빈에서 counter를 부르면 안 된다: 호출 {unknown_counter.calls}")
+
+    dumped = "".join(
+        json.dumps(item, ensure_ascii=False)
+        for item in (passed, blocked_inproc, mock_report, error_report,
+                     unknown, report)) + result.stdout + result_j.stdout
+    sentinel_leaked = (SAM_SMOKE_FAKE_KEY_VALUE in dumped
+                       or SAM_SMOKE_FAKE_URL in dumped)
+    ctx.note(f"가짜 키/URL 값 누출 -> {sentinel_leaked}")
+    if sentinel_leaked:
+        problems.append("가짜 환경변수 값이 sam_smoke 보고나 CLI 출력에 새어 나왔다")
+
+    summary = {"feature": "sam-smoke",
+               "blocked_blockers": blocked_blockers,
+               "default_exit_code": result.returncode,
+               "fake_passed": passed.get("status") == "passed",
+               "counted_qty": passed.get("counted_qty"),
+               "book_qty": passed.get("book_qty"),
+               "diff": passed.get("diff"),
+               "blocked_counter_calls": len(blocked_counter.calls),
+               "mock_source_blocked":
+                   mock_report.get("error_type") == "unexpected_source",
+               "sam_error_blocked":
+                   error_report.get("error_type") == "SamCountingError",
+               "unknown_bin_blocked":
+                   unknown.get("error_type") == "unknown_bin",
+               "sentinel_leaked": sentinel_leaked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"sam-smoke-blocked.json": result_j.stdout,
+                    "sam-smoke-passed.json": json.dumps(
+                        passed, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -1588,7 +1812,8 @@ DRIVERS = {"console-home": drive_console_home,
            "sam-readiness": drive_sam_readiness,
            "submission-runbook": drive_submission_runbook,
            "pi-readiness": drive_pi_readiness,
-           "console-readiness": drive_console_readiness}
+           "console-readiness": drive_console_readiness,
+           "sam-smoke": drive_sam_smoke}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -29,6 +29,7 @@ FEATURES = [
     "submission-runbook.md",
     "pi-readiness.md",
     "console-readiness.md",
+    "sam-smoke.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -67,7 +68,7 @@ class SkillFileTests(unittest.TestCase):
     def test_photo_intake_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("photo-intake", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
             encoding="utf-8")
         for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
@@ -77,7 +78,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pre_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pre-submission", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
             encoding="utf-8")
         for marker in ("submission_ready", "pi_real_capture_pending",
@@ -87,7 +88,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_capture_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-capture", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "pi-capture.md").read_text(
             encoding="utf-8")
         for marker in ("probe_pi_camera", "capture_photo", "Pi 실촬영 검증 전",
@@ -97,7 +98,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_session_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-session", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "pi-session.md").read_text(
             encoding="utf-8")
         for marker in ("run_pi_session", "capture_source", "pi-camera",
@@ -109,7 +110,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_live_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-live", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "sam-live.md").read_text(
             encoding="utf-8")
         for marker in ("LiveSamCounter", "build_payload", "parse_response",
@@ -121,7 +122,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-readiness", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "sam-readiness.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_readiness", "check_readiness",
@@ -130,10 +131,23 @@ class SkillFileTests(unittest.TestCase):
                        "호출하지 않는다", "실호출 성공", "존재 여부만"):
             self.assertIn(marker, feature)
 
+    def test_sam_smoke_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("sam-smoke", skill)
+        self.assertIn("기능 15종", skill)
+        feature = (SKILL_DIR / "features" / "sam-smoke.md").read_text(
+            encoding="utf-8")
+        for marker in ("qa.sam_smoke", "run_smoke",
+                       "sam_credit_not_confirmed", "sam_base_url_missing",
+                       "sam_api_key_missing", "SMOKE_PASSED",
+                       "호출하지 않는다", "대체하지 않는다", "전체 세션 성공",
+                       "sam-smoke-blocked.json", "SamCountingError"):
+            self.assertIn(marker, feature)
+
     def test_submission_runbook_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("submission-runbook", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "submission-runbook.md").read_text(
             encoding="utf-8")
         for marker in ("docs/submission-runbook.md", "validate_runbook_text",
@@ -146,7 +160,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-readiness", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "pi-readiness.md").read_text(
             encoding="utf-8")
         for marker in ("qa.pi_readiness", "check_readiness",
@@ -192,7 +206,7 @@ class HelperRunTests(unittest.TestCase):
                         "photo-intake", "pre-submission", "pi-capture",
                         "pi-session", "sam-live", "sam-readiness",
                         "submission-runbook", "pi-readiness",
-                        "console-readiness"):
+                        "console-readiness", "sam-smoke"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -215,7 +229,7 @@ class HelperRunTests(unittest.TestCase):
                 "difference-report", "demo-video-draft", "photo-intake",
                 "pre-submission", "pi-capture", "pi-session", "sam-live",
                 "sam-readiness", "submission-runbook", "pi-readiness",
-                "console-readiness"})
+                "console-readiness", "sam-smoke"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
@@ -614,7 +628,7 @@ class HelperRunTests(unittest.TestCase):
     def test_console_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("console-readiness", skill)
-        self.assertIn("기능 14종", skill)
+        self.assertIn("기능 15종", skill)
         feature = (SKILL_DIR / "features" / "console-readiness.md").read_text(
             encoding="utf-8")
         for marker in ("build_readiness", "/api/readiness", "준비 상태",
@@ -668,6 +682,56 @@ class HelperRunTests(unittest.TestCase):
             self.assertNotIn("console-readiness.example.invalid", ready_text)
             ready = json.loads(ready_text)
             self.assertTrue(ready["overall_ready"])
+
+    def test_sam_smoke_drives_and_records_blocked_and_passed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-sam-smoke"
+            result = self._run_helper("--feature", "sam-smoke",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "sam-smoke")
+            self.assertTrue(summary["all_ok"])
+            self.assertEqual(summary["blocked_blockers"], [
+                "sam_credit_not_confirmed", "sam_base_url_missing",
+                "sam_api_key_missing"])
+            self.assertEqual(summary["default_exit_code"], 1)
+            self.assertTrue(summary["fake_passed"])
+            self.assertEqual(summary["counted_qty"], 5)
+            self.assertEqual(summary["book_qty"], 8)
+            self.assertEqual(summary["diff"], -3)
+            self.assertEqual(summary["blocked_counter_calls"], 0)
+            self.assertTrue(summary["mock_source_blocked"])
+            self.assertTrue(summary["sam_error_blocked"])
+            self.assertTrue(summary["unknown_bin_blocked"])
+            self.assertFalse(summary["sentinel_leaked"])
+            passed = json.loads((evidence / "sam-smoke-passed.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(passed["status"], "passed")
+            self.assertEqual(passed["source"], "sam")
+            self.assertTrue((evidence / "sam-smoke-blocked.json").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_sam_smoke_evidence_keeps_honesty_and_no_sentinel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-sam-smoke-honesty"
+            result = self._run_helper("--feature", "sam-smoke",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            blocked = json.loads(
+                (evidence / "sam-smoke-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(blocked["status"], "blocked")
+            self.assertFalse(blocked["attempted"])
+            self.assertTrue(any("호출하지 않는다" in line
+                                for line in blocked["honesty"]))
+            self.assertTrue(any("대체하지 않는다" in line
+                                for line in blocked["honesty"]))
+            for name in ("sam-smoke-blocked.json", "sam-smoke-passed.json"):
+                text = (evidence / name).read_text(encoding="utf-8")
+                self.assertNotIn("sentinel-smoke", text)
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
