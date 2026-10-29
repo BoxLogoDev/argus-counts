@@ -7,9 +7,10 @@ SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스모크
 (qa.pi_smoke) 보고가 Pi 준비 점검 보고와 어긋나지 않는지의 정합,
 제출 문안 패키지(docs/devpost-submission.md) 원문이 전수 점검
-블로커와 어긋나지 않는지의 정합, 데모 자산의 존재·정합을 한 번에
-묶어 기계적으로 확인한다. 기계 점검은 총 12종이다.
-문안 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
+블로커와 어긋나지 않는지의 정합, 제출 런북(docs/submission-runbook.md)
+원문이 전수 점검 블로커와 어긋나지 않는지의 정합, 데모 자산의
+존재·정합을 한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 13종이다.
+문안·런북 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
 스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
@@ -126,6 +127,46 @@ DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
 DEVPOST_DEADLINE_ET = "2026-11-04 21:00 ET"
 
 DEVPOST_DEADLINE_KST = "2026-11-05 11:00 KST"
+
+RUNBOOK_REL = "docs/submission-runbook.md"
+
+RUNBOOK_SECTIONS = (
+    "## 0. 현재 상태",
+    "## 1. 크레딧 확인",
+    "## 2. API 키",
+    "## 3. SAM 전환",
+    "## 4. Pi 촬영",
+    "## 5. 최종 점검",
+    "## 6. 제출",
+)
+
+RUNBOOK_FINAL_COMMANDS = (
+    "python3 -m unittest discover -s tests",
+    "python3 -m qa",
+    "python3 -m qa.standalone",
+    "python3 -m qa.claims_audit",
+    "python3 -m qa.pre_submission",
+    "verify_argus.py --doctor",
+    "verify_argus.py --feature all",
+    "python3 -m demo.render_video",
+)
+
+RUNBOOK_CREDIT_AT = "2026-10-29 09:30"
+
+RUNBOOK_DEADLINE_ET = "2026-11-04 21:00 ET"
+
+RUNBOOK_DEADLINE_KST = "2026-11-05 11:00 KST"
+
+RUNBOOK_REPO = "BoxLogoDev/argus-counts"
+
+RUNBOOK_KEY_MARKERS = (
+    "Secure Vault",
+    "SAM_API_BASE_URL",
+    "SAM_API_KEY",
+    "--credit-confirmed",
+)
+
+RUNBOOK_HONESTY_MARKERS = ("모의", "검증 전", "미실시")
 
 EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
@@ -1123,6 +1164,149 @@ def _check_devpost(root):
     return PreSubmissionCheck(name, True, detail), report
 
 
+def validate_runbook_text(text, blockers=None) -> list[str]:
+    """제출 런북 원문이 절·블로커·정직성 표기 기준과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(text, str):
+        return [f"runbook: text is not a string: {text!r}"]
+    positions = [text.find(section) for section in RUNBOOK_SECTIONS]
+    missing = [s for s, pos in zip(RUNBOOK_SECTIONS, positions) if pos < 0]
+    if missing:
+        problems.append(f"runbook: missing sections {missing}")
+    elif positions != sorted(positions):
+        problems.append(f"runbook: section order positions {positions}")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    found_ids = [bid for _, bid in sorted(found)]
+    if found_ids != list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS):
+        problems.append(
+            f"runbook: blocker ids in text {found_ids} != "
+            f"{list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS)}"
+        )
+    elif expected_ids and found_ids != expected_ids:
+        problems.append(
+            f"runbook: blocker ids {found_ids} != pre-submission blockers {expected_ids}"
+        )
+    if "SUBMISSION_READY: false" not in text or "SUBMISSION_READY: true" in text:
+        problems.append("runbook: SUBMISSION_READY must be false and never true")
+    if RUNBOOK_CREDIT_AT not in text:
+        problems.append(f"runbook: missing credit marker {RUNBOOK_CREDIT_AT!r}")
+    for needle in RUNBOOK_KEY_MARKERS:
+        if needle not in text:
+            problems.append(f"runbook: missing key marker {needle!r}")
+    for needle in RUNBOOK_HONESTY_MARKERS:
+        if needle not in text:
+            problems.append(f"runbook: missing honesty marker {needle!r}")
+    for command in RUNBOOK_FINAL_COMMANDS:
+        if command not in text:
+            problems.append(f"runbook: missing final command {command!r}")
+    for needle in (RUNBOOK_DEADLINE_ET, RUNBOOK_DEADLINE_KST, RUNBOOK_REPO):
+        if needle not in text:
+            problems.append(f"runbook: missing {needle!r}")
+    violations = audit_text(RUNBOOK_REL, text)
+    if violations:
+        problems.append(f"runbook: claims audit violations {violations}")
+    return problems
+
+
+def validate_runbook_report(report, blockers=None) -> list[str]:
+    """runbook 보고 dict가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"runbook report is not a dict: {report!r}"]
+    required = (
+        "section_count",
+        "blockers",
+        "submission_ready",
+        "claims_audit_clean",
+        "final_command_count",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"runbook: missing required keys: {missing}")
+        return problems
+    if report["section_count"] != len(RUNBOOK_SECTIONS):
+        problems.append(
+            f"runbook: section_count={report['section_count']!r} != {len(RUNBOOK_SECTIONS)}"
+        )
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(
+            f"runbook: blockers {list(report['blockers'])} != {expected_ids}"
+        )
+    if report["submission_ready"] is not False:
+        problems.append(
+            f"runbook: submission_ready={report['submission_ready']!r} is not False"
+        )
+    if report["claims_audit_clean"] is not True:
+        problems.append("runbook: claims_audit_clean is not True")
+    if report["final_command_count"] != len(RUNBOOK_FINAL_COMMANDS):
+        problems.append(
+            f"runbook: final_command_count={report['final_command_count']!r} "
+            f"!= {len(RUNBOOK_FINAL_COMMANDS)}"
+        )
+    return problems
+
+
+def build_runbook_report(root, blockers=None) -> dict:
+    """런북 파일에서 section_count·블로커·submission_ready 보고를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    path = Path(root) / RUNBOOK_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "section_count": 0,
+            "blockers": [],
+            "submission_ready": False,
+            "claims_audit_clean": False,
+            "final_command_count": 0,
+        }
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    return {
+        "section_count": sum(1 for s in RUNBOOK_SECTIONS if s in text),
+        "blockers": [bid for _, bid in sorted(found)],
+        "submission_ready": "SUBMISSION_READY: true" in text,
+        "claims_audit_clean": audit_text(RUNBOOK_REL, text) == [],
+        "final_command_count": sum(1 for c in RUNBOOK_FINAL_COMMANDS if c in text),
+    }
+
+
+def _check_runbook(root):
+    name = "runbook_consistent"
+    path = Path(root) / RUNBOOK_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        report = build_runbook_report(root)
+        return PreSubmissionCheck(name, False, f"read failed: {exc!r}"), report
+    problems = validate_runbook_text(text)
+    report = build_runbook_report(root)
+    problems.extend(validate_runbook_report(report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"section_count={report['section_count']} "
+        f"blockers={report['blockers']} "
+        f"submission_ready={report['submission_ready']} "
+        f"final_commands={report['final_command_count']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -1199,6 +1383,9 @@ def run_pre_submission_checks(
     devpost_check, devpost_report = _check_devpost(root)
     checks.append(devpost_check)
 
+    runbook_check, runbook_report = _check_runbook(root)
+    checks.append(runbook_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -1226,6 +1413,7 @@ def run_pre_submission_checks(
             "smoke": smoke_report,
             "pi_smoke": pi_smoke_report,
             "devpost": devpost_report,
+            "runbook": runbook_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,

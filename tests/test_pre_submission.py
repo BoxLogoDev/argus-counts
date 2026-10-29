@@ -21,6 +21,9 @@ from qa.pre_submission import (
     validate_devpost_report,
     validate_devpost_text,
     build_devpost_report,
+    validate_runbook_report,
+    validate_runbook_text,
+    build_runbook_report,
 )
 
 MISSING_PI_PROBE = {
@@ -88,6 +91,41 @@ def _valid_devpost_text() -> str:
     ])
 
 
+def _valid_runbook_text() -> str:
+    return "\n".join([
+        "# Argus 제출 런북",
+        "현재는 모의 어댑터가 동작 중이며 Pi 검증 전이고 SAM 미실시 상태다.",
+        "## 0. 현재 상태",
+        "- `pi_real_capture_pending`",
+        "- `sam_real_call_pending`",
+        "- 현재 정답은 `SUBMISSION_READY: false` 다.",
+        "## 1. 크레딧 확인",
+        "- 확인 예정 시각은 2026-10-29 09:30이다.",
+        "- 외부에서 확인한 뒤에만 `--credit-confirmed` 플래그를 붙인다.",
+        "## 2. API 키",
+        "- API 키는 Secure Vault 보안 경로로만 받는다.",
+        "- 환경변수 이름은 `SAM_API_BASE_URL` 과 `SAM_API_KEY` 다.",
+        "## 3. SAM 전환",
+        "- `READY_FOR_LIVE_CALL: true` 가 된 뒤에만 첫 호출을 시작한다.",
+        "## 4. Pi 촬영",
+        "- Pi 실촬영 검증 전인 동안은 교체를 예정으로만 적는다.",
+        "## 5. 최종 점검",
+        "- `python3 -m unittest discover -s tests`",
+        "- `python3 -m qa`",
+        "- `python3 -m qa.standalone`",
+        "- `python3 -m qa.claims_audit`",
+        "- `python3 -m qa.pre_submission`",
+        "- `python3 .claude/skills/verify-argus/scripts/verify_argus.py --doctor`",
+        "- `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature all`",
+        "- `python3 -m demo.render_video`",
+        "## 6. 제출",
+        "- 제출 마감은 2026-11-04 21:00 ET 다.",
+        "- 같은 마감은 한국 시간으로 2026-11-05 11:00 KST 다.",
+        "- 공개 저장소 `BoxLogoDev/argus-counts` 를 확인한다.",
+        "",
+    ])
+
+
 def _minimal_root(root: Path) -> None:
     for rel in (
         "README.md",
@@ -103,7 +141,7 @@ def _minimal_root(root: Path) -> None:
     _write(root, "docs/submission-story.md", "모의 어댑터, 데모 기준 수치, 테마 가안\n")
     _write(root, "docs/submission-summary-en.md", "mock adapter, Demo basis: figures, tentative theme\n")
     _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
-    _write(root, "docs/submission-runbook.md", "모의 어댑터, 검증 전, 미실시 상태 런북\n")
+    _write(root, "docs/submission-runbook.md", _valid_runbook_text())
     _write(root, "docs/devpost-submission.md", _valid_devpost_text())
     _write(root, "demo/assets/captions.srt", "1\n00:00:00,000 --> 00:00:18,000\nArgus\n")
     _write(root, "demo/assets/captions.vtt", "WEBVTT\n")
@@ -254,7 +292,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 12)
+        self.assertEqual(result["total"], 13)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -368,7 +406,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 12)
+            self.assertEqual(result["total"], 13)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -638,6 +676,58 @@ class DevpostIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["devpost_consistent"])
+            self.assertFalse(result["mechanical_pass"])
+
+
+class RunbookIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_runbook_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("runbook_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["runbook_consistent"].passed, by_name["runbook_consistent"].detail)
+        self.assertIn("section_count=7", by_name["runbook_consistent"].detail)
+        self.assertIn("final_commands=8", by_name["runbook_consistent"].detail)
+        runbook = result["readiness"]["runbook"]
+        self.assertEqual(runbook["section_count"], 7)
+        self.assertEqual(runbook["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertFalse(runbook["submission_ready"])
+        self.assertTrue(runbook["claims_audit_clean"])
+        self.assertEqual(runbook["final_command_count"], 8)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_runbook_text_accepts_valid_and_detects_tamper(self):
+        text = _valid_runbook_text()
+        self.assertEqual(validate_runbook_text(text), [])
+        tampered = text.replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1)
+        problems = validate_runbook_text(tampered)
+        self.assertTrue(any("SUBMISSION_READY" in p for p in problems), problems)
+
+    def test_validate_runbook_text_detects_missing_section(self):
+        text = _valid_runbook_text().replace("## 3. SAM 전환", "## 3. 전환", 1)
+        problems = validate_runbook_text(text)
+        self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_runbook_report_detects_contradictions(self):
+        report = build_runbook_report(ROOT)
+        self.assertEqual(validate_runbook_report(report), [])
+        report["submission_ready"] = True
+        problems = validate_runbook_report(report)
+        self.assertTrue(any("submission_ready" in p for p in problems), problems)
+        report2 = build_runbook_report(ROOT)
+        report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
+        problems2 = validate_runbook_report(report2)
+        self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_minimal_root_tampered_runbook_fails_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "docs/submission-runbook.md",
+                   _valid_runbook_text().replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["runbook_consistent"])
             self.assertFalse(result["mechanical_pass"])
 
 

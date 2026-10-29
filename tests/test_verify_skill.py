@@ -318,8 +318,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 12)
-            self.assertEqual(summary["total"], 12)
+            self.assertEqual(summary["passed"], 13)
+            self.assertEqual(summary["total"], 13)
             self.assertEqual(summary["readiness_devpost_section_count"], 11)
             self.assertEqual(summary["readiness_devpost_blockers"], [
                 "pi_real_capture_pending", "sam_real_call_pending"])
