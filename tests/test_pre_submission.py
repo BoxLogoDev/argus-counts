@@ -18,6 +18,9 @@ from qa.pre_submission import (
     validate_pi_smoke,
     validate_sam_readiness,
     validate_sam_smoke,
+    validate_devpost_report,
+    validate_devpost_text,
+    build_devpost_report,
 )
 
 MISSING_PI_PROBE = {
@@ -47,6 +50,44 @@ def _write_bytes(root: Path, rel: str, data: bytes) -> None:
     path.write_bytes(data)
 
 
+def _valid_devpost_text() -> str:
+    return "\n".join([
+        "# Argus — 제출 문안 패키지",
+        "## 프로젝트 이름",
+        "- Argus",
+        "## 한 줄 소개",
+        "- 재고실사 코파일럿",
+        "## 소개",
+        "- 가상 데모 데이터 기준이다.",
+        "## 동작 방식",
+        "- 촬영→계수→대조→리포트",
+        "## Meta AI 도구 활용",
+        "- 모의 어댑터가 동작 중이고 SAM 실호출은 미실시이다.",
+        "- 가짜 transport 테스트로만 검증했다.",
+        "- API 키를 Secure Vault 경유로 받은 뒤에만 전환한다.",
+        "- 테마는 가안이다.",
+        "## 기술 구성",
+        "- Python",
+        "## 데모 데이터",
+        "- 데모 기준: 빈 6개 중 일치 4건, 불일치 2건이다.",
+        "- 데모 기준: 절대 차이 6개, 순차이 0, 일치율 66.7%이다.",
+        "- 위 수치는 실제 창고 성과가 아니다.",
+        "## 해커톤 기간 중 신규 제작",
+        "- 기간 안에 새로 작성했다.",
+        "## 데모 영상",
+        "- 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더이다.",
+        "## 현재 블로커와 제출 상태",
+        "- `pi_real_capture_pending`",
+        "- `sam_real_call_pending`",
+        "- 현재 정답은 `SUBMISSION_READY: false` 다.",
+        "- 공개 저장소: https://github.com/BoxLogoDev/argus-counts",
+        "- 제출 마감은 2026-11-04 21:00 ET = 2026-11-05 11:00 KST이다.",
+        "## 제출 전 교체할 항목",
+        "- 교체할 예정이다.",
+        "",
+    ])
+
+
 def _minimal_root(root: Path) -> None:
     for rel in (
         "README.md",
@@ -63,7 +104,7 @@ def _minimal_root(root: Path) -> None:
     _write(root, "docs/submission-summary-en.md", "mock adapter, Demo basis: figures, tentative theme\n")
     _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
     _write(root, "docs/submission-runbook.md", "모의 어댑터, 검증 전, 미실시 상태 런북\n")
-    _write(root, "docs/devpost-submission.md", "모의 어댑터, 데모 기준, 제출 문안\n")
+    _write(root, "docs/devpost-submission.md", _valid_devpost_text())
     _write(root, "demo/assets/captions.srt", "1\n00:00:00,000 --> 00:00:18,000\nArgus\n")
     _write(root, "demo/assets/captions.vtt", "WEBVTT\n")
     _write(root, "demo/assets/shot-list.json", json.dumps({"total_seconds": 180, "cut_count": 9}))
@@ -213,7 +254,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 11)
+        self.assertEqual(result["total"], 12)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -327,7 +368,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 11)
+            self.assertEqual(result["total"], 12)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -548,6 +589,56 @@ class ReadinessIntegrationTests(unittest.TestCase):
         report["diff"] = 99
         problems = validate_pi_smoke(report)
         self.assertTrue(any("diff" in p for p in problems), problems)
+
+
+class DevpostIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_devpost_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("devpost_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["devpost_consistent"].passed, by_name["devpost_consistent"].detail)
+        self.assertIn("section_count=11", by_name["devpost_consistent"].detail)
+        devpost = result["readiness"]["devpost"]
+        self.assertEqual(devpost["section_count"], 11)
+        self.assertEqual(devpost["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertFalse(devpost["submission_ready"])
+        self.assertTrue(devpost["claims_audit_clean"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_devpost_text_accepts_valid_and_detects_tamper(self):
+        text = _valid_devpost_text()
+        self.assertEqual(validate_devpost_text(text), [])
+        tampered = text.replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1)
+        problems = validate_devpost_text(tampered)
+        self.assertTrue(any("SUBMISSION_READY" in p for p in problems), problems)
+
+    def test_validate_devpost_text_detects_missing_section(self):
+        text = _valid_devpost_text().replace("## 기술 구성", "## 구성", 1)
+        problems = validate_devpost_text(text)
+        self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_devpost_report_detects_contradictions(self):
+        report = build_devpost_report(ROOT)
+        self.assertEqual(validate_devpost_report(report), [])
+        report["submission_ready"] = True
+        problems = validate_devpost_report(report)
+        self.assertTrue(any("submission_ready" in p for p in problems), problems)
+        report2 = build_devpost_report(ROOT)
+        report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
+        problems2 = validate_devpost_report(report2)
+        self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_minimal_root_tampered_devpost_fails_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "docs/devpost-submission.md",
+                   _valid_devpost_text().replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["devpost_consistent"])
+            self.assertFalse(result["mechanical_pass"])
 
 
 if __name__ == "__main__":

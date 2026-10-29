@@ -6,8 +6,10 @@ SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 어긋나지 않는지의 정합, SAM 단일 빈 스모크(qa.sam_smoke) 보고가
 SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스모크
 (qa.pi_smoke) 보고가 Pi 준비 점검 보고와 어긋나지 않는지의 정합,
-데모 자산의 존재·정합을 한 번에 묶어 기계적으로 확인한다.
-기계 점검은 총 11종이다.
+제출 문안 패키지(docs/devpost-submission.md) 원문이 전수 점검
+블로커와 어긋나지 않는지의 정합, 데모 자산의 존재·정합을 한 번에
+묶어 기계적으로 확인한다. 기계 점검은 총 12종이다.
+문안 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
 스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
@@ -33,7 +35,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from console.readiness import build_readiness as build_console_readiness
-from qa.claims_audit import audit_files
+from qa.claims_audit import audit_files, audit_text
 from qa.harness import run_checks as run_qa_checks
 from qa.pi_readiness import check_readiness as check_pi_readiness
 from qa.sam_readiness import check_readiness as check_sam_readiness
@@ -88,6 +90,44 @@ PI_SMOKE_BIN_ID = "A-01-02"
 PI_SMOKE_FAKE_COUNT = 5
 
 PI_SMOKE_FAKE_SHA = "f" * 64
+
+DEVPOST_REL = "docs/devpost-submission.md"
+
+DEVPOST_SECTIONS = (
+    "## 프로젝트 이름",
+    "## 한 줄 소개",
+    "## 소개",
+    "## 동작 방식",
+    "## Meta AI 도구 활용",
+    "## 기술 구성",
+    "## 데모 데이터",
+    "## 해커톤 기간 중 신규 제작",
+    "## 데모 영상",
+    "## 현재 블로커와 제출 상태",
+    "## 제출 전 교체할 항목",
+)
+
+DEVPOST_DEMO_MARKERS = (
+    "데모 기준: 빈 6개 중 일치 4건, 불일치 2건",
+    "데모 기준: 절대 차이 6개, 순차이 0, 일치율 66.7%",
+    "실제 창고 성과가 아니다",
+)
+
+DEVPOST_HONESTY_MARKERS = (
+    "모의 어댑터가 동작 중이고 SAM 실호출은 미실시",
+    "가짜 transport",
+    "Secure Vault",
+    "가안",
+    "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더",
+)
+
+DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
+
+DEVPOST_DEADLINE_ET = "2026-11-04 21:00 ET"
+
+DEVPOST_DEADLINE_KST = "2026-11-05 11:00 KST"
+
+EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
 
 @dataclass(frozen=True)
@@ -959,6 +999,130 @@ def _check_pi_smoke(pi_probe=None, pi_device_confirmed=False, pi_which=None, pi_
     return PreSubmissionCheck(name, True, detail), report
 
 
+def validate_devpost_text(text, blockers=None) -> list[str]:
+    """제출 문안 원문이 절·블로커·정직성 표기 기준과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(text, str):
+        return [f"devpost: text is not a string: {text!r}"]
+    positions = [text.find(section) for section in DEVPOST_SECTIONS]
+    missing = [s for s, pos in zip(DEVPOST_SECTIONS, positions) if pos < 0]
+    if missing:
+        problems.append(f"devpost: missing sections {missing}")
+    elif positions != sorted(positions):
+        problems.append(f"devpost: section order positions {positions}")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    found_ids = [bid for _, bid in sorted(found)]
+    if found_ids != list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS):
+        problems.append(
+            f"devpost: blocker ids in text {found_ids} != "
+            f"{list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS)}"
+        )
+    elif expected_ids and found_ids != expected_ids:
+        problems.append(
+            f"devpost: blocker ids {found_ids} != pre-submission blockers {expected_ids}"
+        )
+    if "SUBMISSION_READY: false" not in text or "SUBMISSION_READY: true" in text:
+        problems.append("devpost: SUBMISSION_READY must be false and never true")
+    for needle in DEVPOST_DEMO_MARKERS:
+        if needle not in text:
+            problems.append(f"devpost: missing demo marker {needle!r}")
+    for needle in DEVPOST_HONESTY_MARKERS:
+        if needle not in text:
+            problems.append(f"devpost: missing honesty marker {needle!r}")
+    for needle in (DEVPOST_REPO_URL, DEVPOST_DEADLINE_ET, DEVPOST_DEADLINE_KST):
+        if needle not in text:
+            problems.append(f"devpost: missing {needle!r}")
+    violations = audit_text(DEVPOST_REL, text)
+    if violations:
+        problems.append(f"devpost: claims audit violations {violations}")
+    return problems
+
+
+def validate_devpost_report(report, blockers=None) -> list[str]:
+    """devpost 보고 dict가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"devpost report is not a dict: {report!r}"]
+    required = ("section_count", "blockers", "submission_ready", "claims_audit_clean")
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"devpost: missing required keys: {missing}")
+        return problems
+    if report["section_count"] != len(DEVPOST_SECTIONS):
+        problems.append(
+            f"devpost: section_count={report['section_count']!r} != {len(DEVPOST_SECTIONS)}"
+        )
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(
+            f"devpost: blockers {list(report['blockers'])} != {expected_ids}"
+        )
+    if report["submission_ready"] is not False:
+        problems.append(
+            f"devpost: submission_ready={report['submission_ready']!r} is not False"
+        )
+    if report["claims_audit_clean"] is not True:
+        problems.append("devpost: claims_audit_clean is not True")
+    return problems
+
+
+def build_devpost_report(root, blockers=None) -> dict:
+    """문안 파일에서 section_count·블로커·submission_ready 보고를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    path = Path(root) / DEVPOST_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "section_count": 0,
+            "blockers": [],
+            "submission_ready": False,
+            "claims_audit_clean": False,
+        }
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    return {
+        "section_count": sum(1 for s in DEVPOST_SECTIONS if s in text),
+        "blockers": [bid for _, bid in sorted(found)],
+        "submission_ready": "SUBMISSION_READY: true" in text,
+        "claims_audit_clean": audit_text(DEVPOST_REL, text) == [],
+    }
+
+
+def _check_devpost(root):
+    name = "devpost_consistent"
+    path = Path(root) / DEVPOST_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        report = build_devpost_report(root)
+        return PreSubmissionCheck(name, False, f"read failed: {exc!r}"), report
+    problems = validate_devpost_text(text)
+    report = build_devpost_report(root)
+    problems.extend(validate_devpost_report(report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"section_count={report['section_count']} "
+        f"blockers={report['blockers']} "
+        f"submission_ready={report['submission_ready']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -1032,6 +1196,9 @@ def run_pre_submission_checks(
     )
     checks.append(pi_smoke_check)
 
+    devpost_check, devpost_report = _check_devpost(root)
+    checks.append(devpost_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -1058,6 +1225,7 @@ def run_pre_submission_checks(
             "console": console_report,
             "smoke": smoke_report,
             "pi_smoke": pi_smoke_report,
+            "devpost": devpost_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
