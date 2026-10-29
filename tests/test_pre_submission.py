@@ -33,6 +33,9 @@ from qa.pre_submission import (
     validate_demo_script_report,
     validate_demo_script_text,
     build_demo_script_report,
+    validate_readme_report,
+    validate_readme_text,
+    build_readme_report,
 )
 
 MISSING_PI_PROBE = {
@@ -224,9 +227,33 @@ def _valid_demo_script_text() -> str:
     ])
 
 
+
+def _valid_readme_text() -> str:
+    return "\n".join([
+        "# Argus (신규 제작)",
+        "이 저장소의 모든 코드는 행사 기간 안에 새로 작성했다.",
+        "## 구성 (계획)",
+        "- terminal, console, qa, docs",
+        "## SAM 3.1 연동",
+        "- 개발은 모의 어댑터로 진행한다.",
+        "- 실제 API로 검증하지 않았고 실호출은 아직 하지 않았다.",
+        "- 가짜 전송(fake transport) 테스트로만 검증했다.",
+        "- 모의 결과는 화면에서 '모의'로 구분해 표기한다.",
+        "## 실행법 (초안)",
+        "- Pi 실촬영 검증 전이다.",
+        "## 일정",
+        "- 11/04 제출",
+        "## 현재 상태",
+        "테마는 Build for Your World를 전제로 하며 가안이다.",
+        "- `pi_real_capture_pending` — Pi 검증 전이다.",
+        "- `sam_real_call_pending` — SAM 미실시이다.",
+        "- 데모 기준: 빈 6개 중 일치 4건, 불일치 2건이며 절대 차이 6개, 일치율 66.7%다.",
+        "- 현재 정답은 `SUBMISSION_READY: false` 다.",
+        "",
+    ])
+
 def _minimal_root(root: Path) -> None:
     for rel in (
-        "README.md",
         "terminal/sam_adapter.py",
         "terminal/reconcile.py",
         "terminal/report.py",
@@ -236,6 +263,7 @@ def _minimal_root(root: Path) -> None:
         ".claude/skills/verify-argus/features/README.md",
     ):
         _write(root, rel, "ok\n")
+    _write(root, "README.md", _valid_readme_text())
     _write(root, "docs/submission-story.md", _valid_story_text())
     _write(root, "docs/submission-summary-en.md", _valid_en_summary_text())
     _write(root, "docs/demo-script.md", _valid_demo_script_text())
@@ -390,7 +418,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 16)
+        self.assertEqual(result["total"], 17)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -504,7 +532,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 16)
+            self.assertEqual(result["total"], 17)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -976,6 +1004,56 @@ class DemoScriptIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["demo_script_consistent"])
+            self.assertFalse(result["mechanical_pass"])
+
+
+class ReadmeIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_readme_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("readme_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["readme_consistent"].passed, by_name["readme_consistent"].detail)
+        self.assertIn("section_count=5", by_name["readme_consistent"].detail)
+        rd = result["readiness"]["readme"]
+        self.assertEqual(rd["section_count"], 5)
+        self.assertEqual(rd["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertFalse(rd["submission_ready"])
+        self.assertTrue(rd["claims_audit_clean"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_readme_text_accepts_valid_and_detects_tamper(self):
+        text = _valid_readme_text()
+        self.assertEqual(validate_readme_text(text), [])
+        tampered = text.replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1)
+        problems = validate_readme_text(tampered)
+        self.assertTrue(any("SUBMISSION_READY" in p for p in problems), problems)
+
+    def test_validate_readme_text_detects_missing_section(self):
+        text = _valid_readme_text().replace("## 현재 상태", "## 상태", 1)
+        problems = validate_readme_text(text)
+        self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_readme_report_detects_contradictions(self):
+        report = build_readme_report(ROOT)
+        self.assertEqual(validate_readme_report(report), [])
+        report["submission_ready"] = True
+        problems = validate_readme_report(report)
+        self.assertTrue(any("submission_ready" in p for p in problems), problems)
+        report2 = build_readme_report(ROOT)
+        report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
+        problems2 = validate_readme_report(report2)
+        self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_minimal_root_tampered_readme_fails_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "README.md",
+                   _valid_readme_text().replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["readme_consistent"])
             self.assertFalse(result["mechanical_pass"])
 
 

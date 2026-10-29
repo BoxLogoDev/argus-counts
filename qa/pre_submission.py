@@ -13,9 +13,10 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, Pi 단일 빈 스�
 않는지의 정합, 영문 제출 요약(docs/submission-summary-en.md) 원문이
 전수 점검 블로커와 어긋나지 않는지의 정합, 데모 대본
 (docs/demo-script.md) 원문이 전수 점검 블로커와 어긋나지 않는지의
-정합, 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 16종이다.
-문안·런북·스토리·영문 요약·데모 대본 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
+정합, README(README.md) 원문이 전수 점검 블로커와 어긋나지
+않는지의 정합, 데모 자산의 존재·정합을
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 17종이다.
+문안·런북·스토리·영문 요약·데모 대본·README 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
 스모크 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
@@ -267,6 +268,34 @@ DEMO_SCRIPT_HONESTY_MARKERS = (
 DEMO_SCRIPT_THEME_MARKER = "Build for Your World"
 
 DEMO_SCRIPT_NEW_WORK_MARKER = "2026-10-27 이후 해커톤 기간에 새로 작성했다"
+
+README_REL = "README.md"
+
+README_SECTIONS = (
+    "## 구성 (계획)",
+    "## SAM 3.1 연동",
+    "## 실행법 (초안)",
+    "## 일정",
+    "## 현재 상태",
+)
+
+README_DEMO_MARKERS = (
+    "데모 기준: 빈 6개 중 일치 4건, 불일치 2건",
+    "절대 차이 6개",
+    "일치율 66.7%",
+)
+
+README_HONESTY_MARKERS = (
+    "모의 어댑터로 진행한다",
+    "실호출은 아직 하지 않았다",
+    "Pi 실촬영 검증 전",
+    "가짜 전송(fake transport) 테스트로만 검증했다",
+    "모의 결과는 화면에서 '모의'로 구분해 표기한다",
+)
+
+README_THEME_MARKER = "Build for Your World"
+
+README_NEW_WORK_MARKER = "이 저장소의 모든 코드는 행사 기간 안에 새로 작성했다"
 
 EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
@@ -1779,6 +1808,130 @@ def _check_demo_script(root):
     return PreSubmissionCheck(name, True, detail), report
 
 
+def validate_readme_text(text, blockers=None) -> list[str]:
+    """README 원문이 절·블로커·정직성 표기 기준과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(text, str):
+        return [f"readme: text is not a string: {text!r}"]
+    positions = [text.find(section) for section in README_SECTIONS]
+    missing = [s for s, pos in zip(README_SECTIONS, positions) if pos < 0]
+    if missing:
+        problems.append(f"readme: missing sections {missing}")
+    elif positions != sorted(positions):
+        problems.append(f"readme: section order positions {positions}")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    found_ids = [bid for _, bid in sorted(found)]
+    if found_ids != list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS):
+        problems.append(
+            f"readme: blocker ids in text {found_ids} != "
+            f"{list(EXPECTED_PRE_SUBMISSION_BLOCKER_IDS)}"
+        )
+    elif expected_ids and found_ids != expected_ids:
+        problems.append(
+            f"readme: blocker ids {found_ids} != pre-submission blockers {expected_ids}"
+        )
+    if "SUBMISSION_READY: false" not in text or "SUBMISSION_READY: true" in text:
+        problems.append("readme: SUBMISSION_READY must be false and never true")
+    for needle in README_DEMO_MARKERS:
+        if needle not in text:
+            problems.append(f"readme: missing demo marker {needle!r}")
+    for needle in README_HONESTY_MARKERS:
+        if needle not in text:
+            problems.append(f"readme: missing honesty marker {needle!r}")
+    for needle in (README_THEME_MARKER, README_NEW_WORK_MARKER):
+        if needle not in text:
+            problems.append(f"readme: missing {needle!r}")
+    violations = audit_text(README_REL, text)
+    if violations:
+        problems.append(f"readme: claims audit violations {violations}")
+    return problems
+
+
+def validate_readme_report(report, blockers=None) -> list[str]:
+    """readme 보고 dict가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"readme report is not a dict: {report!r}"]
+    required = ("section_count", "blockers", "submission_ready", "claims_audit_clean")
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"readme: missing required keys: {missing}")
+        return problems
+    if report["section_count"] != len(README_SECTIONS):
+        problems.append(
+            f"readme: section_count={report['section_count']!r} != {len(README_SECTIONS)}"
+        )
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(
+            f"readme: blockers {list(report['blockers'])} != {expected_ids}"
+        )
+    if report["submission_ready"] is not False:
+        problems.append(
+            f"readme: submission_ready={report['submission_ready']!r} is not False"
+        )
+    if report["claims_audit_clean"] is not True:
+        problems.append("readme: claims_audit_clean is not True")
+    return problems
+
+
+def build_readme_report(root, blockers=None) -> dict:
+    """README 파일에서 section_count·블로커·submission_ready 보고를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    path = Path(root) / README_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {
+            "section_count": 0,
+            "blockers": [],
+            "submission_ready": False,
+            "claims_audit_clean": False,
+        }
+    found = []
+    for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
+        pos = text.find(blocker_id)
+        if pos >= 0:
+            found.append((pos, blocker_id))
+    return {
+        "section_count": sum(1 for s in README_SECTIONS if s in text),
+        "blockers": [bid for _, bid in sorted(found)],
+        "submission_ready": "SUBMISSION_READY: true" in text,
+        "claims_audit_clean": audit_text(README_REL, text) == [],
+    }
+
+
+def _check_readme(root):
+    name = "readme_consistent"
+    path = Path(root) / README_REL
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        report = build_readme_report(root)
+        return PreSubmissionCheck(name, False, f"read failed: {exc!r}"), report
+    problems = validate_readme_text(text)
+    report = build_readme_report(root)
+    problems.extend(validate_readme_report(report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"section_count={report['section_count']} "
+        f"blockers={report['blockers']} "
+        f"submission_ready={report['submission_ready']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -1867,6 +2020,9 @@ def run_pre_submission_checks(
     demo_script_check, demo_script_report = _check_demo_script(root)
     checks.append(demo_script_check)
 
+    readme_check, readme_report = _check_readme(root)
+    checks.append(readme_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -1898,6 +2054,7 @@ def run_pre_submission_checks(
             "story": story_report,
             "en_summary": en_report,
             "demo_script": demo_script_report,
+            "readme": readme_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
