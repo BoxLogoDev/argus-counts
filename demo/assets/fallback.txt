@@ -1,0 +1,7 @@
+Argus 파일 입력 폴백 데모 자산
+컷 3 · 세션 FALLBACK-FILE-INPUT · capture_source=file · source=mock
+데모 기준: 빈 6개 중 일치 4건, 불일치 2건, 절대 차이 6개, 순차이 0
+- 파일 입력 폴백 자산이며 Pi 실촬영이 아닙니다
+- Pi 실촬영 검증 전
+- 계수는 모의 어댑터 기준이며 SAM 실호출 미실시
+- 수치는 데모 기준

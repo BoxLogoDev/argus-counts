@@ -1,0 +1,110 @@
+{
+  "title": "Argus 파일 입력 폴백 데모 자산",
+  "cut_index": 3,
+  "replaces": "pi-placeholder",
+  "decision_date": "2026-11-02",
+  "is_pi_real_capture": false,
+  "capture_source": "file",
+  "source": "mock",
+  "session_id": "FALLBACK-FILE-INPUT",
+  "summary": {
+    "counted_bins": 6,
+    "matched": 4,
+    "mismatched": 2,
+    "match_rate": 0.6666666666666666,
+    "abs_diff_total": 6,
+    "net_diff": 0
+  },
+  "bins": [
+    {
+      "bin_id": "A-01-01",
+      "item_code": "WDG-100",
+      "book_qty": 12,
+      "counted_qty": 12,
+      "diff": 0,
+      "verdict": "match",
+      "photo": {
+        "image_ref": "A-01-01.jpg",
+        "size_bytes": 27,
+        "sha256": "50bd9b9ee860ada4e9f6bdc092667e48caad39f2666ba121a4aee48c1a727eca",
+        "suffix": ".jpg"
+      }
+    },
+    {
+      "bin_id": "A-01-02",
+      "item_code": "WDG-200",
+      "book_qty": 8,
+      "counted_qty": 5,
+      "diff": -3,
+      "verdict": "short",
+      "photo": {
+        "image_ref": "A-01-02.jpg",
+        "size_bytes": 27,
+        "sha256": "106573c18e7f3b5ead7beb4feaa256c51263cd581f97b077845ff8d17f5287fd",
+        "suffix": ".jpg"
+      }
+    },
+    {
+      "bin_id": "A-02-02",
+      "item_code": "BLT-050",
+      "book_qty": 15,
+      "counted_qty": 15,
+      "diff": 0,
+      "verdict": "match",
+      "photo": {
+        "image_ref": "A-02-02.jpg",
+        "size_bytes": 27,
+        "sha256": "edb71aac3e178dce3d3ae4bd0144e94c695d88f7bd80b8f8a824d1e67de0b53c",
+        "suffix": ".jpg"
+      }
+    },
+    {
+      "bin_id": "A-03-01",
+      "item_code": "CBL-310",
+      "book_qty": 18,
+      "counted_qty": 18,
+      "diff": 0,
+      "verdict": "match",
+      "photo": {
+        "image_ref": "A-03-01.jpg",
+        "size_bytes": 27,
+        "sha256": "384776805c4955476a02aba2063ea6e095a9a148849824e54cf33adffed03502",
+        "suffix": ".jpg"
+      }
+    },
+    {
+      "bin_id": "B-01-02",
+      "item_code": "SNS-020",
+      "book_qty": 6,
+      "counted_qty": 9,
+      "diff": 3,
+      "verdict": "over",
+      "photo": {
+        "image_ref": "B-01-02.jpg",
+        "size_bytes": 27,
+        "sha256": "9abc71da8786abdc2e5b790572339ede8704f793a14b2833dd08d207eada3e60",
+        "suffix": ".jpg"
+      }
+    },
+    {
+      "bin_id": "B-02-02",
+      "item_code": "PKG-900",
+      "book_qty": 10,
+      "counted_qty": 10,
+      "diff": 0,
+      "verdict": "match",
+      "photo": {
+        "image_ref": "B-02-02.jpg",
+        "size_bytes": 27,
+        "sha256": "d9785bf97b37c5c951525018f7e891bc59ff80afe0e12a11acb020ce871d5daf",
+        "suffix": ".jpg"
+      }
+    }
+  ],
+  "honesty": [
+    "파일 입력 폴백 자산이며 Pi 실촬영이 아닙니다",
+    "Pi 실촬영 검증 전",
+    "계수는 모의 어댑터 기준이며 SAM 실호출 미실시",
+    "수치는 데모 기준"
+  ]
+}
