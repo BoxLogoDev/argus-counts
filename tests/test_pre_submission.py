@@ -63,6 +63,7 @@ def _minimal_root(root: Path) -> None:
     _write(root, "docs/submission-summary-en.md", "mock adapter, Demo basis: figures, tentative theme\n")
     _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
     _write(root, "docs/submission-runbook.md", "모의 어댑터, 검증 전, 미실시 상태 런북\n")
+    _write(root, "docs/devpost-submission.md", "모의 어댑터, 데모 기준, 제출 문안\n")
     _write(root, "demo/assets/captions.srt", "1\n00:00:00,000 --> 00:00:18,000\nArgus\n")
     _write(root, "demo/assets/captions.vtt", "WEBVTT\n")
     _write(root, "demo/assets/shot-list.json", json.dumps({"total_seconds": 180, "cut_count": 9}))

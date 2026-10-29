@@ -28,6 +28,7 @@ REQUIRED_FILES = [
     "docs/submission-summary-en.md",
     "docs/demo-script.md",
     "docs/submission-runbook.md",
+    "docs/devpost-submission.md",
     "terminal/sam_adapter.py",
     "terminal/reconcile.py",
     "terminal/report.py",
