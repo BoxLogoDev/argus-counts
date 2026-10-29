@@ -30,6 +30,9 @@ from qa.pre_submission import (
     validate_en_summary_report,
     validate_en_summary_text,
     build_en_summary_report,
+    validate_demo_script_report,
+    validate_demo_script_text,
+    build_demo_script_report,
 )
 
 MISSING_PI_PROBE = {
@@ -198,6 +201,29 @@ def _valid_en_summary_text() -> str:
     ])
 
 
+def _valid_demo_script_text() -> str:
+    return "\n".join([
+        "# Argus 데모 영상 대본. 총 3분",
+        "테마는 Build for Your World를 전제로 한다. 주인님 최종 확정 전 가안이다.",
+        "- 이번에 만든 것은 이 저장소의 모든 코드와 문서이며 2026-10-27 이후 해커톤 기간에 새로 작성했다.",
+        "- SAM 3.1 실호출은 아직 하지 않았다.",
+        "- 현재는 모의(mock) 어댑터로 동작한다.",
+        "- Pi 실기 카메라 연동은 아직 검증 전이다.",
+        "## 컷 표",
+        "- 이 컷은 Pi 도착 후 실촬영으로 교체합니다.",
+        "- 세 번째는 장부 대조입니다. 데모 기준 빈 6개 중 일치 4건과 불일치 2건입니다.",
+        "- 차이 목록입니다. A-01-02는 장부 8에서 실측 5로 부족입니다. B-01-02는 장부 6에서 실측 9로 초과입니다.",
+        "- 데모 기준 빈 6개 중 불일치 2건과 절대 차이 6개와 일치율 66.7%를 한 번에 정리합니다.",
+        "## 촬영 체크리스트",
+        "- 모의 표기가 화면에 보이는지 확인한다.",
+        "## 현재 상태",
+        "- `pi_real_capture_pending` — Pi 검증 전이다.",
+        "- `sam_real_call_pending` — SAM 미실시이다.",
+        "- 현재 정답은 `SUBMISSION_READY: false` 다.",
+        "",
+    ])
+
+
 def _minimal_root(root: Path) -> None:
     for rel in (
         "README.md",
@@ -212,7 +238,7 @@ def _minimal_root(root: Path) -> None:
         _write(root, rel, "ok\n")
     _write(root, "docs/submission-story.md", _valid_story_text())
     _write(root, "docs/submission-summary-en.md", _valid_en_summary_text())
-    _write(root, "docs/demo-script.md", "Pi 실촬영 교체 예정, 모의 표기 확인\n")
+    _write(root, "docs/demo-script.md", _valid_demo_script_text())
     _write(root, "docs/submission-runbook.md", _valid_runbook_text())
     _write(root, "docs/devpost-submission.md", _valid_devpost_text())
     _write(root, "demo/assets/captions.srt", "1\n00:00:00,000 --> 00:00:18,000\nArgus\n")
@@ -364,7 +390,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 15)
+        self.assertEqual(result["total"], 16)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -478,7 +504,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 15)
+            self.assertEqual(result["total"], 16)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -900,6 +926,56 @@ class EnSummaryIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["en_summary_consistent"])
+            self.assertFalse(result["mechanical_pass"])
+
+
+class DemoScriptIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_demo_script_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("demo_script_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["demo_script_consistent"].passed, by_name["demo_script_consistent"].detail)
+        self.assertIn("section_count=3", by_name["demo_script_consistent"].detail)
+        ds = result["readiness"]["demo_script"]
+        self.assertEqual(ds["section_count"], 3)
+        self.assertEqual(ds["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertFalse(ds["submission_ready"])
+        self.assertTrue(ds["claims_audit_clean"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_demo_script_text_accepts_valid_and_detects_tamper(self):
+        text = _valid_demo_script_text()
+        self.assertEqual(validate_demo_script_text(text), [])
+        tampered = text.replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1)
+        problems = validate_demo_script_text(tampered)
+        self.assertTrue(any("SUBMISSION_READY" in p for p in problems), problems)
+
+    def test_validate_demo_script_text_detects_missing_section(self):
+        text = _valid_demo_script_text().replace("## 현재 상태", "## 상태", 1)
+        problems = validate_demo_script_text(text)
+        self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_demo_script_report_detects_contradictions(self):
+        report = build_demo_script_report(ROOT)
+        self.assertEqual(validate_demo_script_report(report), [])
+        report["submission_ready"] = True
+        problems = validate_demo_script_report(report)
+        self.assertTrue(any("submission_ready" in p for p in problems), problems)
+        report2 = build_demo_script_report(ROOT)
+        report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
+        problems2 = validate_demo_script_report(report2)
+        self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_minimal_root_tampered_demo_script_fails_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write(root, "docs/demo-script.md",
+                   _valid_demo_script_text().replace("SUBMISSION_READY: false", "SUBMISSION_READY: true", 1))
+            result = run_pre_submission_checks(root, sam_env={}, pi_probe=MISSING_PI_PROBE)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["demo_script_consistent"])
             self.assertFalse(result["mechanical_pass"])
 
 

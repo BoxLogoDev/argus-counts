@@ -585,7 +585,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 15/15 mechanical passed", "BLOCKERS: 2",
+    for needle in ("PRE_SUBMISSION: 16/16 mechanical passed", "BLOCKERS: 2",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -600,10 +600,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 15:
-            problems.append(f"passed 기대 15, 실제 {report.get('passed')}")
-        if report.get("total") != 15:
-            problems.append(f"total 기대 15, 실제 {report.get('total')}")
+        if report.get("passed") != 16:
+            problems.append(f"passed 기대 16, 실제 {report.get('passed')}")
+        if report.get("total") != 16:
+            problems.append(f"total 기대 16, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -616,8 +616,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 15:
-            problems.append(f"checks 기대 15, 실제 {len(checks)}")
+        if len(checks) != 16:
+            problems.append(f"checks 기대 16, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
@@ -633,6 +633,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 story_consistent 없음")
         if "en_summary_consistent" not in check_names:
             problems.append("checks에 en_summary_consistent 없음")
+        if "demo_script_consistent" not in check_names:
+            problems.append("checks에 demo_script_consistent 없음")
         if not all(c.get("passed") is True for c in checks):
             problems.append("checks 중 passed가 True가 아닌 항목이 있다")
         honesty = report.get("honesty", [])
@@ -748,6 +750,19 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                 f"readiness en_summary submission_ready 기대 False, 실제 {en_r.get('submission_ready')}")
         if en_r.get("claims_audit_clean") is not True:
             problems.append("readiness en_summary claims_audit_clean 기대 True")
+        ds_r = readiness.get("demo_script") or {}
+        ds_sc = ds_r.get("section_count")
+        ds_rb = ds_r.get("blockers")
+        if ds_sc != 3:
+            problems.append(f"readiness demo_script section_count 기대 3, 실제 {ds_sc}")
+        if ds_rb != list(EXPECTED_BLOCKER_IDS):
+            problems.append(
+                f"readiness demo_script blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {ds_rb}")
+        if ds_r.get("submission_ready") is not False:
+            problems.append(
+                f"readiness demo_script submission_ready 기대 False, 실제 {ds_r.get('submission_ready')}")
+        if ds_r.get("claims_audit_clean") is not True:
+            problems.append("readiness demo_script claims_audit_clean 기대 True")
     else:
         sam_rb, pi_rb = [], []
         console_bc, console_overall = None, None
@@ -757,6 +772,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         runbook_sc, runbook_rb, runbook_fc = None, [], None
         story_sc, story_rb = None, []
         en_sc, en_rb = None, []
+        ds_sc, ds_rb = None, []
     summary = {"feature": "pre-submission",
                "mechanical_pass": report.get("mechanical_pass"),
                "passed": report.get("passed"), "total": report.get("total"),
@@ -778,6 +794,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_story_blockers": story_rb,
                "readiness_en_summary_section_count": en_sc,
                "readiness_en_summary_blockers": en_rb,
+               "readiness_demo_script_section_count": ds_sc,
+               "readiness_demo_script_blockers": ds_rb,
                "submission_ready": report.get("submission_ready"),
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
