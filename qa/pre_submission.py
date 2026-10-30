@@ -22,8 +22,9 @@ Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
 블로커와 어긋나지 않는지의 정합, 폴백 결정(qa.fallback_decision) 보고가
 Pi 준비 점검 보고와 어긋나지 않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
-정합, 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 22종이다.
+정합, 제출 마감 점검(qa.deadline) 보고가 전수 점검 블로커와
+어긋나지 않는지의 정합, 데모 자산의 존재·정합을
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 23종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -33,6 +34,8 @@ Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 �
 인벤토리 정합은 제출물 파일을 다시 읽어 해시·크기를 대조만 하며 실제로 제출하지 않는다.
 폴백 정합은 저장된 JSON 자산을 읽어 대조만 하며 Pi 실촬영으로 주장하지 않는다.
 폴백 결정 정합은 날짜·준비 상태 판정만 대조하며 실제 촬영을 하지 않는다.
+마감 정합은 남은 시간 계산·상태 판정만 대조하며 실제로 제출하지 않는다.
+마감 전이어도 제출 준비 완료를 뜻하지 않는다.
 결정일 전 pending은 실패가 아니고, fallback_due(폴백 채택)도 Pi 실촬영
 성공을 뜻하지 않는다.
 스모크·전체 세션 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
@@ -84,6 +87,10 @@ from qa.fallback_decision import FALLBACK_ASSET as FB_DECISION_ASSET
 from qa.fallback_decision import FALLBACK_RENDER as FB_DECISION_RENDER
 from qa.fallback_decision import build_decision as _build_fb_decision
 from qa.fallback_decision import validate_decision as _validate_fb_decision
+from qa.deadline import DEADLINE_ET_TEXT as DL_ET_TEXT
+from qa.deadline import DEADLINE_KST_ISO as DL_KST_ISO
+from qa.deadline import build_deadline as _build_dl
+from qa.deadline import validate_deadline as _validate_dl
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -3012,6 +3019,70 @@ def _check_fallback_decision(
     )
     return PreSubmissionCheck(name, True, detail), report
 
+def validate_deadline_report(report, blockers=None) -> list[str]:
+    """제출 마감 점검 보고가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"deadline: report is not a dict: {report!r}"]
+    required = (
+        "now",
+        "deadline_kst",
+        "deadline_et",
+        "status",
+        "is_overdue",
+        "remaining_seconds",
+        "remaining_hours",
+        "blockers",
+        "submission_ready",
+        "honesty",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"deadline: missing required keys: {missing}")
+        return problems
+    if report["deadline_kst"] != DL_KST_ISO:
+        problems.append(
+            f"deadline: deadline_kst={report['deadline_kst']!r} != {DL_KST_ISO!r}"
+        )
+    if report["deadline_et"] != DL_ET_TEXT:
+        problems.append(
+            f"deadline: deadline_et={report['deadline_et']!r} != {DL_ET_TEXT!r}"
+        )
+    expected_ids = [b["id"] for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(
+            f"deadline: blockers {list(report['blockers'])} != "
+            f"pre-submission blocker ids {expected_ids}"
+        )
+    if report["submission_ready"] is not False:
+        problems.append("deadline: submission_ready is not False")
+    try:
+        for problem in _validate_dl(report):
+            problems.append(f"deadline: {problem}")
+    except Exception as exc:
+        problems.append(f"deadline: validate_deadline raised: {exc!r}")
+    return problems
+
+
+def _check_deadline(deadline_now=None):
+    name = "deadline_consistent"
+    try:
+        report = _build_dl(now=deadline_now)
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_deadline_report(report)
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} "
+        f"remaining_seconds={report['remaining_seconds']} "
+        f"deadline_kst={report['deadline_kst']} "
+        f"blockers={report['blockers']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
 
 def run_pre_submission_checks(
     root: Path | None = None,
@@ -3020,6 +3091,7 @@ def run_pre_submission_checks(
     pi_probe=None,
     pi_device_confirmed: bool = False,
     pi_which=None,
+    deadline_now=None,
 ) -> dict:
     """전수 점검을 실행한다. 개별 예외는 그 체크만 실패로 기록한다."""
     root = Path(root) if root is not None else ROOT
@@ -3133,6 +3205,9 @@ def run_pre_submission_checks(
     )
     checks.append(decision_check)
 
+    deadline_check, deadline_report = _check_deadline(deadline_now=deadline_now)
+    checks.append(deadline_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -3170,6 +3245,7 @@ def run_pre_submission_checks(
             "fallback": fallback_report,
             "submission_inventory": inventory_report,
             "fallback_decision": decision_report,
+            "deadline": deadline_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
@@ -3183,6 +3259,7 @@ def build_report(
     pi_probe=None,
     pi_device_confirmed: bool = False,
     pi_which=None,
+    deadline_now=None,
 ) -> dict:
     """run_pre_submission_checks 결과를 JSON 직렬화 가능한 dict로 바꾼다."""
     result = run_pre_submission_checks(
@@ -3192,6 +3269,7 @@ def build_report(
         pi_probe=pi_probe,
         pi_device_confirmed=pi_device_confirmed,
         pi_which=pi_which,
+        deadline_now=deadline_now,
     )
     return {
         "checks": [

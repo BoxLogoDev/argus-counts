@@ -46,6 +46,7 @@ from qa.pre_submission import (
     build_current_fallback_panel,
     validate_submission_inventory,
     validate_fallback_decision,
+    validate_deadline_report,
     validate_inventory_report,
     build_inventory_report,
 )
@@ -580,7 +581,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 22)
+        self.assertEqual(result["total"], 23)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -694,7 +695,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 22)
+            self.assertEqual(result["total"], 23)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1449,7 +1450,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 22)
+        self.assertEqual(result["total"], 23)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1592,3 +1593,56 @@ class FallbackDecisionIntegrationTests(unittest.TestCase):
         decision["fallback_adopted"] = True
         problems = validate_fallback_decision(decision)
         self.assertTrue(any("fallback_adopted" in x for x in problems), problems)
+
+
+class DeadlineIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_deadline_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE,
+            deadline_now="2026-10-31T01:50:00+09:00")
+        names = [c.name for c in result["checks"]]
+        self.assertIn("deadline_consistent", names)
+        self.assertEqual(result["total"], 23)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["deadline_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("status=before_deadline", check.detail)
+        self.assertIn("remaining_seconds=465000", check.detail)
+        deadline = result["readiness"]["deadline"]
+        self.assertEqual(deadline["status"], "before_deadline")
+        self.assertEqual(deadline["deadline_kst"], "2026-11-05T11:00:00+09:00")
+        self.assertEqual(deadline["deadline_et"], "2026-11-04 21:00 ET")
+        self.assertEqual(deadline["blockers"], ["pi_real_capture_pending"])
+        self.assertIs(deadline["submission_ready"], False)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_deadline_report_accepts_fixed_now(self):
+        from qa.deadline import build_deadline
+
+        report = build_deadline(now="2026-11-04T12:00:00+09:00")
+        self.assertEqual(report["status"], "due_soon")
+        self.assertEqual(validate_deadline_report(report), [])
+
+    def test_validate_deadline_report_detects_status_tamper(self):
+        from qa.deadline import build_deadline
+
+        report = build_deadline(now="2026-10-31T01:50:00+09:00")
+        report["status"] = "overdue"
+        problems = validate_deadline_report(report)
+        self.assertTrue(any("status" in x for x in problems), problems)
+
+    def test_validate_deadline_report_detects_blocker_mismatch(self):
+        from qa.deadline import build_deadline
+
+        report = build_deadline(now="2026-10-31T01:50:00+09:00")
+        report["blockers"] = []
+        problems = validate_deadline_report(report)
+        self.assertTrue(any("blockers" in x for x in problems), problems)
+
+    def test_validate_deadline_report_detects_submission_ready_tamper(self):
+        from qa.deadline import build_deadline
+
+        report = build_deadline(now="2026-10-31T01:50:00+09:00")
+        report["submission_ready"] = True
+        problems = validate_deadline_report(report)
+        self.assertTrue(any("submission_ready" in x for x in problems), problems)

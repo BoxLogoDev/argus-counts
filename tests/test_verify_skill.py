@@ -390,8 +390,11 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 22)
-            self.assertEqual(summary["total"], 22)
+            self.assertEqual(summary["passed"], 23)
+            self.assertEqual(summary["total"], 23)
+            self.assertIn(summary["readiness_deadline_status"], ("before_deadline", "due_soon", "overdue"))
+            self.assertEqual(summary["readiness_deadline_blockers"], ["pi_real_capture_pending"])
+            self.assertEqual(summary["readiness_deadline_kst"], "2026-11-05T11:00:00+09:00")
             self.assertIn(summary["readiness_fallback_decision_status"], ("pending", "fallback_due"))
             self.assertEqual(summary["readiness_fallback_decision_pi_blockers"], [
                 "pi_device_arrival_not_confirmed", "pi_camera_command_missing"])

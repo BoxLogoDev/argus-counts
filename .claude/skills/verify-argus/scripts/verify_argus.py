@@ -789,7 +789,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 22/22 mechanical passed", "BLOCKERS: 1",
+    for needle in ("PRE_SUBMISSION: 23/23 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -804,10 +804,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 22:
-            problems.append(f"passed 기대 22, 실제 {report.get('passed')}")
-        if report.get("total") != 22:
-            problems.append(f"total 기대 22, 실제 {report.get('total')}")
+        if report.get("passed") != 23:
+            problems.append(f"passed 기대 23, 실제 {report.get('passed')}")
+        if report.get("total") != 23:
+            problems.append(f"total 기대 23, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -820,8 +820,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 22:
-            problems.append(f"checks 기대 22, 실제 {len(checks)}")
+        if len(checks) != 23:
+            problems.append(f"checks 기대 23, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
@@ -851,6 +851,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 submission_inventory_consistent 없음")
         if "fallback_decision_consistent" not in check_names:
             problems.append("checks에 fallback_decision_consistent 없음")
+        if "deadline_consistent" not in check_names:
+            problems.append("checks에 deadline_consistent 없음")
         video_check = next((c for c in checks if c.get("name") == "video_draft_present"), {})
         video_fallback_cut = 3 if "fallback_render_cut=3" in str(video_check.get("detail") or "") else None
         if video_fallback_cut != 3:
@@ -1066,6 +1068,18 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness fallback_decision status/adopted 쌍이 어긋난다: {fd_status}/{fd_adopted}")
         if fd_r.get("fallback_asset") != "demo/assets/fallback.json":
             problems.append(f"readiness fallback_decision fallback_asset 기대 demo/assets/fallback.json, 실제 {fd_r.get('fallback_asset')}")
+        dl_r = readiness.get("deadline") or {}
+        dl_status = dl_r.get("status")
+        dl_rb = dl_r.get("blockers")
+        dl_kst = dl_r.get("deadline_kst")
+        if dl_status not in ("before_deadline", "due_soon", "overdue"):
+            problems.append(f"readiness deadline status 기대 상태값 중 하나, 실제 {dl_status}")
+        if dl_rb != list(EXPECTED_BLOCKER_IDS):
+            problems.append(f"readiness deadline blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {dl_rb}")
+        if dl_kst != "2026-11-05T11:00:00+09:00":
+            problems.append(f"readiness deadline deadline_kst 기대 2026-11-05T11:00:00+09:00, 실제 {dl_kst}")
+        if dl_r.get("submission_ready") is not False:
+            problems.append(f"readiness deadline submission_ready 기대 False, 실제 {dl_r.get('submission_ready')}")
         inv_r = readiness.get("submission_inventory") or {}
         inv_total = inv_r.get("total_files")
         inv_present = inv_r.get("present_files")
@@ -1096,6 +1110,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fb_cut, fb_source = None, None
         inv_total, inv_present, inv_rb = None, None, []
         fd_status, fd_pi_rb, fd_adopted, fd_dd = None, [], None, None
+        dl_status, dl_rb, dl_kst = None, [], None
         demo_fallback_cut = None
         video_fallback_cut = None
     summary = {"feature": "pre-submission",
@@ -1136,6 +1151,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_fallback_decision_pi_blockers": fd_pi_rb,
                "readiness_fallback_decision_adopted": fd_adopted,
                "readiness_fallback_decision_date": fd_dd,
+               "readiness_deadline_status": dl_status,
+               "readiness_deadline_blockers": dl_rb,
+               "readiness_deadline_kst": dl_kst,
                "demo_assembly_fallback_cut": demo_fallback_cut,
                "video_fallback_render_cut": video_fallback_cut,
                "submission_ready": report.get("submission_ready"),
