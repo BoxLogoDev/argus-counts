@@ -44,6 +44,9 @@ from qa.pre_submission import (
     validate_assembly_fallback,
     validate_fallback_panel,
     build_current_fallback_panel,
+    validate_submission_inventory,
+    validate_inventory_report,
+    build_inventory_report,
 )
 
 MISSING_PI_PROBE = {
@@ -576,7 +579,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 20)
+        self.assertEqual(result["total"], 21)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -690,7 +693,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 20)
+            self.assertEqual(result["total"], 21)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1445,7 +1448,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 20)
+        self.assertEqual(result["total"], 21)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1483,3 +1486,49 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InventoryIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_inventory_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("submission_inventory_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["submission_inventory_consistent"].passed, by_name["submission_inventory_consistent"].detail)
+        self.assertIn("total_files=18", by_name["submission_inventory_consistent"].detail)
+        inv = result["readiness"]["submission_inventory"]
+        self.assertEqual(inv["total_files"], 18)
+        self.assertEqual(inv["present_files"], 18)
+        self.assertEqual(inv["missing"], [])
+        self.assertEqual(inv["blockers"], ["pi_real_capture_pending"])
+        self.assertFalse(inv["submission_ready"])
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_inventory_detects_submission_ready_tamper(self):
+        from qa.submission_inventory import build_inventory
+        inv = build_inventory(ROOT)
+        self.assertEqual(validate_submission_inventory(inv), [])
+        inv["submission_ready"] = True
+        problems = validate_submission_inventory(inv)
+        self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+    def test_validate_inventory_detects_blocker_tamper(self):
+        from qa.submission_inventory import build_inventory
+        inv = build_inventory(ROOT)
+        inv["blockers"] = [{"id": "sam_real_call_pending"}]
+        problems = validate_submission_inventory(inv)
+        self.assertTrue(any("blocker" in x for x in problems), problems)
+
+    def test_validate_inventory_report_detects_present_mismatch(self):
+        report = build_inventory_report(ROOT)
+        self.assertEqual(validate_inventory_report(report), [])
+        report["present_files"] = 0
+        problems = validate_inventory_report(report)
+        self.assertTrue(any("present_files" in x for x in problems), problems)
+
+    def test_validate_inventory_detects_total_files_tamper(self):
+        from qa.submission_inventory import build_inventory
+        inv = build_inventory(ROOT)
+        inv["total_files"] = 99
+        problems = validate_submission_inventory(inv)
+        self.assertTrue(any("total_files" in x for x in problems), problems)

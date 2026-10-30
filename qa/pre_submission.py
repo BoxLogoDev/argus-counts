@@ -18,16 +18,18 @@ Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
 전수 점검 블로커와 어긋나지 않는지의 정합, 데모 대본
 (docs/demo-script.md) 원문이 전수 점검 블로커와 어긋나지 않는지의
 정합, README(README.md) 원문이 전수 점검 블로커와 어긋나지
-않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
+않는지의 정합, 제출물 인벤토리(qa.submission_inventory) 보고가 전수 점검
+블로커와 어긋나지 않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 20종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 21종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
 저장된 JSON 자산을 읽어 대조만 하며, 폴백 참조를 Pi 실촬영이나
 컷 3 전환 확정으로 주장하지 않는다.
 문안·런북·스토리·영문 요약·데모 대본·README 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
+인벤토리 정합은 제출물 파일을 다시 읽어 해시·크기를 대조만 하며 실제로 제출하지 않는다.
 폴백 정합은 저장된 JSON 자산을 읽어 대조만 하며 Pi 실촬영으로 주장하지 않는다.
 스모크·전체 세션 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
@@ -71,6 +73,8 @@ from qa.sam_smoke import run_smoke as run_sam_smoke
 from qa.pi_session import run_pi_full_session
 from qa.sam_session import run_sam_session
 from qa.standalone import run_standalone_checks
+from qa.submission_inventory import DELIVERABLES as INVENTORY_DELIVERABLES
+from qa.submission_inventory import build_inventory, validate_inventory
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -2780,6 +2784,114 @@ def build_fallback_report(root, blockers=None) -> dict:
     }
 
 
+INVENTORY_TOTAL_FILES = len(INVENTORY_DELIVERABLES)
+
+
+def validate_submission_inventory(inventory, blockers=None) -> list[str]:
+    """제출물 인벤토리 보고가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(inventory, dict):
+        return [f"submission inventory: inventory is not a dict: {inventory!r}"]
+    required = ("deliverables", "missing", "total_files", "present_files", "total_bytes", "blockers", "submission_ready", "honesty")
+    missing_keys = [k for k in required if k not in inventory]
+    if missing_keys:
+        problems.append(f"submission inventory: missing required keys: {missing_keys}")
+        return problems
+    if inventory["total_files"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"submission inventory: total_files={inventory['total_files']!r} != {INVENTORY_TOTAL_FILES}")
+    deliverables = inventory["deliverables"]
+    if not isinstance(deliverables, list):
+        problems.append(f"submission inventory: deliverables is not a list: {deliverables!r}")
+        deliverables = []
+    if len(deliverables) != INVENTORY_TOTAL_FILES:
+        problems.append(f"submission inventory: deliverables len={len(deliverables)} != {INVENTORY_TOTAL_FILES}")
+    missing_expected = [e.get("path") for e in deliverables if isinstance(e, dict) and not e.get("exists")]
+    if inventory["missing"] != missing_expected:
+        problems.append(f"submission inventory: missing={inventory['missing']!r} != {missing_expected!r} from deliverables")
+    if inventory["present_files"] != INVENTORY_TOTAL_FILES - len(missing_expected):
+        problems.append(f"submission inventory: present_files={inventory['present_files']!r} != {INVENTORY_TOTAL_FILES - len(missing_expected)}")
+    ids = _readiness_blocker_ids(inventory["blockers"], problems, "submission inventory") if isinstance(inventory["blockers"], (list, tuple)) else []
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if ids != expected_ids:
+        problems.append(f"submission inventory: blocker ids {ids} != pre-submission blockers {expected_ids}")
+    if inventory["submission_ready"] is not False:
+        problems.append(f"submission inventory: submission_ready={inventory['submission_ready']!r} is not False")
+    _check_honesty(inventory, problems, "submission inventory", "실제로 제출하지 않는다")
+    _check_honesty(inventory, problems, "submission inventory", "Pi 실촬영 검증 전")
+    _check_honesty(inventory, problems, "submission inventory", "데모 기준")
+    return problems
+
+
+def build_inventory_report(root, blockers=None) -> dict:
+    """인벤토리에서 total/present/missing/total_bytes 보고 dict를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    try:
+        inv = build_inventory(Path(root))
+    except Exception:
+        return {"total_files": 0, "present_files": 0, "missing": [], "total_bytes": 0, "blockers": [], "submission_ready": False}
+    return {
+        "total_files": inv.get("total_files", 0),
+        "present_files": inv.get("present_files", 0),
+        "missing": list(inv.get("missing") or []),
+        "total_bytes": inv.get("total_bytes", 0),
+        "blockers": [b["id"] if isinstance(b, dict) else b for b in (inv.get("blockers") or [])],
+        "submission_ready": False,
+    }
+
+
+def validate_inventory_report(report, blockers=None) -> list[str]:
+    """인벤토리 trimmed 보고 dict가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"submission inventory report is not a dict: {report!r}"]
+    required = ("total_files", "present_files", "missing", "total_bytes", "blockers", "submission_ready")
+    missing_keys = [k for k in required if k not in report]
+    if missing_keys:
+        problems.append(f"submission inventory: missing required keys: {missing_keys}")
+        return problems
+    if report["total_files"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"submission inventory: total_files={report['total_files']!r} != {INVENTORY_TOTAL_FILES}")
+    missing = report["missing"]
+    if not isinstance(missing, list):
+        problems.append(f"submission inventory: missing is not a list: {missing!r}")
+        missing = []
+    if report["present_files"] != INVENTORY_TOTAL_FILES - len(missing):
+        problems.append(f"submission inventory: present_files={report['present_files']!r} != {INVENTORY_TOTAL_FILES - len(missing)}")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(f"submission inventory: blockers {list(report['blockers'])} != {expected_ids}")
+    if report["submission_ready"] is not False:
+        problems.append(f"submission inventory: submission_ready={report['submission_ready']!r} is not False")
+    return problems
+
+
+def _check_submission_inventory(root):
+    name = "submission_inventory_consistent"
+    try:
+        inventory = build_inventory(Path(root))
+    except Exception as exc:
+        report = build_inventory_report(root)
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), report
+    problems = validate_inventory(inventory, Path(root))
+    problems.extend(validate_submission_inventory(inventory))
+    report = build_inventory_report(root)
+    problems.extend(validate_inventory_report(report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"total_files={report['total_files']} "
+        f"present_files={report['present_files']} "
+        f"missing={report['missing']} "
+        f"total_bytes={report['total_bytes']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def _check_fallback(root):
     name = "fallback_consistent"
     path = Path(root) / FALLBACK_REL
@@ -2911,6 +3023,9 @@ def run_pre_submission_checks(
     fallback_check, fallback_report = _check_fallback(root)
     checks.append(fallback_check)
 
+    inventory_check, inventory_report = _check_submission_inventory(root)
+    checks.append(inventory_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -2946,6 +3061,7 @@ def run_pre_submission_checks(
             "demo_script": demo_script_report,
             "readme": readme_report,
             "fallback": fallback_report,
+            "submission_inventory": inventory_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,
