@@ -181,6 +181,9 @@ ASSEMBLY_FALLBACK_EXPECTED = {"asset": ASSEMBLY_FALLBACK_ASSET,
                               "is_pi_real_capture": False,
                               "capture_source": "file",
                               "replaces": "pi-placeholder"}
+FALLBACK_RENDER_REL = "demo/assets/argus-demo-fallback-draft.mp4"
+FALLBACK_RENDER_CUT_INDEX = 3
+FALLBACK_RENDER_DECISION_DATE = "2026-11-02"
 
 
 def clean_env() -> dict:
@@ -569,6 +572,73 @@ def drive_demo_video(ctx: Ctx, evidence: Path) -> dict:
                           "data_panel_cuts": data_panel_cuts,
                           "custom_counted_qty_reflected": custom_counted_qty_reflected,
                           **panel}
+    # 폴백 렌더 변형: 별도 MP4를 ffprobe로 탐침하고(렌더 아님) 컷 3 폴백 패널을 대조한다.
+    fb_mp4 = ROOT / FALLBACK_RENDER_REL
+    fb_probe: dict = {"path": FALLBACK_RENDER_REL,
+                      "exists": fb_mp4.is_file(),
+                      "size": fb_mp4.stat().st_size if fb_mp4.is_file() else 0}
+    if not fb_mp4.is_file() or fb_probe["size"] <= 0:
+        problems.append("폴백 MP4가 없거나 비어 있다")
+    fb_duration = None
+    if ffprobe is not None and fb_mp4.is_file():
+        fb_result = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", str(fb_mp4)], capture_output=True, text=True, timeout=60)
+        try:
+            fb_duration = float(fb_result.stdout.strip())
+        except ValueError:
+            fb_duration = -1.0
+            problems.append(f"폴백 ffprobe duration 파싱 실패: {fb_result.stdout[:100]}")
+        if not (179.0 <= fb_duration <= 181.0):
+            problems.append(f"폴백 duration 기대 179~181초, 실제 {fb_duration}")
+    fb_probe["duration"] = fb_duration
+    ctx.note(f"폴백 ffprobe duration -> {fb_duration}")
+    from demo.fallback import build_fallback_manifest
+
+    fb_manifest = build_fallback_manifest()
+    fb_panel = build_data_panel_lines(
+        FALLBACK_RENDER_CUT_INDEX, report=report, fallback_manifest=fb_manifest)
+    if len(fb_panel) != 4:
+        problems.append(f"컷 3 폴백 패널 기대 4줄, 실제 {len(fb_panel)}줄")
+    if fb_panel:
+        if "파일 입력 폴백 — Pi 실촬영 아님" not in fb_panel[0] or FALLBACK_RENDER_DECISION_DATE not in fb_panel[0]:
+            problems.append(f"컷 3 폴백 패널 1줄 표기 이상: {fb_panel[0]}")
+        if "capture_source=file" not in fb_panel[1] or "source=mock" not in fb_panel[1]:
+            problems.append(f"컷 3 폴백 패널 2줄 표기 이상: {fb_panel[1]}")
+        if len(fb_panel) > 3:
+            fb_target = next(b for b in fb_manifest["bins"] if b["bin_id"] == "A-01-02")
+            fb_sha8 = str(fb_target["photo"]["sha256"])[:8]
+            if "A-01-02" not in fb_panel[3] or fb_sha8 not in fb_panel[3]:
+                problems.append(f"컷 3 폴백 패널 4줄에 A-01-02·sha256 앞 8자 없음: {fb_panel[3]}")
+    fb_cut5 = build_data_panel_lines(5, report=report, fallback_manifest=fb_manifest)
+    if len(fb_cut5) != 6:
+        problems.append(f"폴백 매니페스트를 줘도 컷 5 패널은 6줄이어야 한다, 실제 {len(fb_cut5)}줄")
+    fb_tampered = copy.deepcopy(fb_manifest)
+    fb_tampered["is_pi_real_capture"] = True
+    fallback_render_tamper_detected = False
+    try:
+        build_data_panel_lines(
+            FALLBACK_RENDER_CUT_INDEX, report=report, fallback_manifest=fb_tampered)
+    except ValueError:
+        fallback_render_tamper_detected = True
+    if not fallback_render_tamper_detected:
+        problems.append("컷 3 폴백 is_pi_real_capture 변조를 탐지하지 못했다")
+    ctx.note(
+        f"폴백 렌더 -> exists {fb_probe['exists']}, size {fb_probe['size']}, "
+        f"duration {fb_duration}, 패널 {len(fb_panel)}줄, 변조 탐지 {fallback_render_tamper_detected}")
+    probe["fallback_render"] = fb_probe
+    fallback_render_payload = {
+        "path": FALLBACK_RENDER_REL, "exists": fb_probe["exists"],
+        "size": fb_probe["size"], "duration": fb_duration,
+        "panel": fb_panel, "panel_count": len(fb_panel),
+        "cut_index": FALLBACK_RENDER_CUT_INDEX,
+        "decision_date": FALLBACK_RENDER_DECISION_DATE,
+        "capture_source": "file", "source": "mock",
+        "is_pi_real_capture": False,
+        "session_id": fb_manifest.get("session_id"),
+        "tamper_detected": fallback_render_tamper_detected,
+        "honesty": ["폴백 렌더는 파일 입력이며 Pi 실촬영이 아닙니다",
+                    "Pi 실촬영 아님"]}
     summary = {"feature": "demo-video-draft", "probe": probe,
                "data_panel_cuts": data_panel_cuts,
                "assembly_fallback_cut_index": (assembly_fallback or {}).get("cut_index"),
@@ -577,11 +647,19 @@ def drive_demo_video(ctx: Ctx, evidence: Path) -> dict:
                "assembly_fallback_decision_date": (assembly_fallback or {}).get("decision_date"),
                "assembly_fallback_tamper_detected": assembly_fallback_tamper_detected,
                "assembly_fallback_missing_detected": assembly_fallback_missing_detected,
+               "fallback_render_exists": fb_probe["exists"],
+               "fallback_render_size": fb_probe["size"],
+               "fallback_render_duration": fb_duration,
+               "fallback_render_panel_count": len(fb_panel),
+               "fallback_render_tamper_detected": fallback_render_tamper_detected,
+               "fallback_render_capture_source": "file",
+               "fallback_render_is_pi_real_capture": False,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"video-probe.json": json.dumps(probe, ensure_ascii=False, indent=2) + "\n",
                     "data-panel.json": json.dumps(data_panel_payload, ensure_ascii=False, indent=2) + "\n",
-                    "assembly-fallback.json": json.dumps(assembly_fallback_payload, ensure_ascii=False, indent=2) + "\n"})
+                    "assembly-fallback.json": json.dumps(assembly_fallback_payload, ensure_ascii=False, indent=2) + "\n",
+                    "fallback-render.json": json.dumps(fallback_render_payload, ensure_ascii=False, indent=2) + "\n"})
     return summary
 
 

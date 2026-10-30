@@ -465,6 +465,61 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(any("Pi 실촬영 아님" in line
                                 for line in payload["honesty"]))
 
+    def test_demo_video_fallback_render_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("fallback-render.json", skill)
+        self.assertIn("build_fallback_manifest", skill)
+        feature = (SKILL_DIR / "features" / "demo-video-draft.md").read_text(
+            encoding="utf-8")
+        for marker in ("video-fallback-render", "build_fallback_manifest",
+                       "fallback-render.json", "2026-11-02",
+                       "Pi 실촬영이 아니다",
+                       "demo/assets/argus-demo-fallback-draft.mp4"):
+            self.assertIn(marker, feature)
+
+    def test_demo_video_drives_and_records_fallback_render(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-fallback-render"
+            result = self._run_helper("--feature", "demo-video-draft",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "demo-video-draft")
+            self.assertTrue(summary["all_ok"])
+            self.assertTrue(summary["fallback_render_exists"])
+            self.assertGreater(summary["fallback_render_size"], 0)
+            self.assertTrue(179.0 <= summary["fallback_render_duration"] <= 181.0)
+            self.assertEqual(summary["fallback_render_panel_count"], 4)
+            self.assertTrue(summary["fallback_render_tamper_detected"])
+            self.assertEqual(summary["fallback_render_capture_source"], "file")
+            self.assertIs(summary["fallback_render_is_pi_real_capture"], False)
+            payload = json.loads((evidence / "fallback-render.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(payload["path"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            self.assertEqual(len(payload["panel"]), 4)
+            self.assertIn("파일 입력 폴백", payload["panel"][0])
+            self.assertTrue(payload["tamper_detected"])
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_demo_video_fallback_render_evidence_keeps_honesty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-fallback-render-honesty"
+            result = self._run_helper("--feature", "demo-video-draft",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "fallback-render.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(payload["is_pi_real_capture"], False)
+            self.assertEqual(payload["capture_source"], "file")
+            self.assertEqual(payload["source"], "mock")
+            self.assertTrue(any("Pi 실촬영이 아닙니다" in line
+                                for line in payload["honesty"]))
+            self.assertTrue(any("Pi 실촬영 아님" in line
+                                for line in payload["panel"]))
+
     def test_pi_capture_drives_and_records_fake_hash(self):
         import hashlib
 
