@@ -70,7 +70,7 @@ The report module produces a human-readable text report.
 The same module produces a structured payload.
 Argus uses the Python standard library only.
 The QA harness runs 17 baseline checks with literals fixed in the harness file.
-Unit tests currently number 456.
+Unit tests currently number 467.
 
 ## Demo data
 
