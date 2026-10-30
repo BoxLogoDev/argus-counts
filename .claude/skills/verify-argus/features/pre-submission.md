@@ -1,10 +1,10 @@
 # 제출 전 전수 점검
 
-제출 전 전수 점검은 기존 기계적 점검 23종을 한 번에 구동하는 CLI다. 기계적 점검이 전부 통과해도 제출 블로커 1건이 남아 `submission_ready`는 항상 false이며, 기계적 통과를 제출 가능으로 서술하지 않는다.
+제출 전 전수 점검은 기존 기계적 점검 24종을 한 번에 구동하는 CLI다. 기계적 점검이 전부 통과해도 제출 블로커 1건이 남아 `submission_ready`는 항상 false이며, 기계적 통과를 제출 가능으로 서술하지 않는다.
 
 ## Sub-features
 
-- `pre-run` 기본 실행: `python3 -m qa.pre_submission`으로 기계적 점검 23종을 한 번에 구동해 텍스트 보고를 얻는다.
+- `pre-run` 기본 실행: `python3 -m qa.pre_submission`으로 기계적 점검 24종을 한 번에 구동해 텍스트 보고를 얻는다.
 - `pre-json` `--json` 보고: 같은 점검을 JSON으로 얻어 passed·total·mechanical_pass·checks를 확인한다.
 - `pre-blockers` 블로커 1건 분리 보고: `pi_real_capture_pending`을 종료코드와 별도 목록으로 보고한다. SAM 3.1 실호출은 2026-10-30 전체 세션으로 검증해(같은 가상 사진 재사용, 빈별 정확도 아님) 블로커에서 제외했다.
 - `pre-not-ready` submission_ready false 확인: 기계적 통과와 무관하게 `submission_ready`가 false인지 확인한다.
@@ -25,6 +25,7 @@
 - `pre-video-fallback-render` 영상 폴백 렌더 정합: `video_draft_present` 체크가 기본 MP4·데이터 패널에 더해 폴백 MP4(`demo/assets/argus-demo-fallback-draft.mp4`) 크기와 컷 3 폴백 패널 4줄(파일 입력 폴백 — Pi 실촬영 아님·결정일 2026-11-02·capture_source=file·source=mock·요약·A-01-02 사진 해시)이 현재 폴백 매니페스트와 맞는지 확인하고, 통과 detail에 `fallback_render_cut=3`가 포함된다. 폴백 렌더 대조는 저장·생성 자산 대조만이며 Pi 실촬영으로 주장하지 않는다.
 - `pre-submission-inventory` 제출물 인벤토리 정합: 제출물 인벤토리(`qa.submission_inventory`) 보고의 제출물 18개·present·missing·합계·블로커 1건·`submission_ready` false가 전수 점검 블로커와 어긋나지 않는지 확인하며, JSON의 `readiness.submission_inventory`에 total_files와 블로커가 그대로 기록된다. 인벤토리 정합은 파일 대조만 하며 실제로 제출하지 않고, 인벤토리 완결을 제출 가능으로 주장하지 않는다.
 - `pre-fallback-decision` 폴백 결정 정합: 폴백 결정(`qa.fallback_decision`) 보고의 결정일 2026-11-02·status·fallback_adopted 산식·pi_blockers가 Pi 준비 점검 보고와 어긋나지 않는지 확인하며, JSON의 `readiness.fallback_decision`에 status와 pi_blockers가 그대로 기록된다. 폴백 결정 정합은 날짜·준비 상태 판정만 대조하며 실제 촬영을 하지 않고, 결정일 전 pending은 실패가 아니며, fallback_due(폴백 채택)를 Pi 실촬영 성공으로 주장하지 않는다.
+- `pre-final-package` 최종 묶음 정합: 최종 묶음(`qa.final_package`) 보고의 status·inventory_present/total·deadline_status·fallback_status·블로커 1건·`submission_ready` false가 제출물 인벤토리·제출 마감·폴백 결정 보고와 어긋나지 않는지 확인하며, JSON의 `readiness.final_package`에 status와 블로커가 그대로 기록된다. 최종 묶음 정합은 보고 대조만 하며 실제로 제출하지 않고, blocked는 실패가 아니며 ready_for_packaging이어도 제출 완료를 뜻하지 않는다.
 - `pre-assembly-fallback` 조립 폴백 정합: `demo_assets_consistent` 체크가 조립 매니페스트 컷 3에만 파일 입력 폴백 참조(asset·cut_index 3·결정일 2026-11-02·is_pi_real_capture false·capture_source file·replaces pi-placeholder)가 있고 정직성 표기가 포함되는지 확인하며, 통과 detail에 `assembly_fallback_cut=3`가 포함되고 증거 summary에 `demo_assembly_fallback_cut`으로 남는다. 조립 폴백 대조는 저장 자산 대조만이며 Pi 실촬영이나 컷 3 전환 확정으로 주장하지 않는다.
 
 ## How to get to it (user POV)
@@ -41,9 +42,9 @@ Preconditions:
 - 환경변수 `SAM_API_BASE_URL`·`SAM_API_KEY`가 비어 있다. SAM 실호출은 이 기능의 범위가 아니며, 헬퍼의 자식 환경에서도 제거된다.
 - 증거 디렉터리 `/tmp/argus-verify-evidence/<run-id>/`를 새로 정했다.
 
-- **기본 실행.** Run `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature pre-submission --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼가 `python3 -m qa.pre_submission`을 CLI 서브프로세스로 구동한다. 종료코드 0이고, stdout에 `PRE_SUBMISSION: 22/22 mechanical passed`, `BLOCKERS: 1`, `SUBMISSION_READY: false`와 블로커 id `pi_real_capture_pending`이 포함되는지, 두 실행의 종료코드를 증거 transcript에 남기는지 확인한다.
+- **기본 실행.** Run `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature pre-submission --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼가 `python3 -m qa.pre_submission`을 CLI 서브프로세스로 구동한다. 종료코드 0이고, stdout에 `PRE_SUBMISSION: 24/24 mechanical passed`, `BLOCKERS: 1`, `SUBMISSION_READY: false`와 블로커 id `pi_real_capture_pending`이 포함되는지, 두 실행의 종료코드를 증거 transcript에 남기는지 확인한다.
 - **직접 CLI 확인.** 프로젝트 루트에서 `python3 -m qa.pre_submission`과 `python3 -m qa.pre_submission --json`을 직접 실행해도 같은 수치를 확인한다.
-- **JSON 수치 확인.** `--json` 출력에서 passed 23, total 23, 즉 23/23인지, `mechanical_pass`가 true인지, checks가 23개이고 전부 passed true인지 확인한다.
+- **JSON 수치 확인.** `--json` 출력에서 passed 24, total 24, 즉 24/24인지, `mechanical_pass`가 true인지, checks가 24개이고 전부 passed true인지 확인한다.
 - **준비 점검 확인.** JSON `readiness.sam.blockers`가 `sam_credit_not_confirmed`·`sam_base_url_missing`·`sam_api_key_missing` 3종 순서 그대로이고 `readiness.pi.blockers`가 `pi_device_arrival_not_confirmed`·`pi_camera_command_missing` 2종 순서 그대로이며, 두 ready 플래그가 모두 false인지 확인한다. 증거 summary에도 `readiness_sam_blockers`·`readiness_pi_blockers`로 남는다.
 - **콘솔 준비 상태 확인.** JSON `readiness.console`의 sam_blockers·pi_blockers가 위 두 목록과 각각 같고, blocker_count가 5, overall_ready가 false인지 확인한다. 증거 summary에도 `readiness_console_blocker_count`·`readiness_console_overall_ready`로 남는다.
 - **제출 문안 확인.** JSON `readiness.devpost`의 section_count가 11, blockers가 전수 점검 블로커 2종과 같고, submission_ready가 false, claims_audit_clean이 true인지 확인한다. 증거 summary에도 `readiness_devpost_section_count`·`readiness_devpost_blockers`로 남는다. 문안 정합은 원문 대조만이며 실제 제출이 아니다.
@@ -60,6 +61,7 @@ Preconditions:
 - **SAM 스모크 확인.** JSON `readiness.smoke`의 status가 blocked, attempted가 false, blockers가 SAM 준비 점검 블로커 3종과 같은지 확인한다. 증거 summary에도 `readiness_smoke_status`·`readiness_smoke_blockers`로 남는다. 스모크 정합은 가짜 counter로만 구동하므로 실제 API 호출이 아니다.
 - **폴백 결정 확인.** JSON `readiness.fallback_decision`의 decision_date가 2026-11-02, pi_blockers가 Pi 준비 점검 블로커 2종과 같고, is_pi_real_capture가 false이며, status와 fallback_adopted 쌍이 (pending, false)·(fallback_due, true)·(pi_ready, false) 중 하나인지 확인한다. 증거 summary에도 `readiness_fallback_decision_status`·`readiness_fallback_decision_pi_blockers`로 남는다. 폴백 결정은 날짜·준비 상태 판정만이며 실제 촬영이 아니다.
 - **제출물 인벤토리 확인.** JSON `readiness.submission_inventory`의 total_files가 18, present_files가 18, missing이 빈 목록, blockers가 전수 점검 블로커 1건과 같고, submission_ready가 false인지 확인한다. 증거 summary에도 `readiness_inventory_total_files`·`readiness_inventory_blockers`로 남는다. 인벤토리 정합은 파일 대조만이며 실제 제출이 아니다.
+- **최종 묶음 확인.** JSON `readiness.final_package`의 status가 blocked, inventory_present가 18, inventory_total이 18, blockers가 전수 점검 블로커 1건과 같고, submission_ready가 false인지 확인한다. 증거 summary에도 `readiness_final_package_status`·`readiness_final_package_blockers`로 남는다. 최종 묶음 정합은 보고 대조만이며 실제 제출이 아니다.
 - **블로커 확인.** blockers의 id 목록이 `pi_real_capture_pending` 1건(BLOCKERS: 1)인지 확인한다.
 - **제출 가능 아님 확인.** `submission_ready`가 false(SUBMISSION_READY: false)인지 확인한다. true이면 심각한 문제다.
 - **표기 확인.** `honesty`에 '모의'를 포함한 줄과 '데모 기준'을 포함한 줄이 있는지 확인한다.
@@ -68,6 +70,7 @@ Preconditions:
 ## Gotchas
 
 - 기계적 통과를 제출 가능으로 오인하지 않는다. `mechanical_pass`가 true여도 `submission_ready`는 false이며, 이를 제출 가능으로 서술하면 검증이 무효다.
-- 블로커는 종료코드에 반영되지 않는다. 종료코드 0은 기계적 점검 23종 통과만을 뜻하므로, 블로커 1건은 텍스트의 `BLOCKERS: 1`와 JSON blockers 목록으로 따로 확인한다.
+- 블로커는 종료코드에 반영되지 않는다. 종료코드 0은 기계적 점검 24종 통과만을 뜻하므로, 블로커 1건은 텍스트의 `BLOCKERS: 1`와 JSON blockers 목록으로 따로 확인한다.
 - Pi 실촬영은 아직 하지 않은 일이다. SAM 실호출은 전체 세션으로 검증했지만(같은 가상 사진 재사용, 빈별 정확도 아님) 기본 실행은 모의 어댑터 기준이다. 이 기능은 모의 어댑터 기준 기계적 점검만 구동하며, 실호출·실촬영을 수행하거나 수행한 것으로 서술하지 않는다.
 - `pre-deadline`: 마감 점검 정합(deadline_consistent)은 qa.deadline 보고의 마감 상수·블로커·submission_ready false와 남은 시간 산식을 대조하며, 실제로 제출하지 않는다.
+- `pre-final-package`: 최종 묶음 정합(final_package_consistent)은 qa.final_package 보고의 status·인벤토리·마감·폴백 필드를 각 원본 보고와 대조하며, 실제로 제출하지 않는다. blocked는 실패가 아니다.

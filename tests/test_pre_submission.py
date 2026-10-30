@@ -47,6 +47,7 @@ from qa.pre_submission import (
     validate_submission_inventory,
     validate_fallback_decision,
     validate_deadline_report,
+    validate_final_package_report,
     validate_inventory_report,
     build_inventory_report,
 )
@@ -581,7 +582,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 23)
+        self.assertEqual(result["total"], 24)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -695,7 +696,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 23)
+            self.assertEqual(result["total"], 24)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1450,7 +1451,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 23)
+        self.assertEqual(result["total"], 24)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1602,7 +1603,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 23)
+        self.assertEqual(result["total"], 24)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1645,4 +1646,64 @@ class DeadlineIntegrationTests(unittest.TestCase):
         report = build_deadline(now="2026-10-31T01:50:00+09:00")
         report["submission_ready"] = True
         problems = validate_deadline_report(report)
+        self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+class FinalPackageIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_final_package_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE,
+            deadline_now="2026-10-31T06:50:00+09:00")
+        names = [c.name for c in result["checks"]]
+        self.assertIn("final_package_consistent", names)
+        self.assertEqual(result["total"], 24)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["final_package_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("status=blocked", check.detail)
+        self.assertIn("package_date_target=2026-11-03", check.detail)
+        fp = result["readiness"]["final_package"]
+        self.assertEqual(fp["status"], "blocked")
+        self.assertEqual(fp["inventory_present"], 18)
+        self.assertEqual(fp["inventory_total"], 18)
+        self.assertEqual(fp["inventory_missing"], [])
+        self.assertEqual(fp["deadline_status"], "before_deadline")
+        self.assertEqual(fp["fallback_status"], "pending")
+        self.assertIs(fp["fallback_adopted"], False)
+        self.assertEqual(fp["blockers"], ["pi_real_capture_pending"])
+        self.assertIs(fp["submission_ready"], False)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_final_package_report_accepts_built_report(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(validate_final_package_report(report), [])
+
+    def test_validate_final_package_report_detects_status_tamper(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["status"] = "ready_for_packaging"
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("status" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_blocker_mismatch(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["blockers"] = []
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("blockers" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_submission_ready_tamper(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["submission_ready"] = True
+        problems = validate_final_package_report(report)
         self.assertTrue(any("submission_ready" in x for x in problems), problems)

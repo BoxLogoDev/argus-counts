@@ -100,8 +100,8 @@
       "start": 155,
       "end": 170,
       "duration": 15,
-      "caption": "리포트. QA 17개와 테스트 541개",
-      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 541개로 기준값을 지킵니다.",
+      "caption": "리포트. QA 17개와 테스트 546개",
+      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 546개로 기준값을 지킵니다.",
       "source_kind": "capture",
       "source_ref": "api-report.json",
       "placeholder": false
