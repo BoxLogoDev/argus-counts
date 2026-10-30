@@ -756,7 +756,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 18/18 mechanical passed", "BLOCKERS: 1",
+    for needle in ("PRE_SUBMISSION: 19/19 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -771,10 +771,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 18:
-            problems.append(f"passed 기대 18, 실제 {report.get('passed')}")
-        if report.get("total") != 18:
-            problems.append(f"total 기대 18, 실제 {report.get('total')}")
+        if report.get("passed") != 19:
+            problems.append(f"passed 기대 19, 실제 {report.get('passed')}")
+        if report.get("total") != 19:
+            problems.append(f"total 기대 19, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -787,13 +787,15 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 18:
-            problems.append(f"checks 기대 18, 실제 {len(checks)}")
+        if len(checks) != 19:
+            problems.append(f"checks 기대 19, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
         if "sam_smoke_consistent" not in check_names:
             problems.append("checks에 sam_smoke_consistent 없음")
+        if "sam_session_consistent" not in check_names:
+            problems.append("checks에 sam_session_consistent 없음")
         if "pi_smoke_consistent" not in check_names:
             problems.append("checks에 pi_smoke_consistent 없음")
         if "devpost_consistent" not in check_names:
@@ -871,6 +873,21 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         if smoke_rb != sam_rb:
             problems.append(
                 f"readiness smoke blockers가 sam 블로커와 다르다: {smoke_rb}")
+        session_r = readiness.get("sam_session") or {}
+        session_status = session_r.get("status")
+        session_rb = [b["id"] for b in session_r.get("blockers", [])]
+        if session_status != "blocked":
+            problems.append(f"readiness sam_session status 기대 blocked, 실제 {session_status}")
+        if session_r.get("attempted") is not False:
+            problems.append(
+                f"readiness sam_session attempted 기대 False, 실제 {session_r.get('attempted')}")
+        if session_rb != sam_rb:
+            problems.append(
+                f"readiness sam_session blockers가 sam 블로커와 다르다: {session_rb}")
+        if session_r.get("source") is not None:
+            problems.append(f"readiness sam_session source 기대 None, 실제 {session_r.get('source')}")
+        if session_r.get("summary") is not None:
+            problems.append(f"readiness sam_session summary 기대 None, 실제 {session_r.get('summary')}")
         pi_smoke_r = readiness.get("pi_smoke") or {}
         pi_smoke_status = pi_smoke_r.get("status")
         pi_smoke_rb = [b["id"] for b in pi_smoke_r.get("blockers", [])]
@@ -982,6 +999,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         sam_rb, pi_rb = [], []
         console_bc, console_overall = None, None
         smoke_status, smoke_rb = None, []
+        session_status, session_rb = None, []
         pi_smoke_status, pi_smoke_rb = None, []
         devpost_sc, devpost_rb = None, []
         runbook_sc, runbook_rb, runbook_fc = None, [], None
@@ -1002,6 +1020,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_console_overall_ready": console_overall,
                "readiness_smoke_status": smoke_status,
                "readiness_smoke_blockers": smoke_rb,
+               "readiness_sam_session_status": session_status,
+               "readiness_sam_session_blockers": session_rb,
                "readiness_pi_smoke_status": pi_smoke_status,
                "readiness_pi_smoke_blockers": pi_smoke_rb,
                "readiness_devpost_section_count": devpost_sc,

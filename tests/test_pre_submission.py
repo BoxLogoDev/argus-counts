@@ -18,6 +18,7 @@ from qa.pre_submission import (
     validate_pi_smoke,
     validate_sam_readiness,
     validate_sam_smoke,
+    validate_sam_session,
     validate_devpost_report,
     validate_devpost_text,
     build_devpost_report,
@@ -574,7 +575,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 18)
+        self.assertEqual(result["total"], 19)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -688,7 +689,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 18)
+            self.assertEqual(result["total"], 19)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -824,6 +825,93 @@ class ReadinessIntegrationTests(unittest.TestCase):
         report["diff"] = 99
         problems = validate_sam_smoke(report)
         self.assertTrue(any("diff" in p for p in problems), problems)
+
+
+    def test_real_root_includes_sam_session_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
+        )
+        names = [c.name for c in result["checks"]]
+        self.assertIn("sam_session_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["sam_session_consistent"].passed)
+        self.assertIn("fake_calls=0", by_name["sam_session_consistent"].detail)
+        session = result["readiness"]["sam_session"]
+        self.assertEqual(session["status"], "blocked")
+        self.assertFalse(session["attempted"])
+        self.assertFalse(session["ready_for_live_call"])
+        self.assertEqual(session["bins"], [])
+        self.assertIsNone(session["summary"])
+        self.assertEqual(
+            [b["id"] for b in session["blockers"]],
+            [b["id"] for b in result["readiness"]["sam"]["blockers"]],
+        )
+        self.assertFalse(result["submission_ready"])
+
+    def test_sam_session_ready_fake_env_passes_with_fake_counter(self):
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        result = run_pre_submission_checks(
+            ROOT,
+            sam_env=env,
+            sam_credit_confirmed=True,
+            pi_probe=MISSING_PI_PROBE,
+        )
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["sam_session_consistent"].passed)
+        self.assertIn("fake_calls=6", by_name["sam_session_consistent"].detail)
+        session = result["readiness"]["sam_session"]
+        self.assertEqual(session["status"], "passed")
+        self.assertTrue(session["attempted"])
+        self.assertEqual(session["source"], "sam")
+        self.assertEqual(len(session["bins"]), 6)
+        summary = session["summary"]
+        self.assertEqual(summary["counted_bins"], 6)
+        self.assertEqual(summary["matched"], 4)
+        self.assertEqual(summary["mismatched"], 2)
+        self.assertEqual(summary["abs_diff_total"], 6)
+        self.assertEqual(summary["net_diff"], 0)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_sam_session_detects_blocked_attempted(self):
+        from qa.sam_session import run_sam_session
+
+        report = run_sam_session(env={}, credit_confirmed=False)
+        self.assertEqual(validate_sam_session(report), [])
+        report["attempted"] = True
+        problems = validate_sam_session(report)
+        self.assertTrue(any("attempted" in p for p in problems), problems)
+
+    def test_validate_sam_session_detects_cross_mismatch_with_sam_report(self):
+        from qa.sam_readiness import check_readiness as check_sam
+        from qa.sam_session import run_sam_session
+
+        session = run_sam_session(env={}, credit_confirmed=False)
+        sam_report = check_sam(
+            env={"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"},
+            credit_confirmed=True,
+        )
+        problems = validate_sam_session(session, sam_report=sam_report)
+        self.assertTrue(any("sam session" in p for p in problems), problems)
+
+    def test_validate_sam_session_detects_summary_tamper(self):
+        from qa.sam_session import run_sam_session
+        from terminal.demo_data import DEMO_COUNTED_QTY
+        from terminal.models import CountResult
+
+        class _Counter:
+            def count(self, bin_id, image_ref=None):
+                return CountResult(
+                    bin_id=bin_id,
+                    counted_qty=DEMO_COUNTED_QTY[bin_id],
+                    source="sam",
+                )
+
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        report = run_sam_session(env=env, credit_confirmed=True, counter=_Counter())
+        self.assertEqual(validate_sam_session(report), [])
+        report["summary"]["abs_diff_total"] = 99
+        problems = validate_sam_session(report)
+        self.assertTrue(any("abs_diff_total" in p for p in problems), problems)
 
     def test_real_root_includes_pi_smoke_check_and_section(self):
         result = run_pre_submission_checks(
@@ -1281,7 +1369,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 18)
+        self.assertEqual(result["total"], 19)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
