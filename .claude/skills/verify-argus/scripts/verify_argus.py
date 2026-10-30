@@ -27,6 +27,10 @@ SAM 전체 세션(sam-session)은 qa.sam_session 전체 세션 하네스를 실�
 API 호출 없이 CLI 기본 차단과 프로세스 내 가짜 counter 주입으로만
 구동한다(차단 시 counter를 부르지 않으며, 가짜 성공은 데모 기준 수량의
 대조 검증일 뿐 Pi 실촬영이 아니고 빈별 정확도 검증도 아니다).
+Pi 전체 세션(pi-session-full)은 qa.pi_session 전체 촬영 세션 하네스를 실제
+촬영 없이 CLI 기본 차단과 프로세스 내 가짜 session 주입으로만
+구동한다(차단 시 session을 부르지 않으며, 가짜 성공은 데모 기준 수량의
+대조 검증일 뿐 Pi 실촬영 검증 완료가 아니다).
 제출 문안 패키지(devpost-submission)는 파일 원문을 읽어 절 순서·데모
 수치·블로커를 대조하고 변조 탐지를 확인한다(제출 준비 완료가 아니다).
 파일 입력 폴백(file-fallback)은 demo.fallback CLI를 임시 출력 디렉터리로
@@ -44,7 +48,7 @@ API 호출 없이 CLI 기본 차단과 프로세스 내 가짜 counter 주입으
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
-file-fallback, sam-session, all(전부, 기능별 하위 디렉터리).
+file-fallback, sam-session, pi-session-full, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -80,7 +84,8 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "pre-submission", "pi-capture", "pi-session", "sam-live",
             "sam-readiness", "submission-runbook", "pi-readiness",
             "console-readiness", "sam-smoke", "pi-smoke",
-            "devpost-submission", "file-fallback", "sam-session")
+            "devpost-submission", "file-fallback", "sam-session",
+            "pi-session-full")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -114,6 +119,10 @@ PI_SMOKE_BOOK_QTY = 8
 PI_SMOKE_FAKE_CONTENT = b"fake-pi-smoke-jpeg"
 PI_SMOKE_FAKE_SHA = "f" * 64
 PI_SMOKE_SENTINEL = "sentinel-pi-smoke-not-real"
+PI_FULL_SESSION_ID = "VERIFY-PI-FULL-1"
+PI_FULL_FAKE_CONTENT = b"fake-pi-full-session-jpeg"
+PI_FULL_FAKE_SHA = "f" * 64
+PI_FULL_SENTINEL = "sentinel-pi-full-not-real"
 EXPECTED_PI_READINESS_BLOCKER_IDS = ("pi_device_arrival_not_confirmed",
                                      "pi_camera_command_missing")
 PI_READINESS_READY_PROBE = {"available": True,
@@ -2871,6 +2880,303 @@ def drive_sam_session(ctx: Ctx, evidence: Path) -> dict:
                         passed, ensure_ascii=False, indent=2) + "\n"})
     return summary
 
+def drive_pi_session_full(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.pi_session import run_pi_full_session
+    from terminal.demo_data import DEMO_COUNTED_QTY, demo_bin_ids, demo_ledger
+    from terminal.pi_capture import PiCaptureError
+
+    def _libcamera(name):
+        return "/usr/bin/libcamera-still" if name == "libcamera-still" else None
+
+    def _no_command(name):
+        return None
+
+    def _ok_runner(argv, capture_output=True, text=True, timeout=30):
+        Path(argv[argv.index("-o") + 1]).write_bytes(PI_FULL_FAKE_CONTENT)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    def _passed_result() -> dict:
+        ledger = demo_ledger()
+        bins = []
+        for bin_id in demo_bin_ids():
+            counted = DEMO_COUNTED_QTY[bin_id]
+            book = ledger[bin_id].book_qty
+            diff = counted - book
+            verdict = "match" if diff == 0 else ("short" if diff < 0 else "over")
+            bins.append({"bin_id": bin_id, "book_qty": book, "counted_qty": counted,
+                         "diff": diff, "verdict": verdict,
+                         "photo": {"sha256": PI_FULL_FAKE_SHA,
+                                   "image_ref": f"{bin_id}.jpg"}})
+        return {"session_id": PI_FULL_SESSION_ID, "source": "mock",
+                "capture_source": "pi-camera", "bins": bins,
+                "summary": {"counted_bins": 6, "matched": 4, "mismatched": 2,
+                            "match_rate": 4 / 6, "abs_diff_total": 6, "net_diff": 0}}
+
+    class FakeSession:
+        def __init__(self, result=None) -> None:
+            self.calls: list = []
+            self.result = result if result is not None else _passed_result()
+
+        def __call__(self, output_dir, bin_ids=None, session_id=None,
+                     runner=None, which=None):
+            self.calls.append({"output_dir": output_dir, "bin_ids": bin_ids,
+                               "session_id": session_id})
+            return copy.deepcopy(self.result)
+
+    class _PiErrorSession:
+        def __call__(self, output_dir, bin_ids=None, session_id=None,
+                     runner=None, which=None):
+            raise PiCaptureError("fake pi full failure")
+
+    class _BoomSession:
+        def __call__(self, output_dir, bin_ids=None, session_id=None,
+                     runner=None, which=None):
+            raise RuntimeError(f"boom {PI_FULL_SENTINEL}")
+
+    result = run_cli(["-m", "qa.pi_session"])
+    ctx.note(f"python3 -m qa.pi_session -> 종료코드 {result.returncode}")
+    if result.returncode != 1:
+        problems.append(
+            f"pi_session 기본 종료코드 기대 1, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("STATUS: blocked", "ATTEMPTED: false", "BLOCKERS: 2",
+                   "SESSION_PASSED: false"):
+        if needle not in result.stdout:
+            problems.append(f"pi_session 텍스트에 {needle!r} 없음")
+    positions = [result.stdout.find(blocker_id)
+                 for blocker_id in EXPECTED_PI_READINESS_BLOCKER_IDS]
+    if any(position < 0 for position in positions):
+        problems.append(f"pi_session 텍스트에 블로커 id 누락: 위치 {positions}")
+    elif positions != sorted(positions):
+        problems.append(f"pi_session 블로커 id 순서 이상: 위치 {positions}")
+
+    result_j = run_cli(["-m", "qa.pi_session", "--json"])
+    ctx.note(f"python3 -m qa.pi_session --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 1:
+        problems.append(
+            f"pi_session --json 종료코드 기대 1, 실제 {result_j.returncode}: "
+            f"{result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocked_blockers: list = []
+    if report:
+        if report.get("status") != "blocked":
+            problems.append(f"status 기대 blocked, 실제 {report.get('status')}")
+        if report.get("attempted") is not False:
+            problems.append(f"attempted 기대 False, 실제 {report.get('attempted')}")
+        if report.get("ready_for_real_capture") is not False:
+            problems.append(
+                "ready_for_real_capture 기대 False, 실제 "
+                f"{report.get('ready_for_real_capture')}")
+        blocked_blockers = [b["id"] for b in report.get("blockers", [])]
+        if blocked_blockers != list(EXPECTED_PI_READINESS_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_PI_READINESS_BLOCKER_IDS)}, "
+                f"실제 {blocked_blockers}")
+        if report.get("source") is not None:
+            problems.append(f"source 기대 None, 실제 {report.get('source')}")
+        if report.get("capture_source") is not None:
+            problems.append(
+                f"capture_source 기대 None, 실제 {report.get('capture_source')}")
+        if report.get("bins") != []:
+            problems.append(f"bins 기대 [], 실제 {report.get('bins')}")
+        if report.get("summary") is not None:
+            problems.append(f"summary 기대 None, 실제 {report.get('summary')}")
+        joined = " ".join(str(x) for x in report.get("honesty", []))
+        for marker in ("촬영하지 않는다", "대체하지 않는다", "검증 완료를 뜻하지 않는다"):
+            if marker not in joined:
+                problems.append(f"honesty에 {marker!r} 없음")
+
+    cli_device = run_cli(["-m", "qa.pi_session", "--device-confirmed", "--json"])
+    ctx.note(
+        "python3 -m qa.pi_session --device-confirmed --json -> "
+        f"종료코드 {cli_device.returncode}")
+    if cli_device.returncode != 1:
+        problems.append(
+            f"장치 확인 CLI 종료코드 기대 1, 실제 {cli_device.returncode}: "
+            f"{cli_device.stderr[:200]}")
+    device_confirmed_blockers: list = []
+    try:
+        device_report = json.loads(cli_device.stdout)
+        device_confirmed_blockers = [b["id"] for b in device_report.get("blockers", [])]
+    except json.JSONDecodeError as e:
+        problems.append(f"장치 확인 CLI --json 파싱 실패: {e}")
+    if device_confirmed_blockers != ["pi_camera_command_missing"]:
+        problems.append(
+            "장치 확인 CLI blockers 기대 ['pi_camera_command_missing'], "
+            f"실제 {device_confirmed_blockers}")
+
+    passed: dict = {}
+    blocked_inproc: dict = {}
+    real: dict = {}
+    wrong_source: dict = {}
+    error_report: dict = {}
+    boom: dict = {}
+    real_files_ok = False
+    fake_session = FakeSession()
+    blocked_session = FakeSession()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        passed = run_pi_full_session(
+            output_dir=root / "c", device_confirmed=True, which=_libcamera,
+            session_fn=fake_session, session_id=PI_FULL_SESSION_ID)
+        ctx.note(
+            f"run_pi_full_session 가짜 session -> status={passed.get('status')}, "
+            f"summary={passed.get('summary')}")
+        if passed.get("status") != "passed":
+            problems.append(f"가짜 session status 기대 passed, 실제 {passed.get('status')}")
+        if passed.get("attempted") is not True:
+            problems.append(f"가짜 session attempted 기대 True, 실제 {passed.get('attempted')}")
+        if passed.get("ready_for_real_capture") is not True:
+            problems.append(
+                "가짜 session ready_for_real_capture 기대 True, 실제 "
+                f"{passed.get('ready_for_real_capture')}")
+        if passed.get("source") != "mock":
+            problems.append(f"가짜 session source 기대 mock, 실제 {passed.get('source')}")
+        if passed.get("capture_source") != "pi-camera":
+            problems.append(
+                "가짜 session capture_source 기대 pi-camera, 실제 "
+                f"{passed.get('capture_source')}")
+        if passed.get("session_id") != PI_FULL_SESSION_ID:
+            problems.append(
+                f"session_id 기대 {PI_FULL_SESSION_ID}, 실제 {passed.get('session_id')}")
+        if len(fake_session.calls) != 1:
+            problems.append(f"가짜 session 호출 기대 1회, 실제 {len(fake_session.calls)}회")
+        elif fake_session.calls[0].get("bin_ids") != demo_bin_ids() \
+                or fake_session.calls[0].get("session_id") != PI_FULL_SESSION_ID:
+            problems.append(f"가짜 session 호출 인자 이상: {fake_session.calls[0]}")
+        bins = passed.get("bins") or []
+        if len(bins) != 6:
+            problems.append(f"bins 기대 6개, 실제 {len(bins)}개")
+        by_bin = {b.get("bin_id"): b for b in bins}
+        a0102 = by_bin.get("A-01-02") or {}
+        for key, expected in (("book_qty", 8), ("counted_qty", 5), ("diff", -3),
+                              ("photo_sha256", PI_FULL_FAKE_SHA),
+                              ("photo_image_ref", "A-01-02.jpg")):
+            if a0102.get(key) != expected:
+                problems.append(f"A-01-02 {key} 기대 {expected}, 실제 {a0102.get(key)}")
+        if a0102.get("verdict") != "short":
+            problems.append(f"A-01-02 verdict 기대 short, 실제 {a0102.get('verdict')}")
+        b0102 = by_bin.get("B-01-02") or {}
+        if b0102.get("diff") != 3 or b0102.get("verdict") != "over":
+            problems.append(f"B-01-02 기대 diff 3/over, 실제 {b0102}")
+        summary_map = passed.get("summary") or {}
+        for key, expected in (("counted_bins", 6), ("matched", 4), ("mismatched", 2),
+                              ("abs_diff_total", 6), ("net_diff", 0)):
+            if summary_map.get(key) != expected:
+                problems.append(f"summary.{key} 기대 {expected}, 실제 {summary_map.get(key)}")
+
+        blocked_inproc = run_pi_full_session(
+            output_dir=root / "blocked", device_confirmed=False, which=_no_command,
+            session_fn=blocked_session)
+        ctx.note(
+            f"run_pi_full_session 차단 -> status={blocked_inproc.get('status')}, "
+            f"session 호출 {len(blocked_session.calls)}건")
+        if blocked_inproc.get("status") != "blocked":
+            problems.append(f"차단 시 status 기대 blocked, 실제 {blocked_inproc.get('status')}")
+        if blocked_session.calls != []:
+            problems.append(f"차단 시 session을 부르면 안 된다: 호출 {blocked_session.calls}")
+
+        out_dir = root / "captures"
+        real = run_pi_full_session(
+            output_dir=out_dir, device_confirmed=True, which=_libcamera,
+            runner=_ok_runner, session_id="PI-FULL-REAL")
+        ctx.note(
+            f"run_pi_full_session 실제 pi_session+가짜 runner -> "
+            f"status={real.get('status')}, summary={real.get('summary')}")
+        if real.get("status") != "passed":
+            problems.append(
+                f"실제 pi_session+가짜 runner status 기대 passed, 실제 {real.get('status')}")
+        expected_sha = hashlib.sha256(PI_FULL_FAKE_CONTENT).hexdigest()
+        for entry in real.get("bins") or []:
+            if entry.get("photo_sha256") != expected_sha:
+                problems.append(
+                    f"실제 pi_session {entry.get('bin_id')} photo_sha256 기대 "
+                    f"{expected_sha}, 실제 {entry.get('photo_sha256')}")
+        real_files_ok = all((out_dir / f"{bin_id}.jpg").is_file()
+                            for bin_id in demo_bin_ids())
+        if not real_files_ok:
+            problems.append("실제 pi_session 캡처 파일이 빈별로 모두 있지 않다")
+        if (real.get("summary") or {}).get("matched") != 4:
+            problems.append(
+                f"실제 pi_session matched 기대 4, 실제 {(real.get('summary') or {}).get('matched')}")
+
+        wrong_result = _passed_result()
+        wrong_result["capture_source"] = "file"
+        wrong_source = run_pi_full_session(
+            output_dir=root / "wrong", device_confirmed=True, which=_libcamera,
+            session_fn=FakeSession(result=wrong_result))
+        ctx.note(
+            f"run_pi_full_session capture_source file -> status={wrong_source.get('status')}, "
+            f"error_type={wrong_source.get('error_type')}")
+        if wrong_source.get("status") != "failed" \
+                or wrong_source.get("error_type") != "unexpected_capture_source":
+            problems.append(
+                f"capture_source 차단 이상: {wrong_source.get('status')}/{wrong_source.get('error_type')}")
+        if wrong_source.get("summary") is not None:
+            problems.append("capture_source 실패 시 summary는 None이어야 한다")
+
+        error_report = run_pi_full_session(
+            output_dir=root / "error", device_confirmed=True, which=_libcamera,
+            session_fn=_PiErrorSession())
+        ctx.note(
+            f"run_pi_full_session PiCaptureError -> status={error_report.get('status')}, "
+            f"error_type={error_report.get('error_type')}")
+        if error_report.get("status") != "failed" \
+                or error_report.get("error_type") != "PiCaptureError":
+            problems.append(
+                f"오류 차단 이상: {error_report.get('status')}/{error_report.get('error_type')}")
+
+        boom = run_pi_full_session(
+            output_dir=root / "boom", device_confirmed=True, which=_libcamera,
+            session_fn=_BoomSession())
+        ctx.note(
+            f"run_pi_full_session RuntimeError -> status={boom.get('status')}, "
+            f"error_type={boom.get('error_type')}")
+        if boom.get("status") != "failed" \
+                or boom.get("error_type") != "RuntimeError":
+            problems.append(
+                f"일반 예외 차단 이상: {boom.get('status')}/{boom.get('error_type')}")
+
+    dumped = "".join(
+        json.dumps(item, ensure_ascii=False)
+        for item in (passed, blocked_inproc, real, wrong_source, error_report,
+                     boom, report)) + result.stdout + result_j.stdout + cli_device.stdout
+    sentinel_leaked = PI_FULL_SENTINEL in dumped
+    ctx.note(f"예외 원본 문자열 누출 -> {sentinel_leaked}")
+    if sentinel_leaked:
+        problems.append("일반 예외 원본 문자열이 pi_session 보고나 CLI 출력에 새어 나왔다")
+
+    summary = {"feature": "pi-session-full",
+               "blocked_blockers": blocked_blockers,
+               "default_exit_code": result.returncode,
+               "device_confirmed_blockers": device_confirmed_blockers,
+               "fake_passed": passed.get("status") == "passed",
+               "session_id": passed.get("session_id"),
+               "matched": (passed.get("summary") or {}).get("matched"),
+               "mismatched": (passed.get("summary") or {}).get("mismatched"),
+               "abs_diff_total": (passed.get("summary") or {}).get("abs_diff_total"),
+               "net_diff": (passed.get("summary") or {}).get("net_diff"),
+               "blocked_session_calls": len(blocked_session.calls),
+               "real_session_passed": real.get("status") == "passed",
+               "real_files_ok": real_files_ok,
+               "fake_capture_sha256": hashlib.sha256(PI_FULL_FAKE_CONTENT).hexdigest(),
+               "unexpected_capture_source_blocked":
+                   wrong_source.get("error_type") == "unexpected_capture_source",
+               "pi_capture_error_blocked":
+                   error_report.get("error_type") == "PiCaptureError",
+               "sentinel_leaked": sentinel_leaked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"pi-full-session-blocked.json": result_j.stdout,
+                    "pi-full-session-passed.json": json.dumps(
+                        passed, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
 
 def drive_file_fallback(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
@@ -3055,7 +3361,8 @@ DRIVERS = {"console-home": drive_console_home,
            "pi-smoke": drive_pi_smoke,
            "devpost-submission": drive_devpost_submission,
            "file-fallback": drive_file_fallback,
-           "sam-session": drive_sam_session}
+           "sam-session": drive_sam_session,
+           "pi-session-full": drive_pi_session_full}
 
 
 def main(argv: list[str] | None = None) -> int:
