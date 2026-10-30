@@ -54,3 +54,4 @@
 - [SAM 전체 세션](sam-session.md) — SAM 전체 세션 하네스(준비 점검 차단 시 계수 없음·가짜 counter 데모 기준 대조 성공·균일 계수 산술·모의 source/오류 차단)를 구동한다. 가짜 성공은 Pi 실촬영이 아니고 빈별 정확도 검증도 아니며 실제 API 호출은 없다.
 - [파일 입력 폴백](file-fallback.md) — 파일 입력 폴백 데모 자산(demo.fallback CLI·fallback.json)을 임시 출력 디렉터리로 구동해 컷 3·파일 입력·모의 계수·사진 SHA-256과 변조 탐지를 확인한다. Pi 실촬영이 아니며 Pi 실촬영 검증 완료도 아니다.
 - [Pi 전체 촬영 세션](pi-session-full.md) — Pi 전체 촬영 세션 하네스(qa.pi_session)(준비 점검 차단 시 촬영 없음·가짜 session 데모 기준 대조 성공·실제 pi_session+가짜 runner 성공·capture_source/오류 차단)를 구동한다. 가짜 성공은 Pi 실촬영 검증 완료가 아니며 실제 촬영은 없다.
+- [제출물 인벤토리](submission-inventory.md) — 제출물 인벤토리 하네스(qa.submission_inventory)(제출물 18개의 존재·크기·SHA-256 대조·변조 탐지·빈 루트 정직 보고·쓰기 왕복)를 구동한다. 파일 대조만 하며 실제로 제출하지 않고, 인벤토리가 온전해도 제출 가능을 뜻하지 않는다.

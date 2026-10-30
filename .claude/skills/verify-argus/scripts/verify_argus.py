@@ -36,6 +36,10 @@ Pi 전체 세션(pi-session-full)은 qa.pi_session 전체 촬영 세션 하네�
 파일 입력 폴백(file-fallback)은 demo.fallback CLI를 임시 출력 디렉터리로
 구동해 컷 3 폴백 자산(파일 입력·모의 계수)을 대조하고 변조 탐지를
 확인한다(Pi 실촬영이 아니다).
+제출물 인벤토리(submission-inventory)는 qa.submission_inventory CLI와
+프로세스 내 build_inventory·validate_inventory·write_inventory로만
+구동한다(파일 존재·크기·SHA-256 대조만 하며 실제로 제출하지 않는다.
+인벤토리가 온전해도 제출 가능을 뜻하지 않는다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -48,7 +52,8 @@ Pi 전체 세션(pi-session-full)은 qa.pi_session 전체 촬영 세션 하네�
 difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
-file-fallback, sam-session, pi-session-full, all(전부, 기능별 하위 디렉터리).
+file-fallback, sam-session, pi-session-full, submission-inventory,
+all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -85,7 +90,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "sam-readiness", "submission-runbook", "pi-readiness",
             "console-readiness", "sam-smoke", "pi-smoke",
             "devpost-submission", "file-fallback", "sam-session",
-            "pi-session-full")
+            "pi-session-full", "submission-inventory")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -198,6 +203,8 @@ ASSEMBLY_FALLBACK_EXPECTED = {"asset": ASSEMBLY_FALLBACK_ASSET,
                               "is_pi_real_capture": False,
                               "capture_source": "file",
                               "replaces": "pi-placeholder"}
+INVENTORY_TOTAL_FILES = 18
+INVENTORY_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
 FALLBACK_RENDER_REL = "demo/assets/argus-demo-fallback-draft.mp4"
 FALLBACK_RENDER_CUT_INDEX = 3
 FALLBACK_RENDER_DECISION_DATE = "2026-11-02"
@@ -3363,6 +3370,180 @@ def drive_file_fallback(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_submission_inventory(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.submission_inventory import (build_inventory, validate_inventory,
+                                          write_inventory)
+
+    result = run_cli(["-m", "qa.submission_inventory"])
+    ctx.note(f"python3 -m qa.submission_inventory -> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(
+            f"submission_inventory 기본 종료코드 기대 0, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("제출물 18/18개 존재", "BLOCKERS: 1",
+                   "pi_real_capture_pending", "SUBMISSION_READY: false",
+                   "실제로 제출하지 않는다", "Pi 실촬영 검증 전"):
+        if needle not in result.stdout:
+            problems.append(f"submission_inventory 텍스트에 {needle!r} 없음")
+
+    result_j = run_cli(["-m", "qa.submission_inventory", "--json"])
+    ctx.note(
+        f"python3 -m qa.submission_inventory --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(
+            f"submission_inventory --json 종료코드 기대 0, 실제 {result_j.returncode}: "
+            f"{result_j.stderr[:200]}")
+    inventory: dict = {}
+    try:
+        inventory = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocker_ids: list = []
+    if inventory:
+        if inventory.get("total_files") != INVENTORY_TOTAL_FILES:
+            problems.append(
+                f"total_files 기대 {INVENTORY_TOTAL_FILES}, 실제 {inventory.get('total_files')}")
+        if inventory.get("present_files") != INVENTORY_TOTAL_FILES:
+            problems.append(
+                f"present_files 기대 {INVENTORY_TOTAL_FILES}, 실제 {inventory.get('present_files')}")
+        if inventory.get("missing") != []:
+            problems.append(f"missing 기대 [], 실제 {inventory.get('missing')}")
+        blocker_ids = [b.get("id") for b in inventory.get("blockers", [])]
+        if blocker_ids != list(EXPECTED_BLOCKER_IDS):
+            problems.append(
+                f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
+        if inventory.get("submission_ready") is not False:
+            problems.append(
+                f"submission_ready 기대 False, 실제 {inventory.get('submission_ready')}")
+        if inventory.get("repo_url") != INVENTORY_REPO_URL:
+            problems.append(
+                f"repo_url 기대 {INVENTORY_REPO_URL}, 실제 {inventory.get('repo_url')}")
+        if "2026-11-05 11:00 KST" not in str(inventory.get("deadline")):
+            problems.append(f"deadline에 KST 마감 없음: {inventory.get('deadline')}")
+        entries = inventory.get("deliverables") or []
+        if len(entries) != INVENTORY_TOTAL_FILES:
+            problems.append(f"deliverables 기대 18개, 실제 {len(entries)}개")
+        categories = [e.get("category") for e in entries]
+        for category, expected in (("document", 6), ("video", 2), ("demo_asset", 10)):
+            if categories.count(category) != expected:
+                problems.append(
+                    f"category {category} 기대 {expected}, 실제 {categories.count(category)}")
+        total_bytes = 0
+        for entry in entries:
+            rel = entry.get("path")
+            path = ROOT / str(rel)
+            if not path.is_file():
+                problems.append(f"제출물 파일 없음: {rel}")
+                continue
+            data = path.read_bytes()
+            total_bytes += len(data)
+            if entry.get("exists") is not True:
+                problems.append(f"{rel}: exists 기대 True, 실제 {entry.get('exists')}")
+            if entry.get("size_bytes") != len(data):
+                problems.append(
+                    f"{rel}: size_bytes 기대 {len(data)}, 실제 {entry.get('size_bytes')}")
+            expected_sha = hashlib.sha256(data).hexdigest()
+            if entry.get("sha256") != expected_sha:
+                problems.append(f"{rel}: sha256이 실제 파일 해시와 다르다")
+        if inventory.get("total_bytes") != total_bytes:
+            problems.append(
+                f"total_bytes 기대 {total_bytes}, 실제 {inventory.get('total_bytes')}")
+        joined = " ".join(str(x) for x in inventory.get("honesty", []))
+        for marker in ("실제로 제출하지 않는다", "Pi 실촬영 검증 전", "데모 기준",
+                       "제출 가능을 뜻하지 않는다"):
+            if marker not in joined:
+                problems.append(f"honesty에 {marker!r} 없음")
+
+    built = build_inventory(ROOT)
+    validate_problems = validate_inventory(built, ROOT)
+    ctx.note(f"validate_inventory(build_inventory) -> 문제 {len(validate_problems)}건")
+    if validate_problems:
+        problems.append(f"validate_inventory 문제: {validate_problems}")
+    if built.get("total_files") != INVENTORY_TOTAL_FILES \
+            or built.get("present_files") != INVENTORY_TOTAL_FILES:
+        problems.append(f"build_inventory 총수 이상: {built.get('total_files')}/{built.get('present_files')}")
+
+    tamper_detected = False
+    totals_tamper_detected = False
+    ready_tamper_detected = False
+    if built:
+        tampered = copy.deepcopy(built)
+        tampered["deliverables"][0]["sha256"] = "0" * 64
+        tamper_problems = validate_inventory(tampered, ROOT)
+        tamper_detected = any("README.md" in p and "sha256" in p
+                              for p in tamper_problems)
+        tampered2 = copy.deepcopy(built)
+        tampered2["total_bytes"] = int(tampered2.get("total_bytes") or 0) + 1
+        totals_tamper_detected = any("total_bytes" in p
+                                     for p in validate_inventory(tampered2, ROOT))
+        tampered3 = copy.deepcopy(built)
+        tampered3["submission_ready"] = True
+        tampered3["blockers"] = []
+        ready_problems = validate_inventory(tampered3, ROOT)
+        ready_tamper_detected = any("submission_ready" in p for p in ready_problems) \
+            and any("blocker" in p for p in ready_problems)
+    ctx.note(f"인벤토리 변조 탐지 -> sha {tamper_detected}, 합계 {totals_tamper_detected}, "
+             f"ready {ready_tamper_detected}")
+    if not tamper_detected:
+        problems.append("변조 탐지 실패: sha256을 바꿔도 문제를 찾지 못했다")
+    if not totals_tamper_detected:
+        problems.append("변조 탐지 실패: total_bytes를 바꿔도 문제를 찾지 못했다")
+    if not ready_tamper_detected:
+        problems.append("변조 탐지 실패: submission_ready/blockers를 바꿔도 문제를 찾지 못했다")
+
+    empty_missing_count = None
+    with tempfile.TemporaryDirectory() as tmp:
+        empty = build_inventory(Path(tmp))
+        empty_missing_count = len(empty.get("missing") or [])
+        ctx.note(f"빈 루트 인벤토리 -> present {empty.get('present_files')}, "
+                 f"missing {empty_missing_count}")
+        if empty.get("present_files") != 0 or empty_missing_count != INVENTORY_TOTAL_FILES:
+            problems.append(f"빈 루트 기대 present 0/missing 18, 실제 {empty}")
+        if validate_inventory(empty, Path(tmp)) != []:
+            problems.append("빈 루트의 정직한 누락 인벤토리가 검증에서 모순으로 잡혔다")
+
+    write_roundtrip_ok = False
+    with tempfile.TemporaryDirectory() as tmp:
+        out_dir = Path(tmp) / "inventory"
+        written = write_inventory(out_dir, ROOT)
+        names = sorted(p.name for p in written)
+        if names != ["submission-inventory.json", "submission-inventory.txt"]:
+            problems.append(f"write_inventory 산출 이름 이상: {names}")
+        else:
+            try:
+                data = json.loads(
+                    (out_dir / "submission-inventory.json").read_text(encoding="utf-8"))
+                text = (out_dir / "submission-inventory.txt").read_text(encoding="utf-8")
+                write_roundtrip_ok = validate_inventory(data, ROOT) == [] \
+                    and data.get("total_files") == INVENTORY_TOTAL_FILES \
+                    and "SUBMISSION_READY: false" in text \
+                    and "pi_real_capture_pending" in text
+            except (OSError, json.JSONDecodeError) as e:
+                problems.append(f"write_inventory 왕복 실패: {e}")
+    ctx.note(f"write_inventory 왕복 -> {write_roundtrip_ok}")
+    if not write_roundtrip_ok:
+        problems.append("write_inventory 왕복 검증이 통과하지 않았다")
+
+    summary = {"feature": "submission-inventory",
+               "total_files": inventory.get("total_files"),
+               "present_files": inventory.get("present_files"),
+               "total_bytes": inventory.get("total_bytes"),
+               "missing_count": len(inventory.get("missing") or []),
+               "blocker_ids": blocker_ids,
+               "submission_ready": inventory.get("submission_ready"),
+               "validate_problems": validate_problems,
+               "tamper_detected": tamper_detected,
+               "totals_tamper_detected": totals_tamper_detected,
+               "ready_tamper_detected": ready_tamper_detected,
+               "empty_missing_count": empty_missing_count,
+               "write_roundtrip_ok": write_roundtrip_ok,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"submission-inventory.json": result_j.stdout,
+                    "submission-inventory.txt": result.stdout})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -3382,7 +3563,8 @@ DRIVERS = {"console-home": drive_console_home,
            "devpost-submission": drive_devpost_submission,
            "file-fallback": drive_file_fallback,
            "sam-session": drive_sam_session,
-           "pi-session-full": drive_pi_session_full}
+           "pi-session-full": drive_pi_session_full,
+           "submission-inventory": drive_submission_inventory}
 
 
 def main(argv: list[str] | None = None) -> int:
