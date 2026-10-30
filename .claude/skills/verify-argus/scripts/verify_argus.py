@@ -48,6 +48,10 @@ Pi 폴백 결정(fallback-decision)은 qa.fallback_decision CLI와
 프로세스 내 evaluate_deadline·build_deadline·validate_deadline으로만
 구동한다(실제로 제출하지 않으며, 마감 전이어도 제출 준비 완료를
 뜻하지 않고, 남은 시간은 제공된 기준 시각으로만 계산한다).
+제출 패키지 최종 묶음(final-package)은 qa.final_package CLI와
+프로세스 내 evaluate_final_package·build_final_package·
+validate_final_package으로만 구동한다(실제로 제출하지 않으며,
+패키지 준비 상태는 제출 완료를 뜻하지 않고, Pi 실촬영 검증 전이다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -61,7 +65,7 @@ difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
-fallback-decision, deadline, all(전부, 기능별 하위 디렉터리).
+fallback-decision, deadline, final-package, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -99,7 +103,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "console-readiness", "sam-smoke", "pi-smoke",
             "devpost-submission", "file-fallback", "sam-session",
             "pi-session-full", "submission-inventory",
-            "fallback-decision", "deadline")
+            "fallback-decision", "deadline", "final-package")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -223,6 +227,10 @@ DEADLINE_BEFORE_NOW = "2026-10-31T01:50:00+09:00"
 DEADLINE_BEFORE_REMAINING = 465000
 DEADLINE_DUE_SOON_NOW = "2026-11-04T12:00:00+09:00"
 DEADLINE_OVERDUE_NOW = "2026-11-05T11:00:00+09:00"
+FINAL_PACKAGE_NOW = "2026-10-31T04:50:00+09:00"
+FINAL_PACKAGE_DATE = "2026-10-31"
+FINAL_PACKAGE_REMAINING = 454200
+FINAL_PACKAGE_TARGET = "2026-11-03"
 FALLBACK_RENDER_CUT_INDEX = 3
 FALLBACK_RENDER_DECISION_DATE = "2026-11-02"
 
@@ -3956,6 +3964,187 @@ def drive_deadline(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.final_package import (build_final_package,
+                                   evaluate_final_package,
+                                   validate_final_package)
+
+    result = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                      "--date", FINAL_PACKAGE_DATE])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {FINAL_PACKAGE_DATE} -> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(
+            f"final_package blocked 종료코드 기대 0, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("STATUS: blocked",
+                   f"PACKAGE_DATE_TARGET: {FINAL_PACKAGE_TARGET}",
+                   "INVENTORY_PRESENT: 18",
+                   "INVENTORY_TOTAL: 18",
+                   "INVENTORY_MISSING: []",
+                   "DEADLINE_STATUS: before_deadline",
+                   f"REMAINING_SECONDS: {FINAL_PACKAGE_REMAINING}",
+                   "FALLBACK_STATUS: pending",
+                   "FALLBACK_ADOPTED: false",
+                   "BLOCKERS: ['pi_real_capture_pending']",
+                   "SUBMISSION_READY: false",
+                   "실제로 제출하지 않는다"):
+        if needle not in result.stdout:
+            problems.append(f"final_package 텍스트에 {needle!r} 없음")
+
+    result_j = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                        "--date", FINAL_PACKAGE_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {FINAL_PACKAGE_DATE} --json "
+             f"-> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(
+            f"final_package blocked --json 종료코드 기대 0, 실제 {result_j.returncode}")
+    blocked: dict = {}
+    try:
+        blocked = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"blocked --json 파싱 실패: {e}")
+    if blocked:
+        if blocked.get("status") != "blocked":
+            problems.append(f"status 기대 'blocked', 실제 {blocked.get('status')}")
+        if blocked.get("inventory_present") != 18:
+            problems.append(f"inventory_present 기대 18, 실제 {blocked.get('inventory_present')}")
+        if blocked.get("inventory_total") != 18:
+            problems.append(f"inventory_total 기대 18, 실제 {blocked.get('inventory_total')}")
+        if blocked.get("inventory_missing") != []:
+            problems.append(f"inventory_missing 기대 [], 실제 {blocked.get('inventory_missing')}")
+        if blocked.get("deadline_status") != "before_deadline":
+            problems.append(f"deadline_status 기대 'before_deadline', 실제 {blocked.get('deadline_status')}")
+        if blocked.get("remaining_seconds") != FINAL_PACKAGE_REMAINING:
+            problems.append(
+                f"remaining_seconds 기대 {FINAL_PACKAGE_REMAINING}, "
+                f"실제 {blocked.get('remaining_seconds')}")
+        if blocked.get("fallback_status") != "pending":
+            problems.append(f"fallback_status 기대 'pending', 실제 {blocked.get('fallback_status')}")
+        if blocked.get("fallback_adopted") is not False:
+            problems.append(f"fallback_adopted 기대 False, 실제 {blocked.get('fallback_adopted')}")
+        if blocked.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(f"blockers 이상: {blocked.get('blockers')}")
+        if blocked.get("submission_ready") is not False:
+            problems.append(
+                f"submission_ready 기대 False, 실제 {blocked.get('submission_ready')}")
+        joined = " ".join(str(x) for x in blocked.get("honesty", []))
+        for marker in ("실제로 제출하지 않는다", "제출 완료를 뜻하지 않는다",
+                       "Pi 실촬영 검증 전"):
+            if marker not in joined:
+                problems.append(f"honesty에 {marker!r} 없음")
+
+    result_over = run_cli(["-m", "qa.final_package", "--now",
+                           DEADLINE_OVERDUE_NOW, "--date", FINAL_PACKAGE_DATE,
+                           "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {DEADLINE_OVERDUE_NOW} "
+             f"--date {FINAL_PACKAGE_DATE} --json "
+             f"-> 종료코드 {result_over.returncode}")
+    if result_over.returncode != 1:
+        problems.append(
+            f"final_package overdue 종료코드 기대 1, 실제 {result_over.returncode}")
+    over: dict = {}
+    try:
+        over = json.loads(result_over.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"overdue --json 파싱 실패: {e}")
+    if over:
+        if over.get("status") != "overdue":
+            problems.append(f"overdue status 기대 'overdue', 실제 {over.get('status')}")
+        if over.get("deadline_status") != "overdue":
+            problems.append(f"overdue deadline_status 기대 'overdue', 실제 {over.get('deadline_status')}")
+
+    result_bad = run_cli(["-m", "qa.final_package", "--date", "not-a-date"])
+    ctx.note(f"python3 -m qa.final_package --date not-a-date "
+             f"-> 종료코드 {result_bad.returncode}")
+    if result_bad.returncode != 2:
+        problems.append(f"잘못된 날짜 종료코드 기대 2, 실제 {result_bad.returncode}")
+
+    base_kwargs = dict(inventory_present=18, inventory_total=18,
+                       inventory_missing=[],
+                       deadline_status="before_deadline",
+                       remaining_seconds=FINAL_PACKAGE_REMAINING,
+                       fallback_status="pending", fallback_adopted=False,
+                       blockers=["pi_real_capture_pending"])
+    ready_status = incomplete_status = overdue_status = None
+    try:
+        ev_blocked = evaluate_final_package(**base_kwargs)
+        ev_ready = evaluate_final_package(**{**base_kwargs, "blockers": []})
+        ready_status = ev_ready.get("status")
+        ev_incomplete = evaluate_final_package(
+            **{**base_kwargs, "inventory_present": 17,
+               "inventory_missing": ["README.md"], "blockers": []})
+        incomplete_status = ev_incomplete.get("status")
+        ev_over = evaluate_final_package(
+            **{**base_kwargs, "deadline_status": "overdue",
+               "remaining_seconds": 0})
+        overdue_status = ev_over.get("status")
+        built = build_final_package(now=FINAL_PACKAGE_NOW,
+                                    today=FINAL_PACKAGE_DATE)
+        if ev_blocked.get("status") != "blocked" or built.get("status") != "blocked":
+            problems.append(f"evaluate/build blocked 이상: {built.get('status')}")
+        if built.get("inventory_present") != 18 or built.get("inventory_total") != 18:
+            problems.append(f"build inventory 이상: {built.get('inventory_present')}/{built.get('inventory_total')}")
+        if ready_status != "ready_for_packaging":
+            problems.append(f"evaluate ready 이상: {ready_status}")
+        if incomplete_status != "incomplete":
+            problems.append(f"evaluate incomplete 이상: {incomplete_status}")
+        if overdue_status != "overdue":
+            problems.append(f"evaluate overdue 이상: {overdue_status}")
+        for report in (ev_blocked, ev_ready, ev_incomplete, ev_over, built):
+            v = validate_final_package(report)
+            if v:
+                problems.append(f"validate_final_package 정상 보고 문제: {v}")
+    except Exception as e:
+        problems.append(f"evaluate_final_package 실패: {type(e).__name__}: {e}")
+
+    status_tamper_detected = False
+    inventory_tamper_detected = False
+    submission_ready_tamper_detected = False
+    try:
+        base = evaluate_final_package(**base_kwargs)
+        t1 = copy.deepcopy(base); t1["status"] = "ready_for_packaging"
+        status_tamper_detected = any("status" in p for p in validate_final_package(t1))
+        t2 = copy.deepcopy(base); t2["inventory_present"] = 10
+        inventory_tamper_detected = any("inventory_present" in p for p in validate_final_package(t2))
+        t3 = copy.deepcopy(base); t3["submission_ready"] = True
+        submission_ready_tamper_detected = any("submission_ready" in p for p in validate_final_package(t3))
+    except Exception as e:
+        problems.append(f"변조 탐지 구동 실패: {type(e).__name__}: {e}")
+    tamper_detected = (status_tamper_detected and inventory_tamper_detected
+                       and submission_ready_tamper_detected)
+    ctx.note(f"최종 묶음 변조 탐지 -> status {status_tamper_detected}, "
+             f"inventory {inventory_tamper_detected}, "
+             f"submission_ready {submission_ready_tamper_detected}")
+    if not tamper_detected:
+        problems.append("변조 탐지 실패: status/inventory_present/submission_ready 중 하나를 바꿔도 문제를 찾지 못했다")
+
+    summary = {"feature": "final-package",
+               "blocked_status": blocked.get("status"),
+               "inventory_present": blocked.get("inventory_present"),
+               "inventory_total": blocked.get("inventory_total"),
+               "deadline_status": blocked.get("deadline_status"),
+               "remaining_seconds": blocked.get("remaining_seconds"),
+               "fallback_status": blocked.get("fallback_status"),
+               "fallback_adopted": blocked.get("fallback_adopted"),
+               "package_date_target": FINAL_PACKAGE_TARGET,
+               "ready_status": ready_status,
+               "incomplete_status": incomplete_status,
+               "overdue_status": over.get("status") or overdue_status,
+               "overdue_exit_code": result_over.returncode,
+               "invalid_exit_code": result_bad.returncode,
+               "tamper_detected": tamper_detected,
+               "status_tamper_detected": status_tamper_detected,
+               "inventory_tamper_detected": inventory_tamper_detected,
+               "submission_ready_tamper_detected": submission_ready_tamper_detected,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"final-package-blocked.json": result_j.stdout,
+                    "final-package-overdue.json": result_over.stdout})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -3978,7 +4167,8 @@ DRIVERS = {"console-home": drive_console_home,
            "pi-session-full": drive_pi_session_full,
            "submission-inventory": drive_submission_inventory,
            "fallback-decision": drive_fallback_decision,
-           "deadline": drive_deadline}
+           "deadline": drive_deadline,
+           "final-package": drive_final_package}
 
 
 def main(argv: list[str] | None = None) -> int:
