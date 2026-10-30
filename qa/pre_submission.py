@@ -67,6 +67,7 @@ Pi 실촬영 검증은 아직 하지 않은 일이다. SAM 3.1 실호출은
 """
 from __future__ import annotations
 
+import datetime
 import json
 import sys
 import tempfile
@@ -93,6 +94,7 @@ from qa.fallback_decision import build_decision as _build_fb_decision
 from qa.fallback_decision import validate_decision as _validate_fb_decision
 from qa.deadline import DEADLINE_ET_TEXT as DL_ET_TEXT
 from qa.deadline import DEADLINE_KST_ISO as DL_KST_ISO
+from qa.deadline import KST as DL_KST
 from qa.deadline import build_deadline as _build_dl
 from qa.deadline import validate_deadline as _validate_dl
 from qa.final_package import PACKAGE_DATE_TARGET as FP_PACKAGE_DATE_TARGET
@@ -3216,6 +3218,11 @@ def run_pre_submission_checks(
 ) -> dict:
     """전수 점검을 실행한다. 개별 예외는 그 체크만 실패로 기록한다."""
     root = Path(root) if root is not None else ROOT
+    if deadline_now is None:
+        # 마감 보고와 최종 묶음 보고가 서로 다른 초에 만들어지면
+        # remaining_seconds가 1초 어긋나 final_package_consistent가
+        # 간헐적으로 실패한다. 기준 시각을 한 번만 잡아 공유한다.
+        deadline_now = datetime.datetime.now(DL_KST).isoformat(timespec="seconds")
     checks: list[PreSubmissionCheck] = []
 
     try:

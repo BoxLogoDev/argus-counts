@@ -1673,6 +1673,35 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertIs(fp["submission_ready"], False)
         self.assertFalse(result["submission_ready"])
 
+    def test_run_checks_shares_one_deadline_now(self):
+        # deadline_now=None이어도 마감 보고와 최종 묶음 보고는
+        # 같은 기준 시각으로 만들어져야 한다(초 경계 간헐 실패 방지).
+        from unittest import mock
+
+        import qa.pre_submission as ps
+
+        seen = {}
+
+        orig_dl = ps._build_dl
+        orig_fp = ps._build_fp
+
+        def recording_dl(now=None, **kwargs):
+            seen["deadline_now"] = now
+            return orig_dl(now=now, **kwargs)
+
+        def recording_fp(*args, **kwargs):
+            seen["final_package_now"] = kwargs.get("now")
+            return orig_fp(*args, **kwargs)
+
+        with mock.patch.object(ps, "_build_dl", recording_dl), \
+                mock.patch.object(ps, "_build_fp", recording_fp):
+            result = run_pre_submission_checks(ROOT)
+        self.assertIsNotNone(seen["deadline_now"])
+        self.assertEqual(seen["deadline_now"], seen["final_package_now"])
+        self.assertEqual(
+            result["readiness"]["deadline"]["remaining_seconds"],
+            result["readiness"]["final_package"]["remaining_seconds"])
+
     def test_validate_final_package_report_accepts_built_report(self):
         from qa.final_package import build_final_package
 
