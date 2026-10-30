@@ -41,8 +41,8 @@ source=mock·요약·A-01-02 사진 해시)이 현재 폴백 매니페스트와 
 기계적 체크가 전부 통과해도 제출 블로커가 남아 있으면 제출 가능
 상태가 아니다. 블로커는 종료코드가 아니라 별도 목록으로 보고한다:
 Pi 실촬영 검증은 아직 하지 않은 일이다. SAM 3.1 실호출은
-2026-10-30 단일 빈 스모크로 검증했지만 전체 세션 실호출은 아직
-하지 않았다.
+2026-10-30 단일 빈 스모크에 이어 전체 세션도 커넥터 브리지로
+통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).
 
 실행: 프로젝트 루트에서 `python3 -m qa.pre_submission`
 `--json`을 주면 같은 내용을 JSON으로 출력하며 readiness 섹션을 포함한다.
@@ -133,7 +133,7 @@ DEVPOST_DEMO_MARKERS = (
 )
 
 DEVPOST_HONESTY_MARKERS = (
-    "모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다",
+    "모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
     "가짜 transport",
     "Secure Vault",
     "가안",
@@ -212,7 +212,7 @@ STORY_HONESTY_MARKERS = (
     "모의(mock) 어댑터로 동작한다",
     "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다",
     "Pi 실기 카메라 연동은 아직 검증 전이다",
-    "전체 세션 실호출은 아직 하지 않았다",
+    "전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
 )
 
 STORY_THEME_MARKER = "Build for Your World"
@@ -247,6 +247,7 @@ EN_SUMMARY_HONESTY_MARKERS = (
     "Argus is currently running on the mock adapter.",
     "Mock results are never claimed as live results.",
     "Pi device camera integration is not yet verified.",
+    "A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).",
 )
 
 EN_SUMMARY_THEME_MARKER = "Build for Your World"
@@ -272,6 +273,7 @@ DEMO_SCRIPT_DEMO_MARKERS = (
 DEMO_SCRIPT_HONESTY_MARKERS = (
     "가안",
     "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
+    "전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
     "현재는 모의(mock) 어댑터로 동작한다.",
     "Pi 실기 카메라 연동은 아직 검증 전이다.",
     "이 컷은 Pi 도착 후 실촬영으로 교체합니다.",
@@ -300,6 +302,7 @@ README_DEMO_MARKERS = (
 README_HONESTY_MARKERS = (
     "모의 어댑터로 진행한다",
     "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다",
+    "전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
     "Pi 실촬영 검증 전",
     "가짜 전송(fake transport) 테스트로도 검증했다",
     "모의 결과는 화면에서 '모의'로 구분해 표기한다",

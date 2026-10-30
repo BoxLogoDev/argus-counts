@@ -158,7 +158,7 @@ DEVPOST_SECTIONS = ("## 프로젝트 이름", "## 한 줄 소개", "## 소개",
 DEVPOST_DEMO_MARKERS = ("데모 기준: 빈 6개 중 일치 4건, 불일치 2건",
                         "데모 기준: 절대 차이 6개, 순차이 0, 일치율 66.7%",
                         "실제 창고 성과가 아니다")
-DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다",
+DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
                            "가짜 transport", "Secure Vault", "가안",
                            "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더")
 DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"

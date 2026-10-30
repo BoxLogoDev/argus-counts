@@ -48,7 +48,7 @@ class DevpostSubmissionTests(unittest.TestCase):
     def test_meta_ai_honesty(self):
         text = _text()
         self.assertIn("SAM 3.1", text)
-        self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다", text)
+        self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)", text)
         self.assertIn("가짜 transport", text)
         self.assertIn("Secure Vault", text)
         self.assertIn("가안", text)

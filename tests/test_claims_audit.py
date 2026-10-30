@@ -29,6 +29,14 @@ class AuditTextTests(unittest.TestCase):
         text = "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.\n"
         self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
 
+    def test_qualified_full_session_claim_clean(self):
+        text = "전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).\n"
+        self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
+
+    def test_qualified_full_session_en_claim_clean(self):
+        text = "A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).\n"
+        self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
+
     def test_full_session_live_claim_flagged(self):
         text = "전체 세션 실호출을 완료했습니다.\n"
         v = claims_audit.audit_text("docs/x.md", text)

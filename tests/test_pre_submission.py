@@ -83,7 +83,7 @@ def _valid_devpost_text() -> str:
         "## 동작 방식",
         "- 촬영→계수→대조→리포트",
         "## Meta AI 도구 활용",
-        "- 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다.",
+        "- 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 가짜 transport 테스트로만 검증했다.",
         "- API 키를 Secure Vault 경유로 받은 뒤에만 전환한다.",
         "- 테마는 가안이다.",
@@ -155,7 +155,7 @@ def _valid_story_text() -> str:
         "## Meta AI 도구 활용",
         "- 현재는 모의(mock) 어댑터로 동작한다.",
         "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
-        "- 전체 세션 실호출은 아직 하지 않았다.",
+        "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 모의 결과를 실호출 결과로 주장하지 않는다.",
         "- Pi 실기 카메라 연동은 아직 검증 전이다.",
         "## 기술 깊이",
@@ -190,6 +190,7 @@ def _valid_en_summary_text() -> str:
         "- Argus is currently running on the mock adapter.",
         "- Mock results are never claimed as live results.",
         "- Pi device camera integration is not yet verified.",
+        "- A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).",
         "## Technical depth",
         "- The reconciliation engine produces per-bin results.",
         "## Demo data",
@@ -213,6 +214,7 @@ def _valid_demo_script_text() -> str:
         "테마는 Build for Your World를 전제로 한다. 주인님 최종 확정 전 가안이다.",
         "- 이번에 만든 것은 이 저장소의 모든 코드와 문서이며 2026-10-27 이후 해커톤 기간에 새로 작성했다.",
         "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
+        "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 현재는 모의(mock) 어댑터로 동작한다.",
         "- Pi 실기 카메라 연동은 아직 검증 전이다.",
         "## 컷 표",
@@ -239,6 +241,7 @@ def _valid_readme_text() -> str:
         "## SAM 3.1 연동",
         "- 개발은 모의 어댑터로 진행한다.",
         "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
+        "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 가짜 전송(fake transport) 테스트로도 검증했다.",
         "- 모의 결과는 화면에서 '모의'로 구분해 표기한다.",
         "## 실행법 (초안)",
@@ -395,6 +398,39 @@ class SamLiveReflectedTests(unittest.TestCase):
             [b["id"] for b in result["blockers"]], ["pi_real_capture_pending"]
         )
         self.assertFalse(result["submission_ready"])
+
+
+class FullSessionReflectedTests(unittest.TestCase):
+    """SAM 전체 세션 실호출 검증(2026-10-30, 같은 가상 사진 재사용) 반영 테스트."""
+
+    def test_story_stale_full_session_denial_flagged(self):
+        text = _valid_story_text().replace(
+            "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
+            "- 전체 세션 실호출은 아직 하지 않았다.")
+        problems = validate_story_text(text)
+        self.assertTrue(any("전체 세션" in p for p in problems), problems)
+
+    def test_readme_missing_full_session_marker_flagged(self):
+        text = _valid_readme_text().replace("- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).\n", "")
+        problems = validate_readme_text(text)
+        self.assertTrue(any("전체 세션" in p for p in problems), problems)
+
+    def test_devpost_single_bin_only_marker_flagged(self):
+        text = _valid_devpost_text().replace(
+            "모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
+            "모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다")
+        problems = validate_devpost_text(text)
+        self.assertTrue(any("전체 세션" in p for p in problems), problems)
+
+    def test_en_summary_missing_full_session_flagged(self):
+        text = _valid_en_summary_text().replace("- A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).\n", "")
+        problems = validate_en_summary_text(text)
+        self.assertTrue(any("full-session" in p for p in problems), problems)
+
+    def test_demo_script_missing_full_session_flagged(self):
+        text = _valid_demo_script_text().replace("- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).\n", "")
+        problems = validate_demo_script_text(text)
+        self.assertTrue(any("전체 세션" in p for p in problems), problems)
 
 
 class ReportTests(unittest.TestCase):

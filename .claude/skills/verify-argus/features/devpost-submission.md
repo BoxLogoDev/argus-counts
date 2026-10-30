@@ -6,14 +6,14 @@
 
 - `devpost-sections` 절 순서: `validate_devpost_text`가 문안의 프로젝트 이름부터 제출 전 교체할 항목까지 절 11개가 `DEVPOST_SECTIONS` 순서대로 모두 있음을 확인한다.
 - `devpost-demo-data` 데모 수치: 데모 기준 빈 6개 중 일치 4건·불일치 2건, 절대 차이 6개·순차이 0·일치율 66.7%가 적혀 있고, 실제 창고 성과가 아니라는 표기가 있음을 확인한다.
-- `devpost-honesty` 정직성 표기: 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다는 표기, 가짜 transport 표기, 키는 Secure Vault 경유로만 받는다는 표기, 테마 가안 표기, 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더라는 표기가 있음을 확인한다.
+- `devpost-honesty` 정직성 표기: 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)는 표기, 가짜 transport 표기, 키는 Secure Vault 경유로만 받는다는 표기, 테마 가안 표기, 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더라는 표기가 있음을 확인한다.
 - `devpost-blockers-not-ready` 블로커와 미준비: 블로커 `pi_real_capture_pending`이 있고 `SUBMISSION_READY: false`가 현재 정답으로 남아 있음을 확인한다. `qa.pre_submission --json` 실시간 대조에서도 블로커 id 목록과 `submission_ready` false가 같아야 하며, 공개 저장소 주소와 마감 2026-11-05 11:00 KST가 적혀 있음을 확인한다. `qa.claims_audit`의 `audit_text` 주장 감사 결과도 비어 있어야 한다.
 - `devpost-tamper-detection` 변조 탐지: 메모리 사본에서 `SUBMISSION_READY: false`를 true로 바꾼 텍스트를 `validate_devpost_text`로 다시 검증하면 문제가 잡혀야 한다. 원본 파일은 바꾸지 않는다.
 
 ## How to get to it (user POV)
 
 - 제출자는 프로젝트 루트의 `docs/devpost-submission.md`를 정본으로 절 순서대로 읽어 제출 플랫폼 입력 칸에 옮긴다. 현재 블로커와 제출 상태 절의 `SUBMISSION_READY: false`가 현재 정답이다.
-- 문안의 수치는 전부 데모 기준이며 실제 창고 성과가 아니다. SAM 실호출은 단일 빈 스모크까지 검증했고 전체 세션 범위와 Pi 실촬영 컷 3은 제출 전 교체할 항목으로 남아 있다.
+- 문안의 수치는 전부 데모 기준이며 실제 창고 성과가 아니다. SAM 실호출은 전체 세션까지 검증했고(같은 가상 사진 재사용, 빈별 정확도 아님) Pi 실촬영 컷 3은 제출 전 교체할 항목으로 남아 있다.
 - 개발자가 경계를 점검하는 진입점은 검증 헬퍼다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature devpost-submission --evidence-dir /tmp/argus-verify-evidence/<run-id>`.
 - 제출 마감은 한국 시간으로 2026-11-05 11:00 KST다. 실제 제출과 SAM 실호출과 Pi 실촬영은 이 절차에서 하지 않으며 단일 빈 스모크 검증 범위와 검증 전 상태로 보고한다.
 

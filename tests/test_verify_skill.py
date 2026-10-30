@@ -118,7 +118,7 @@ class SkillFileTests(unittest.TestCase):
             encoding="utf-8")
         for marker in ("LiveSamCounter", "build_payload", "parse_response",
                        "SamCountingError", "fake transport", "example.invalid",
-                       "단일 빈 스모크로 검증", "실제 API 호출 없음",
+                       "전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)", "실제 API 호출 없음",
                        "모의 폴백 없음", "Authorization"):
             self.assertIn(marker, feature)
 
@@ -998,7 +998,7 @@ class HelperRunTests(unittest.TestCase):
                 encoding="utf-8")
             self.assertIn("SUBMISSION_READY: false", text)
             self.assertNotIn("SUBMISSION_READY: true", text)
-            self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다", text)
+            self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)", text)
             self.assertIn("데모 기준", text)
 
 
