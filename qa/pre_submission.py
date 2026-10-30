@@ -32,6 +32,12 @@ API를 호출하지 않고 실제 촬영도 하지 않는다.
 점검 보고가 내부적으로 모순되거나 전수 점검 블로커와
 어긋나는 경우뿐이다.
 video 체크는 MP4 크기와 함께 컷 1~9 데이터 패널 정합도 확인한다.
+폴백 렌더 정합은 video 체크 안에서 폴백 MP4
+(demo/assets/argus-demo-fallback-draft.mp4) 크기와 컷 3 폴백 패널
+(파일 입력 폴백 — Pi 실촬영 아님·결정일 2026-11-02·capture_source=file·
+source=mock·요약·A-01-02 사진 해시)이 현재 폴백 매니페스트와 맞는지
+대조한다. 폴백 렌더 대조는 저장·생성 자산 대조만 하며 Pi 실촬영으로
+주장하지 않는다.
 기계적 체크가 전부 통과해도 제출 블로커가 남아 있으면 제출 가능
 상태가 아니다. 블로커는 종료코드가 아니라 별도 목록으로 보고한다:
 Pi 실촬영 검증과 SAM 3.1 실호출은 아직 하지 않은 일이다.
@@ -341,6 +347,10 @@ ASSEMBLY_FALLBACK_EXPECTED = {
     "replaces": "pi-placeholder",
 }
 
+FALLBACK_VIDEO_REL = "demo/assets/argus-demo-fallback-draft.mp4"
+
+FALLBACK_RENDER_CUT_INDEX = FALLBACK_CUT_INDEX
+
 EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
 
 
@@ -519,6 +529,56 @@ def build_current_data_panel() -> dict[int, list[str]]:
     return {cut: build_data_panel_lines(cut, report=report) for cut in range(1, 10)}
 
 
+def validate_fallback_panel(lines) -> list[str]:
+    """컷 3 파일 입력 폴백 패널 줄이 폴백 기준과 맞는지 검사한다."""
+    problems: list[str] = []
+    if not isinstance(lines, (list, tuple)):
+        return [f"fallback panel is not a list: {lines!r}"]
+    norm = [line if isinstance(line, str) else str(line) for line in lines]
+    if len(norm) != 4:
+        problems.append(f"fallback panel: expected 4 lines, got {len(norm)}")
+        return problems
+    first, second, third, fourth = norm
+    if "파일 입력 폴백 — Pi 실촬영 아님" not in first:
+        problems.append("fallback panel: line 1 missing '파일 입력 폴백 — Pi 실촬영 아님'")
+    if f"결정일 {FALLBACK_DECISION_DATE}" not in first:
+        problems.append(f"fallback panel: line 1 missing decision date {FALLBACK_DECISION_DATE}")
+    if FALLBACK_SESSION_ID not in second:
+        problems.append(f"fallback panel: line 2 missing session {FALLBACK_SESSION_ID}")
+    if "capture_source=file" not in second:
+        problems.append("fallback panel: line 2 missing 'capture_source=file'")
+    if "source=mock" not in second:
+        problems.append("fallback panel: line 2 missing 'source=mock'")
+    for marker in ("빈 6", "일치 4", "불일치 2", "절대 차이 6"):
+        if marker not in third:
+            problems.append(f"fallback panel: line 3 missing {marker!r}")
+    try:
+        import hashlib
+
+        from demo.fallback import fake_photo_bytes
+
+        sha8 = hashlib.sha256(fake_photo_bytes("A-01-02")).hexdigest()[:8]
+    except Exception:
+        sha8 = "106573c1"
+    for marker in ("A-01-02", "장부 8", "실측 5", sha8):
+        if marker not in fourth:
+            problems.append(f"fallback panel: line 4 missing {marker!r}")
+    return problems
+
+
+def build_current_fallback_panel() -> list[str]:
+    """현재 폴백 매니페스트로 컷 3 폴백 패널 줄을 만든다."""
+    from demo.fallback import build_fallback_manifest
+    from demo.render_video import build_data_panel_lines
+    from terminal.simulator import run_simulation
+
+    report = run_simulation()
+    manifest = build_fallback_manifest()
+    return build_data_panel_lines(
+        FALLBACK_RENDER_CUT_INDEX, report=report, fallback_manifest=manifest
+    )
+
+
 def _check_video_draft(root: Path) -> PreSubmissionCheck:
     name = "video_draft_present"
     video = root / "demo/assets/argus-demo-draft.mp4"
@@ -540,7 +600,37 @@ def _check_video_draft(root: Path) -> PreSubmissionCheck:
         return PreSubmissionCheck(
             name, False, f"bytes={size}; data panel problems: " + "; ".join(problems)
         )
-    return PreSubmissionCheck(name, True, f"bytes={size}, data_panel_cuts=9")
+    fallback_video = root / FALLBACK_VIDEO_REL
+    try:
+        fallback_size = fallback_video.stat().st_size if fallback_video.is_file() else 0
+    except OSError:
+        fallback_size = 0
+    if fallback_size <= VIDEO_MIN_BYTES:
+        return PreSubmissionCheck(
+            name,
+            False,
+            f"bytes={size}, data_panel_cuts=9; fallback video missing or too small: fallback_bytes={fallback_size}",
+        )
+    try:
+        fallback_problems = validate_fallback_panel(build_current_fallback_panel())
+    except Exception as exc:
+        return PreSubmissionCheck(
+            name,
+            False,
+            f"bytes={size}, fallback_bytes={fallback_size}; fallback panel raised: {exc!r}",
+        )
+    if fallback_problems:
+        return PreSubmissionCheck(
+            name,
+            False,
+            f"bytes={size}, fallback_bytes={fallback_size}; fallback panel problems: "
+            + "; ".join(fallback_problems),
+        )
+    return PreSubmissionCheck(
+        name,
+        True,
+        f"bytes={size}, data_panel_cuts=9, fallback_bytes={fallback_size}, fallback_render_cut={FALLBACK_RENDER_CUT_INDEX}",
+    )
 
 
 def _pre_submission_blocker_ids(blockers) -> set:

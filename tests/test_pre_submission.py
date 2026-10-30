@@ -40,6 +40,8 @@ from qa.pre_submission import (
     validate_fallback_report,
     build_fallback_report,
     validate_assembly_fallback,
+    validate_fallback_panel,
+    build_current_fallback_panel,
 )
 
 MISSING_PI_PROBE = {
@@ -334,6 +336,7 @@ def _minimal_root(root: Path) -> None:
     )
     _write(root, "demo/assets/fallback.json", json.dumps(_valid_fallback_manifest()))
     _write_bytes(root, "demo/assets/argus-demo-draft.mp4", b"\x00" * 100_001)
+    _write_bytes(root, "demo/assets/argus-demo-fallback-draft.mp4", b"\x00" * 100_001)
 
 
 class BlockerTests(unittest.TestCase):
@@ -449,6 +452,39 @@ class DataPanelTests(unittest.TestCase):
         video = by_name["video_draft_present"]
         self.assertTrue(video.passed, video.detail)
         self.assertIn("data_panel_cuts=9", video.detail)
+
+
+class FallbackPanelTests(unittest.TestCase):
+    def test_current_fallback_panel_is_valid(self):
+        self.assertEqual(validate_fallback_panel(build_current_fallback_panel()), [])
+
+    def test_validate_detects_pi_real_capture_tamper(self):
+        lines = build_current_fallback_panel()
+        lines[0] = "Pi 실촬영 — 결정일 2026-11-02"
+        problems = validate_fallback_panel(lines)
+        self.assertTrue(any("fallback panel" in p for p in problems), problems)
+
+    def test_validate_detects_wrong_line_count(self):
+        lines = build_current_fallback_panel()[:3]
+        problems = validate_fallback_panel(lines)
+        self.assertTrue(any("4 lines" in p for p in problems), problems)
+
+    def test_video_check_detail_includes_fallback_render(self):
+        result = run_pre_submission_checks(ROOT)
+        by_name = {c.name: c for c in result["checks"]}
+        video = by_name["video_draft_present"]
+        self.assertTrue(video.passed, video.detail)
+        self.assertIn("fallback_render_cut=3", video.detail)
+        self.assertIn("fallback_bytes=", video.detail)
+
+    def test_small_fallback_video_fails_video_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _minimal_root(root)
+            _write_bytes(root, "demo/assets/argus-demo-fallback-draft.mp4", b"\x00" * 10)
+            result = run_pre_submission_checks(root)
+            by_name = {c.name: c.passed for c in result["checks"]}
+            self.assertFalse(by_name["video_draft_present"])
 
 
 class ReadinessIntegrationTests(unittest.TestCase):

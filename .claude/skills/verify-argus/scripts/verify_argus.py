@@ -802,6 +802,11 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 readme_consistent 없음")
         if "fallback_consistent" not in check_names:
             problems.append("checks에 fallback_consistent 없음")
+        video_check = next((c for c in checks if c.get("name") == "video_draft_present"), {})
+        video_fallback_cut = 3 if "fallback_render_cut=3" in str(video_check.get("detail") or "") else None
+        if video_fallback_cut != 3:
+            problems.append(
+                f"video_draft_present detail에 fallback_render_cut=3 없음: {video_check.get('detail')}")
         demo_check = next((c for c in checks if c.get("name") == "demo_assets_consistent"), {})
         demo_fallback_cut = 3 if "assembly_fallback_cut=3" in str(demo_check.get("detail") or "") else None
         if demo_fallback_cut != 3:
@@ -978,6 +983,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         rd_sc, rd_rb = None, []
         fb_cut, fb_source = None, None
         demo_fallback_cut = None
+        video_fallback_cut = None
     summary = {"feature": "pre-submission",
                "mechanical_pass": report.get("mechanical_pass"),
                "passed": report.get("passed"), "total": report.get("total"),
@@ -1006,6 +1012,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_fallback_cut_index": fb_cut,
                "readiness_fallback_source": fb_source,
                "demo_assembly_fallback_cut": demo_fallback_cut,
+               "video_fallback_render_cut": video_fallback_cut,
                "submission_ready": report.get("submission_ready"),
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
