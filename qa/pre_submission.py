@@ -8,6 +8,8 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, SAM 전체 세션
 (qa.sam_session) 보고가 SAM 준비 점검 보고와 어긋나지 않는지의
 정합, Pi 단일 빈 스모크
 (qa.pi_smoke) 보고가 Pi 준비 점검 보고와 어긋나지 않는지의 정합,
+Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
+어긋나지 않는지의 정합,
 제출 문안 패키지(docs/devpost-submission.md) 원문이 전수 점검
 블로커와 어긋나지 않는지의 정합, 제출 런북(docs/submission-runbook.md)
 원문이 전수 점검 블로커와 어긋나지 않는지의 정합, 제출 스토리
@@ -19,7 +21,7 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, SAM 전체 세션
 않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 19종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 20종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -66,6 +68,7 @@ from qa.pi_readiness import check_readiness as check_pi_readiness
 from qa.sam_readiness import check_readiness as check_sam_readiness
 from qa.pi_smoke import run_smoke as run_pi_smoke
 from qa.sam_smoke import run_smoke as run_sam_smoke
+from qa.pi_session import run_pi_full_session
 from qa.sam_session import run_sam_session
 from qa.standalone import run_standalone_checks
 
@@ -1605,6 +1608,298 @@ def _check_pi_smoke(pi_probe=None, pi_device_confirmed=False, pi_which=None, pi_
     return PreSubmissionCheck(name, True, detail), report
 
 
+class _PiFullFakeSession:
+    """전수 점검 전용 가짜 전체 촬영 session. 실제 촬영을 하지 않는다."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, output_dir, bin_ids=None, session_id=None, runner=None, which=None):
+        self.calls.append(
+            {"output_dir": output_dir, "bin_ids": bin_ids, "session_id": session_id}
+        )
+        from terminal.demo_data import DEMO_COUNTED_QTY, demo_bin_ids, demo_ledger
+
+        ledger = demo_ledger()
+        bins = []
+        for bin_id in demo_bin_ids():
+            counted = DEMO_COUNTED_QTY[bin_id]
+            book = ledger[bin_id].book_qty
+            diff = counted - book
+            verdict = "match" if diff == 0 else ("short" if diff < 0 else "over")
+            bins.append(
+                {
+                    "bin_id": bin_id,
+                    "book_qty": book,
+                    "counted_qty": counted,
+                    "diff": diff,
+                    "verdict": verdict,
+                    "photo": {"sha256": PI_SMOKE_FAKE_SHA, "image_ref": bin_id + ".jpg"},
+                }
+            )
+        return {
+            "session_id": session_id or "PI-FULL",
+            "source": "mock",
+            "capture_source": "pi-camera",
+            "bins": bins,
+            "summary": {
+                "counted_bins": 6,
+                "matched": 4,
+                "mismatched": 2,
+                "match_rate": 4 / 6,
+                "abs_diff_total": 6,
+                "net_diff": 0,
+            },
+        }
+
+
+def validate_pi_session(report, pi_report=None, blockers=None) -> list[str]:
+    """Pi 전체 세션 보고가 내부적으로, 그리고 Pi 준비 보고와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "status",
+        "attempted",
+        "ready_for_real_capture",
+        "blockers",
+        "session_id",
+        "source",
+        "capture_source",
+        "bins",
+        "summary",
+        "error_type",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    ids = _readiness_blocker_ids(report["blockers"], problems, "pi session")
+    if isinstance(report["blockers"], (list, tuple)):
+        expected_subsequence = [b for b in PI_READINESS_BLOCKER_ORDER if b in ids]
+        if ids != expected_subsequence:
+            problems.append(
+                f"pi session: blocker ids {ids} are not a subsequence of "
+                f"{list(PI_READINESS_BLOCKER_ORDER)}"
+            )
+    ready = bool(report["ready_for_real_capture"])
+    if isinstance(pi_report, dict):
+        if "ready_for_real_capture" in pi_report:
+            if ready != bool(pi_report["ready_for_real_capture"]):
+                problems.append(
+                    f"pi session: ready_for_real_capture={report['ready_for_real_capture']!r} "
+                    f"!= pi readiness ready_for_real_capture="
+                    f"{pi_report['ready_for_real_capture']!r}"
+                )
+        if isinstance(pi_report.get("blockers"), (list, tuple)):
+            pi_ids = _readiness_blocker_ids(
+                pi_report["blockers"], problems, "pi readiness"
+            )
+            if ids != pi_ids:
+                problems.append(
+                    f"pi session: blocker ids {ids} != "
+                    f"pi readiness blocker ids {pi_ids}"
+                )
+    status = report["status"]
+    if status not in ("blocked", "passed", "failed"):
+        problems.append(
+            f"pi session: status={status!r} is not one of "
+            f"['blocked', 'passed', 'failed']"
+        )
+    if not ready:
+        if status != "blocked":
+            problems.append(
+                f"pi session: status={status!r} != 'blocked' "
+                f"when ready_for_real_capture is False"
+            )
+        if bool(report["attempted"]):
+            problems.append(
+                f"pi session: attempted={report['attempted']!r} != False "
+                f"when ready_for_real_capture is False"
+            )
+        if report["source"] is not None:
+            problems.append(
+                f"pi session: source={report['source']!r} is not None "
+                f"when ready_for_real_capture is False"
+            )
+        if report["capture_source"] is not None:
+            problems.append(
+                f"pi session: capture_source={report['capture_source']!r} is not None "
+                f"when ready_for_real_capture is False"
+            )
+        if report["bins"] != []:
+            problems.append(
+                f"pi session: bins={report['bins']!r} != [] "
+                f"when ready_for_real_capture is False"
+            )
+        if report["summary"] is not None:
+            problems.append(
+                f"pi session: summary={report['summary']!r} is not None "
+                f"when ready_for_real_capture is False"
+            )
+        if report["error_type"] is not None:
+            problems.append(
+                f"pi session: error_type={report['error_type']!r} is not None "
+                f"when ready_for_real_capture is False"
+            )
+        if "pi_real_capture_pending" not in _pre_submission_blocker_ids(blockers):
+            problems.append(
+                "pi session: ready_for_real_capture is False but pre-submission "
+                "blockers missing 'pi_real_capture_pending'"
+            )
+    if ready and status == "passed":
+        if not report["attempted"]:
+            problems.append(
+                f"pi session: attempted={report['attempted']!r} != True "
+                f"when ready_for_real_capture is True and status is 'passed'"
+            )
+        if report["capture_source"] != "pi-camera":
+            problems.append(
+                f"pi session: capture_source={report['capture_source']!r} != 'pi-camera' "
+                f"when ready_for_real_capture is True and status is 'passed'"
+            )
+        if not isinstance(report["source"], str) or not report["source"]:
+            problems.append(
+                f"pi session: source={report['source']!r} is not a non-empty string "
+                f"when ready_for_real_capture is True and status is 'passed'"
+            )
+        bins = report["bins"]
+        if not isinstance(bins, (list, tuple)) or len(bins) != len(EXPECTED_BIN_IDS):
+            problems.append(
+                f"pi session: bins={bins!r} does not have "
+                f"{len(EXPECTED_BIN_IDS)} entries when status is 'passed'"
+            )
+            bins = []
+        bin_ids = [
+            comp.get("bin_id") if isinstance(comp, dict) else None for comp in bins
+        ]
+        if bins and bin_ids != list(EXPECTED_BIN_IDS):
+            problems.append(
+                f"pi session: bin order {bin_ids} != {list(EXPECTED_BIN_IDS)}"
+            )
+        diffs_ok = True
+        for comp in bins:
+            if not isinstance(comp, dict):
+                problems.append(f"pi session: bin entry is not a dict: {comp!r}")
+                diffs_ok = False
+                continue
+            counted = comp.get("counted_qty")
+            book = comp.get("book_qty")
+            if not (isinstance(counted, int) and not isinstance(counted, bool)
+                    and isinstance(book, int) and not isinstance(book, bool)):
+                problems.append(
+                    f"pi session: bin {comp.get('bin_id')!r} counted_qty/book_qty "
+                    f"are not ints: {comp!r}"
+                )
+                diffs_ok = False
+            elif comp.get("diff") != counted - book:
+                problems.append(
+                    f"pi session: bin {comp.get('bin_id')!r} "
+                    f"diff={comp.get('diff')!r} != counted_qty - book_qty="
+                    f"{counted - book}"
+                )
+                diffs_ok = False
+            if not isinstance(comp.get("photo_sha256"), str) or not comp.get("photo_sha256"):
+                problems.append(
+                    f"pi session: bin {comp.get('bin_id')!r} photo_sha256 "
+                    f"is not a non-empty string"
+                )
+        summary = report["summary"]
+        if not isinstance(summary, dict):
+            problems.append(
+                f"pi session: summary={summary!r} is not a dict "
+                f"when status is 'passed'"
+            )
+        elif bins and diffs_ok:
+            matched = sum(1 for comp in bins if comp.get("diff") == 0)
+            expected_summary = {
+                "counted_bins": len(bins),
+                "matched": matched,
+                "mismatched": len(bins) - matched,
+                "abs_diff_total": sum(abs(comp["diff"]) for comp in bins),
+                "net_diff": sum(comp["diff"] for comp in bins),
+            }
+            for key, expected in expected_summary.items():
+                if summary.get(key) != expected:
+                    problems.append(
+                        f"pi session: summary {key}={summary.get(key)!r} "
+                        f"!= {expected} computed from bins"
+                    )
+            if summary.get("counted_bins"):
+                expected_rate = matched / summary["counted_bins"]
+                rate = summary.get("match_rate")
+                if not isinstance(rate, (int, float)) or isinstance(rate, bool) \
+                        or abs(rate - expected_rate) > 1e-9:
+                    problems.append(
+                        f"pi session: summary match_rate={rate!r} "
+                        f"!= {expected_rate} computed from bins"
+                    )
+    if ready and status == "failed":
+        error_type = report["error_type"]
+        if not isinstance(error_type, str) or not error_type:
+            problems.append(
+                f"pi session: error_type={error_type!r} is not a non-empty "
+                f"string when ready_for_real_capture is True and status is 'failed'"
+            )
+        if not report["attempted"]:
+            problems.append(
+                f"pi session: attempted={report['attempted']!r} != True "
+                f"when ready_for_real_capture is True and status is 'failed'"
+            )
+        if report["summary"] is not None:
+            problems.append(
+                f"pi session: summary={report['summary']!r} is not None "
+                f"when status is 'failed'"
+            )
+        if report["bins"] != []:
+            problems.append(
+                f"pi session: bins={report['bins']!r} != [] "
+                f"when status is 'failed'"
+            )
+    _check_honesty(report, problems, "pi session", "촬영하지 않는다")
+    _check_honesty(report, problems, "pi session", "대체하지 않는다")
+    _check_honesty(report, problems, "pi session", "검증 완료를 뜻하지 않는다")
+    return problems
+
+
+def _check_pi_session_full(pi_probe=None, pi_device_confirmed=False, pi_which=None, pi_report=None):
+    name = "pi_session_consistent"
+    fake = _PiFullFakeSession()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = run_pi_full_session(
+                output_dir=Path(tmp) / "pi-full-captures",
+                device_confirmed=pi_device_confirmed,
+                which=_pi_which_from_probe(pi_probe, pi_which),
+                session_fn=fake,
+                session_id="PRE-SUBMISSION-PI-SESSION",
+            )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_pi_session(report, pi_report=pi_report)
+    if isinstance(report, dict) and "ready_for_real_capture" in report:
+        if not bool(report["ready_for_real_capture"]) and len(fake.calls) != 0:
+            problems.append(
+                f"pi session: fake session calls={len(fake.calls)} != 0 "
+                f"when ready_for_real_capture is False"
+            )
+        if bool(report["ready_for_real_capture"]) and len(fake.calls) != 1:
+            problems.append(
+                f"pi session: fake session calls={len(fake.calls)} != 1 "
+                f"when ready_for_real_capture is True"
+            )
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} attempted={report['attempted']} "
+        f"blockers={[b['id'] for b in report['blockers']]} "
+        f"fake_calls={len(fake.calls)}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def validate_devpost_text(text, blockers=None) -> list[str]:
     """제출 문안 원문이 절·블로커·정직성 표기 기준과 맞는지 검사한다."""
     if blockers is None:
@@ -2587,6 +2882,14 @@ def run_pre_submission_checks(
     )
     checks.append(pi_smoke_check)
 
+    pi_session_check, pi_session_report = _check_pi_session_full(
+        pi_probe=pi_probe,
+        pi_device_confirmed=pi_device_confirmed,
+        pi_which=pi_which,
+        pi_report=pi_report,
+    )
+    checks.append(pi_session_check)
+
     devpost_check, devpost_report = _check_devpost(root)
     checks.append(devpost_check)
 
@@ -2635,6 +2938,7 @@ def run_pre_submission_checks(
             "smoke": smoke_report,
             "sam_session": session_report,
             "pi_smoke": pi_smoke_report,
+            "pi_session": pi_session_report,
             "devpost": devpost_report,
             "runbook": runbook_report,
             "story": story_report,

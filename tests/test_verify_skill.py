@@ -354,8 +354,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 19)
-            self.assertEqual(summary["total"], 19)
+            self.assertEqual(summary["passed"], 20)
+            self.assertEqual(summary["total"], 20)
             self.assertEqual(summary["readiness_en_summary_section_count"], 8)
             self.assertEqual(summary["readiness_demo_script_section_count"], 3)
             self.assertEqual(summary["readiness_readme_section_count"], 5)
@@ -374,6 +374,9 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["blockers"], [
                 "pi_real_capture_pending"])
             self.assertEqual(summary["readiness_pi_smoke_status"], "blocked")
+            self.assertEqual(summary["readiness_pi_session_status"], "blocked")
+            self.assertEqual(summary["readiness_pi_session_blockers"], [
+                "pi_device_arrival_not_confirmed", "pi_camera_command_missing"])
             self.assertEqual(summary["readiness_pi_smoke_blockers"], [
                 "pi_device_arrival_not_confirmed", "pi_camera_command_missing"])
             self.assertEqual(summary["readiness_smoke_status"], "blocked")

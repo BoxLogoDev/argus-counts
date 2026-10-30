@@ -19,6 +19,7 @@ from qa.pre_submission import (
     validate_sam_readiness,
     validate_sam_smoke,
     validate_sam_session,
+    validate_pi_session,
     validate_devpost_report,
     validate_devpost_text,
     build_devpost_report,
@@ -575,7 +576,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 19)
+        self.assertEqual(result["total"], 20)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -689,7 +690,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 19)
+            self.assertEqual(result["total"], 20)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -997,6 +998,81 @@ class ReadinessIntegrationTests(unittest.TestCase):
         report["diff"] = 99
         problems = validate_pi_smoke(report)
         self.assertTrue(any("diff" in p for p in problems), problems)
+
+
+    def test_real_root_includes_pi_session_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
+        )
+        names = [c.name for c in result["checks"]]
+        self.assertIn("pi_session_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["pi_session_consistent"].passed)
+        self.assertIn("fake_calls=0", by_name["pi_session_consistent"].detail)
+        pi_session = result["readiness"]["pi_session"]
+        self.assertEqual(pi_session["status"], "blocked")
+        self.assertFalse(pi_session["attempted"])
+        self.assertFalse(pi_session["ready_for_real_capture"])
+        self.assertEqual(pi_session["bins"], [])
+        self.assertIsNone(pi_session["summary"])
+        self.assertEqual(
+            [b["id"] for b in pi_session["blockers"]],
+            [b["id"] for b in result["readiness"]["pi"]["blockers"]],
+        )
+        self.assertFalse(result["submission_ready"])
+
+    def test_pi_session_ready_fake_probe_passes_with_fake_session(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=READY_PI_PROBE, pi_device_confirmed=True
+        )
+        by_name = {c.name: c.passed for c in result["checks"]}
+        self.assertTrue(by_name["pi_session_consistent"])
+        by_detail = {c.name: c for c in result["checks"]}
+        self.assertIn("fake_calls=1", by_detail["pi_session_consistent"].detail)
+        pi_session = result["readiness"]["pi_session"]
+        self.assertEqual(pi_session["status"], "passed")
+        self.assertTrue(pi_session["attempted"])
+        self.assertEqual(pi_session["capture_source"], "pi-camera")
+        self.assertEqual(pi_session["source"], "mock")
+        self.assertEqual(len(pi_session["bins"]), 6)
+        summary = pi_session["summary"]
+        self.assertEqual(summary["counted_bins"], 6)
+        self.assertEqual(summary["matched"], 4)
+        self.assertEqual(summary["mismatched"], 2)
+        self.assertEqual(summary["abs_diff_total"], 6)
+        self.assertEqual(summary["net_diff"], 0)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_pi_session_detects_blocked_attempted(self):
+        from qa.pi_session import run_pi_full_session
+
+        report = run_pi_full_session(device_confirmed=False, which=lambda name: None)
+        self.assertEqual(validate_pi_session(report), [])
+        report["attempted"] = True
+        problems = validate_pi_session(report)
+        self.assertTrue(any("attempted" in p for p in problems), problems)
+
+    def test_validate_pi_session_detects_cross_mismatch_with_pi_report(self):
+        from qa.pi_readiness import check_readiness as check_pi
+        from qa.pi_session import run_pi_full_session
+
+        pi_session = run_pi_full_session(device_confirmed=False, which=lambda name: None)
+        pi_report = check_pi(probe=READY_PI_PROBE, device_confirmed=True)
+        problems = validate_pi_session(pi_session, pi_report=pi_report)
+        self.assertTrue(any("pi session" in p for p in problems), problems)
+
+    def test_validate_pi_session_detects_summary_tamper(self):
+        from qa.pi_session import run_pi_full_session
+        from tests.test_pi_session_harness import FakeSession
+
+        report = run_pi_full_session(
+            device_confirmed=True, which=lambda name: "/usr/bin/libcamera-still" if name == "libcamera-still" else None,
+            session_fn=FakeSession(), session_id="PI-TEST",
+        )
+        self.assertEqual(validate_pi_session(report), [])
+        report["summary"]["net_diff"] = 7
+        problems = validate_pi_session(report)
+        self.assertTrue(any("net_diff" in p for p in problems), problems)
 
 
 class DevpostIntegrationTests(unittest.TestCase):
@@ -1369,7 +1445,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 19)
+        self.assertEqual(result["total"], 20)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
