@@ -1302,17 +1302,31 @@ def drive_sam_live(ctx: Ctx, evidence: Path) -> dict:
         parsed_body = {}
     if parsed_body.get("model") != "sam-3.1":
         problems.append(f"body model 기대 sam-3.1, 실제 {parsed_body.get('model')}")
-    if parsed_body.get("bin_id") != SAM_BIN_ID:
-        problems.append(f"body bin_id 기대 {SAM_BIN_ID}, 실제 {parsed_body.get('bin_id')}")
-    if parsed_body.get("image_ref") != "photo-1.jpg":
+    body_content = []
+    body_input = parsed_body.get("input")
+    if isinstance(body_input, list) and body_input:
+        body_content = body_input[0].get("content") or []
+    body_text_part = next((c for c in body_content
+                           if isinstance(c, dict) and c.get("type") == "input_text"),
+                          {})
+    body_image_part = next((c for c in body_content
+                            if isinstance(c, dict) and c.get("type") == "input_image"),
+                           {})
+    if body_text_part.get("text") != "cardboard box":
         problems.append(
-            f"body image_ref 기대 photo-1.jpg, 실제 {parsed_body.get('image_ref')}")
+            f"body input_text 기대 cardboard box, 실제 {body_text_part.get('text')}")
+    if body_image_part.get("image_url") != "photo-1.jpg":
+        problems.append(
+            f"body image_url 기대 photo-1.jpg, 실제 {body_image_part.get('image_url')}")
     if SAM_FAKE_KEY in body_text:
         problems.append("요청 body 원문에 API 키가 포함됐다")
     direct_payload = build_payload(SAM_BIN_ID, image_ref="photo-1.jpg")
+    direct_content = (direct_payload.get("input") or [{}])[0].get("content") or []
+    direct_image = next((c for c in direct_content
+                         if isinstance(c, dict) and c.get("type") == "input_image"),
+                        {})
     if direct_payload.get("model") != "sam-3.1" \
-            or direct_payload.get("bin_id") != SAM_BIN_ID \
-            or direct_payload.get("image_ref") != "photo-1.jpg":
+            or direct_image.get("image_url") != "photo-1.jpg":
         problems.append(f"build_payload 결과가 기대와 다르다: {direct_payload}")
     if SAM_FAKE_KEY in json.dumps(direct_payload):
         problems.append("build_payload 결과에 API 키가 포함됐다")
@@ -1401,7 +1415,8 @@ def drive_sam_live(ctx: Ctx, evidence: Path) -> dict:
 
     fake_payload = {"url": recorded.get("url"),
                     "model": parsed_body.get("model"),
-                    "bin_id": parsed_body.get("bin_id"),
+                    "input_text": body_text_part.get("text"),
+                    "image_url": body_image_part.get("image_url"),
                     "counted_qty": getattr(result, "counted_qty", None),
                     "source": getattr(result, "source", None)}
     errors_payload = {"http_error_blocked": http_error_blocked,

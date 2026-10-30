@@ -4,7 +4,7 @@ SAM 실호출 준비는 `terminal.sam_adapter`의 실호출 경계가 실제 호
 
 ## Sub-features
 
-- `sam-live-fake-success` 가짜 성공: 호출 인자를 기록하고 `(200, {"counted_qty": 5})`를 돌려주는 fake transport로 `LiveSamCounter("https://example.invalid/sam/", "test-key-not-real", transport=fake)`를 만들어 `A-01-02`를 `image_ref="photo-1.jpg"`로 센다. 결과는 `counted_qty` 5이며 `source`가 `sam`이다. 기록된 url은 끝 슬래시가 제거된 `https://example.invalid/sam`이고, Authorization 헤더로만 키 전송되므로 헤더 값은 `Bearer test-key-not-real`이다. `build_payload`가 만든 body를 JSON으로 풀면 `model`이 `sam-3.1`, `bin_id`가 `A-01-02`, `image_ref`가 `photo-1.jpg`이며, 본문에 키 없음 상태를 확인한다.
+- `sam-live-fake-success` 가짜 성공: 호출 인자를 기록하고 `(200, {"counted_qty": 5})`를 돌려주는 fake transport로 `LiveSamCounter("https://example.invalid/sam/", "test-key-not-real", transport=fake)`를 만들어 `A-01-02`를 `image_ref="photo-1.jpg"`로 센다. 결과는 `counted_qty` 5이며 `source`가 `sam`이다. 기록된 url은 끝 슬래시가 제거된 `https://example.invalid/sam`이고, Authorization 헤더로만 키 전송되므로 헤더 값은 `Bearer test-key-not-real`이다. `build_payload`가 만든 body를 JSON으로 풀면 `model`이 `sam-3.1`이고, `input`의 user 메시지에 `input_text` "cardboard box"와 `input_image`의 `image_url` `photo-1.jpg`가 들어 있으며, 본문에 키 없음 상태를 확인한다. 본문 규격 자체는 2026-10-30에 커넥터 경유 실호출 탐침으로 검증했지만, 이 절차 안에서는 여전히 fake transport만 쓴다.
 - `sam-live-parse-variants` 해석 변형: `parse_response`가 `{"counted_qty": 7}`을 7로, `{"result": {"quantity": 4}}`를 4로, `{"detections": [1, 2]}`를 2로 해석함을 확인한다.
 - `sam-live-http-error` HTTP 실패 차단: `(503, {...})`를 돌려주는 fake transport로 `LiveSamCounter.count`를 호출하면 `SamCountingError`가 나고 모의 폴백 없음 상태를 확인한다. 예외가 나야 통과다.
 - `sam-live-transport-error` 전송 예외 감싸기: `OSError("sensitive-detail")`를 던지는 fake transport로 호출하면 `SamCountingError`로 감싸지고, 예외 문자열에 `sensitive-detail`과 `test-key-not-real`이 모두 없음을 확인한다.
@@ -26,11 +26,11 @@ Preconditions:
 - 증거 디렉터리 `/tmp/argus-verify-evidence/<run-id>/`를 새로 정했다.
 
 - **기본 실행.** Run `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature sam-live --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 네트워크를 쓰지 않고 fake transport 주입만으로 `drive_sam_live`를 실행한다.
-- **가짜 성공 확인.** 헬퍼가 `LiveSamCounter`에 fake transport를 주입해 `counted_qty` 5와 `source=sam`을 받고, 끝 슬래시가 제거된 url, Authorization 헤더로만 키 전송된 상태, `build_payload` 본문의 `model`·`bin_id`·`image_ref`, 본문에 키 없음을 대조한다.
+- **가짜 성공 확인.** 헬퍼가 `LiveSamCounter`에 fake transport를 주입해 `counted_qty` 5와 `source=sam`을 받고, 끝 슬래시가 제거된 url, Authorization 헤더로만 키 전송된 상태, `build_payload` 본문의 `model`·`input_text`·`image_url`, 본문에 키 없음을 대조한다.
 - **해석 변형 확인.** 헬퍼가 `parse_response`의 세 형태를 확인한다. 최상위 수량 키, `result` 안의 수량 키, `detections` 리스트 길이가 각각 7·4·2가 된다.
 - **실패 차단 확인.** 헬퍼가 HTTP 503 fake transport와 `OSError` fake transport를 각각 호출한다. 두 경우 모두 `SamCountingError`가 나야 하며, 모의 폴백 없음 상태와 예외 문자열에 원본 상세와 키가 없음을 확인한다.
 - **모의 선택 확인.** 헬퍼가 두 환경변수를 잠시 제거하고 정확히 복원하면서 `build_counter`의 모의 선택을 확인한다. 결과는 `MockSamCounter`이며 `source=mock`이고 수량은 5다.
-- **증거 확인.** 종료 후 증거 디렉터리에 `sam-live-fake.json`(url·model·bin_id·counted_qty·source, 키 원문 없음)과 `sam-live-errors.json`(`http_error_blocked`·`transport_error_wrapped`·`mock_selection_ok`)이 남고, `summary.json`의 `feature`가 `sam-live`이며 `fake_url`이 `https://example.invalid/sam`인지 대조한다.
+- **증거 확인.** 종료 후 증거 디렉터리에 `sam-live-fake.json`(url·model·input_text·image_url·counted_qty·source, 키 원문 없음)과 `sam-live-errors.json`(`http_error_blocked`·`transport_error_wrapped`·`mock_selection_ok`)이 남고, `summary.json`의 `feature`가 `sam-live`이며 `fake_url`이 `https://example.invalid/sam`인지 대조한다.
 
 ## Gotchas
 

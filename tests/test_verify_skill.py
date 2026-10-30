@@ -636,7 +636,8 @@ class HelperRunTests(unittest.TestCase):
             fake = json.loads((evidence / "sam-live-fake.json").read_text(
                 encoding="utf-8"))
             self.assertEqual(fake["model"], "sam-3.1")
-            self.assertEqual(fake["bin_id"], "A-01-02")
+            self.assertEqual(fake["input_text"], "cardboard box")
+            self.assertEqual(fake["image_url"], "photo-1.jpg")
             self.assertEqual(fake["counted_qty"], 5)
             self.assertNotIn("test-key-not-real", json.dumps(fake))
             self.assertTrue((evidence / "sam-live-errors.json").is_file())
