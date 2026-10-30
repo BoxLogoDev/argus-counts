@@ -40,6 +40,10 @@ Pi 전체 세션(pi-session-full)은 qa.pi_session 전체 촬영 세션 하네�
 프로세스 내 build_inventory·validate_inventory·write_inventory로만
 구동한다(파일 존재·크기·SHA-256 대조만 하며 실제로 제출하지 않는다.
 인벤토리가 온전해도 제출 가능을 뜻하지 않는다).
+Pi 폴백 결정(fallback-decision)은 qa.fallback_decision CLI와
+프로세스 내 evaluate_decision·build_decision·validate_decision으로만
+구동한다(실제 촬영 없음, 결정일 2026-11-02 전에는 폴백을 확정하지
+않으며, 폴백 채택은 Pi 실촬영 검증 완료를 뜻하지 않는다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -53,7 +57,7 @@ difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
-all(전부, 기능별 하위 디렉터리).
+fallback-decision, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -90,7 +94,8 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "sam-readiness", "submission-runbook", "pi-readiness",
             "console-readiness", "sam-smoke", "pi-smoke",
             "devpost-submission", "file-fallback", "sam-session",
-            "pi-session-full", "submission-inventory")
+            "pi-session-full", "submission-inventory",
+            "fallback-decision")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -205,6 +210,10 @@ ASSEMBLY_FALLBACK_EXPECTED = {"asset": ASSEMBLY_FALLBACK_ASSET,
                               "replaces": "pi-placeholder"}
 INVENTORY_TOTAL_FILES = 18
 INVENTORY_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
+FALLBACK_DECISION_DATE = "2026-11-02"
+FALLBACK_DECISION_PENDING_DATE = "2026-10-30"
+FALLBACK_DECISION_ASSET = "demo/assets/fallback.json"
+FALLBACK_DECISION_RENDER = "demo/assets/argus-demo-fallback-draft.mp4"
 FALLBACK_RENDER_REL = "demo/assets/argus-demo-fallback-draft.mp4"
 FALLBACK_RENDER_CUT_INDEX = 3
 FALLBACK_RENDER_DECISION_DATE = "2026-11-02"
@@ -3564,6 +3573,195 @@ def drive_submission_inventory(ctx: Ctx, evidence: Path) -> dict:
                     "submission-inventory.txt": result.stdout})
     return summary
 
+def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.fallback_decision import (build_decision, evaluate_decision,
+                                      validate_decision)
+
+    result = run_cli(["-m", "qa.fallback_decision", "--date",
+                      FALLBACK_DECISION_PENDING_DATE])
+    ctx.note(f"python3 -m qa.fallback_decision --date {FALLBACK_DECISION_PENDING_DATE} "
+             f"-> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(
+            f"fallback_decision pending 종료코드 기대 0, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("STATUS: pending",
+                   f"DECISION_DATE: {FALLBACK_DECISION_DATE}",
+                   "FALLBACK_ADOPTED: false", "Pi 실촬영이 아닙니다"):
+        if needle not in result.stdout:
+            problems.append(f"fallback_decision 텍스트에 {needle!r} 없음")
+
+    result_j = run_cli(["-m", "qa.fallback_decision", "--date",
+                        FALLBACK_DECISION_PENDING_DATE, "--json"])
+    ctx.note(f"python3 -m qa.fallback_decision --date {FALLBACK_DECISION_PENDING_DATE} "
+             f"--json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(
+            f"fallback_decision pending --json 종료코드 기대 0, 실제 "
+            f"{result_j.returncode}: {result_j.stderr[:200]}")
+    pending: dict = {}
+    try:
+        pending = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"pending --json 파싱 실패: {e}")
+    pending_blockers: list = []
+    if pending:
+        if pending.get("status") != "pending":
+            problems.append(f"status 기대 'pending', 실제 {pending.get('status')}")
+        if pending.get("fallback_adopted") is not False:
+            problems.append(
+                f"fallback_adopted 기대 False, 실제 {pending.get('fallback_adopted')}")
+        if pending.get("pi_ready") is not False:
+            problems.append(f"pi_ready 기대 False, 실제 {pending.get('pi_ready')}")
+        pending_blockers = list(pending.get("pi_blockers") or [])
+        if pending_blockers != list(EXPECTED_PI_READINESS_BLOCKER_IDS):
+            problems.append(
+                f"pi_blockers 기대 {list(EXPECTED_PI_READINESS_BLOCKER_IDS)}, "
+                f"실제 {pending_blockers}")
+        if pending.get("decision_date") != FALLBACK_DECISION_DATE:
+            problems.append(
+                f"decision_date 기대 {FALLBACK_DECISION_DATE}, 실제 "
+                f"{pending.get('decision_date')}")
+        if pending.get("fallback_asset") != FALLBACK_DECISION_ASSET:
+            problems.append(
+                f"fallback_asset 기대 {FALLBACK_DECISION_ASSET}, 실제 "
+                f"{pending.get('fallback_asset')}")
+        if pending.get("fallback_render") != FALLBACK_DECISION_RENDER:
+            problems.append(
+                f"fallback_render 기대 {FALLBACK_DECISION_RENDER}, 실제 "
+                f"{pending.get('fallback_render')}")
+        if pending.get("is_pi_real_capture") is not False:
+            problems.append(
+                f"is_pi_real_capture 기대 False, 실제 {pending.get('is_pi_real_capture')}")
+        joined = " ".join(str(x) for x in pending.get("honesty", []))
+        for marker in ("Pi 실촬영이 아닙니다", "Pi 실촬영 검증 완료를 뜻하지 않는다",
+                       "결정일 전에는 폴백을 확정하지 않는다"):
+            if marker not in joined:
+                problems.append(f"honesty에 {marker!r} 없음")
+
+    result_due = run_cli(["-m", "qa.fallback_decision", "--date",
+                          FALLBACK_DECISION_DATE, "--json"])
+    ctx.note(f"python3 -m qa.fallback_decision --date {FALLBACK_DECISION_DATE} "
+             f"--json -> 종료코드 {result_due.returncode} "
+             "(가정 날짜 구동이며 오늘 실제 전환 확정이 아니다)")
+    if result_due.returncode != 0:
+        problems.append(
+            f"fallback_decision due --json 종료코드 기대 0, 실제 "
+            f"{result_due.returncode}: {result_due.stderr[:200]}")
+    due: dict = {}
+    try:
+        due = json.loads(result_due.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"due --json 파싱 실패: {e}")
+    if due:
+        if due.get("status") != "fallback_due":
+            problems.append(f"due status 기대 'fallback_due', 실제 {due.get('status')}")
+        if due.get("fallback_adopted") is not True:
+            problems.append(
+                f"due fallback_adopted 기대 True, 실제 {due.get('fallback_adopted')}")
+
+    result_bad = run_cli(["-m", "qa.fallback_decision", "--date",
+                          "2026-13-40", "--json"])
+    ctx.note(f"python3 -m qa.fallback_decision --date 2026-13-40 --json "
+             f"-> 종료코드 {result_bad.returncode}")
+    if result_bad.returncode != 2:
+        problems.append(
+            f"잘못된 날짜 종료코드 기대 2, 실제 {result_bad.returncode}")
+
+    blockers = list(EXPECTED_PI_READINESS_BLOCKER_IDS)
+    try:
+        ev_pending = evaluate_decision(FALLBACK_DECISION_PENDING_DATE, False, blockers)
+        ev_due = evaluate_decision(FALLBACK_DECISION_DATE, False, blockers)
+        ev_ready = evaluate_decision(FALLBACK_DECISION_DATE, True, [])
+        if ev_pending.get("status") != "pending" \
+                or ev_pending.get("fallback_adopted") is not False:
+            problems.append(f"evaluate pending 이상: {ev_pending}")
+        if ev_due.get("status") != "fallback_due" \
+                or ev_due.get("fallback_adopted") is not True:
+            problems.append(f"evaluate due 이상: {ev_due}")
+        if ev_ready.get("status") != "pi_ready" \
+                or ev_ready.get("fallback_adopted") is not False:
+            problems.append(f"evaluate pi_ready 이상: {ev_ready}")
+        for report in (ev_pending, ev_due, ev_ready):
+            v = validate_decision(report)
+            if v:
+                problems.append(f"validate_decision 정상 보고 문제: {v}")
+    except Exception as e:
+        problems.append(f"evaluate_decision 실패: {type(e).__name__}: {e}")
+
+    built_pending: dict = {}
+    built_ready: dict = {}
+    try:
+        built_pending = build_decision(today=FALLBACK_DECISION_PENDING_DATE,
+                                       pi_probe=PI_READINESS_MISSING_PROBE)
+        built_ready = build_decision(today=FALLBACK_DECISION_DATE,
+                                     pi_probe=PI_READINESS_READY_PROBE,
+                                     device_confirmed=True)
+    except Exception as e:
+        problems.append(f"build_decision 실패: {type(e).__name__}: {e}")
+    if built_pending:
+        ctx.note(f"build_decision missing probe -> status={built_pending.get('status')}")
+        if built_pending.get("status") != "pending":
+            problems.append(f"build pending status 이상: {built_pending.get('status')}")
+        if list(built_pending.get("pi_blockers") or []) != blockers:
+            problems.append(
+                f"build pending pi_blockers 이상: {built_pending.get('pi_blockers')}")
+    pi_ready_status = built_ready.get("status") if built_ready else None
+    if built_ready:
+        ctx.note(f"build_decision ready probe -> status={pi_ready_status}")
+        if pi_ready_status != "pi_ready":
+            problems.append(f"build ready status 이상: {pi_ready_status}")
+        if built_ready.get("pi_blockers") != []:
+            problems.append(f"build ready pi_blockers 기대 [], 실제 "
+                            f"{built_ready.get('pi_blockers')}")
+
+    adopted_tamper_detected = False
+    real_capture_tamper_detected = False
+    status_tamper_detected = False
+    try:
+        base = evaluate_decision(FALLBACK_DECISION_PENDING_DATE, False, blockers)
+        t1 = copy.deepcopy(base)
+        t1["fallback_adopted"] = True
+        adopted_tamper_detected = any("fallback_adopted" in p
+                                      for p in validate_decision(t1))
+        t2 = evaluate_decision(FALLBACK_DECISION_DATE, False, blockers)
+        t2["is_pi_real_capture"] = True
+        real_capture_tamper_detected = any("is_pi_real_capture" in p
+                                           for p in validate_decision(t2))
+        t3 = copy.deepcopy(base)
+        t3["status"] = "fallback_due"
+        status_tamper_detected = any("status" in p
+                                     for p in validate_decision(t3))
+    except Exception as e:
+        problems.append(f"변조 탐지 구동 실패: {type(e).__name__}: {e}")
+    tamper_detected = adopted_tamper_detected and real_capture_tamper_detected \
+        and status_tamper_detected
+    ctx.note(f"폴백 결정 변조 탐지 -> adopted {adopted_tamper_detected}, "
+             f"real_capture {real_capture_tamper_detected}, "
+             f"status {status_tamper_detected}")
+    if not tamper_detected:
+        problems.append("변조 탐지 실패: fallback_adopted/is_pi_real_capture/status 중 "
+                        "하나를 바꿔도 문제를 찾지 못했다")
+
+    summary = {"feature": "fallback-decision",
+               "pending_status": pending.get("status"),
+               "pending_blockers": pending_blockers,
+               "default_exit_code": result.returncode,
+               "due_status": due.get("status"),
+               "due_fallback_adopted": due.get("fallback_adopted"),
+               "pi_ready_status": pi_ready_status,
+               "pi_ready_with_fake_probe": pi_ready_status == "pi_ready",
+               "tamper_detected": tamper_detected,
+               "adopted_tamper_detected": adopted_tamper_detected,
+               "real_capture_tamper_detected": real_capture_tamper_detected,
+               "invalid_date_exit_code": result_bad.returncode,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"fallback-decision-pending.json": result_j.stdout,
+                    "fallback-decision-due.json": result_due.stdout})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -3584,7 +3782,8 @@ DRIVERS = {"console-home": drive_console_home,
            "file-fallback": drive_file_fallback,
            "sam-session": drive_sam_session,
            "pi-session-full": drive_pi_session_full,
-           "submission-inventory": drive_submission_inventory}
+           "submission-inventory": drive_submission_inventory,
+           "fallback-decision": drive_fallback_decision}
 
 
 def main(argv: list[str] | None = None) -> int:
