@@ -44,6 +44,10 @@ Pi 폴백 결정(fallback-decision)은 qa.fallback_decision CLI와
 프로세스 내 evaluate_decision·build_decision·validate_decision으로만
 구동한다(실제 촬영 없음, 결정일 2026-11-02 전에는 폴백을 확정하지
 않으며, 폴백 채택은 Pi 실촬영 검증 완료를 뜻하지 않는다).
+제출 마감 점검(deadline)은 qa.deadline CLI와
+프로세스 내 evaluate_deadline·build_deadline·validate_deadline으로만
+구동한다(실제로 제출하지 않으며, 마감 전이어도 제출 준비 완료를
+뜻하지 않고, 남은 시간은 제공된 기준 시각으로만 계산한다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -57,7 +61,7 @@ difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
-fallback-decision, all(전부, 기능별 하위 디렉터리).
+fallback-decision, deadline, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -95,7 +99,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "console-readiness", "sam-smoke", "pi-smoke",
             "devpost-submission", "file-fallback", "sam-session",
             "pi-session-full", "submission-inventory",
-            "fallback-decision")
+            "fallback-decision", "deadline")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -215,6 +219,10 @@ FALLBACK_DECISION_PENDING_DATE = "2026-10-30"
 FALLBACK_DECISION_ASSET = "demo/assets/fallback.json"
 FALLBACK_DECISION_RENDER = "demo/assets/argus-demo-fallback-draft.mp4"
 FALLBACK_RENDER_REL = "demo/assets/argus-demo-fallback-draft.mp4"
+DEADLINE_BEFORE_NOW = "2026-10-31T01:50:00+09:00"
+DEADLINE_BEFORE_REMAINING = 465000
+DEADLINE_DUE_SOON_NOW = "2026-11-04T12:00:00+09:00"
+DEADLINE_OVERDUE_NOW = "2026-11-05T11:00:00+09:00"
 FALLBACK_RENDER_CUT_INDEX = 3
 FALLBACK_RENDER_DECISION_DATE = "2026-11-02"
 
@@ -3786,6 +3794,150 @@ def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
                     "fallback-decision-due.json": result_due.stdout})
     return summary
 
+def drive_deadline(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.deadline import build_deadline, evaluate_deadline, validate_deadline
+
+    result = run_cli(["-m", "qa.deadline", "--now", DEADLINE_BEFORE_NOW])
+    ctx.note(f"python3 -m qa.deadline --now {DEADLINE_BEFORE_NOW} "
+             f"-> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(
+            f"deadline before 종료코드 기대 0, 실제 {result.returncode}: "
+            f"{result.stderr[:200]}")
+    for needle in ("STATUS: before_deadline",
+                   "DEADLINE_KST: 2026-11-05T11:00:00+09:00",
+                   f"REMAINING_SECONDS: {DEADLINE_BEFORE_REMAINING}",
+                   "SUBMISSION_READY: false",
+                   "실제로 제출하지 않는다"):
+        if needle not in result.stdout:
+            problems.append(f"deadline 텍스트에 {needle!r} 없음")
+
+    result_j = run_cli(["-m", "qa.deadline", "--now", DEADLINE_BEFORE_NOW, "--json"])
+    ctx.note(f"python3 -m qa.deadline --now {DEADLINE_BEFORE_NOW} --json "
+             f"-> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(
+            f"deadline before --json 종료코드 기대 0, 실제 {result_j.returncode}")
+    before: dict = {}
+    try:
+        before = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"before --json 파싱 실패: {e}")
+    if before:
+        if before.get("status") != "before_deadline":
+            problems.append(f"status 기대 'before_deadline', 실제 {before.get('status')}")
+        if before.get("remaining_seconds") != DEADLINE_BEFORE_REMAINING:
+            problems.append(
+                f"remaining_seconds 기대 {DEADLINE_BEFORE_REMAINING}, "
+                f"실제 {before.get('remaining_seconds')}")
+        if before.get("is_overdue") is not False:
+            problems.append(f"is_overdue 기대 False, 실제 {before.get('is_overdue')}")
+        if before.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(f"blockers 이상: {before.get('blockers')}")
+        if before.get("submission_ready") is not False:
+            problems.append(
+                f"submission_ready 기대 False, 실제 {before.get('submission_ready')}")
+        joined = " ".join(str(x) for x in before.get("honesty", []))
+        for marker in ("실제로 제출하지 않는다", "제출 준비 완료를 뜻하지 않는다",
+                       "지각 제출은 고려되지 않는다"):
+            if marker not in joined:
+                problems.append(f"honesty에 {marker!r} 없음")
+
+    result_due = run_cli(["-m", "qa.deadline", "--now", DEADLINE_DUE_SOON_NOW, "--json"])
+    ctx.note(f"python3 -m qa.deadline --now {DEADLINE_DUE_SOON_NOW} --json "
+             f"-> 종료코드 {result_due.returncode}")
+    due: dict = {}
+    try:
+        due = json.loads(result_due.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"due_soon --json 파싱 실패: {e}")
+    if due:
+        if due.get("status") != "due_soon":
+            problems.append(f"due status 기대 'due_soon', 실제 {due.get('status')}")
+        if due.get("remaining_seconds") != 23 * 3600:
+            problems.append(f"due remaining 이상: {due.get('remaining_seconds')}")
+
+    result_over = run_cli(["-m", "qa.deadline", "--now", DEADLINE_OVERDUE_NOW, "--json"])
+    ctx.note(f"python3 -m qa.deadline --now {DEADLINE_OVERDUE_NOW} --json "
+             f"-> 종료코드 {result_over.returncode}")
+    if result_over.returncode != 1:
+        problems.append(
+            f"deadline overdue 종료코드 기대 1, 실제 {result_over.returncode}")
+    over: dict = {}
+    try:
+        over = json.loads(result_over.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"overdue --json 파싱 실패: {e}")
+    if over:
+        if over.get("status") != "overdue":
+            problems.append(f"overdue status 기대 'overdue', 실제 {over.get('status')}")
+        if over.get("remaining_seconds") != 0:
+            problems.append(f"overdue remaining 기대 0, 실제 {over.get('remaining_seconds')}")
+        if over.get("is_overdue") is not True:
+            problems.append(f"overdue is_overdue 기대 True, 실제 {over.get('is_overdue')}")
+
+    result_bad = run_cli(["-m", "qa.deadline", "--now", "not-a-date"])
+    ctx.note(f"python3 -m qa.deadline --now not-a-date -> 종료코드 {result_bad.returncode}")
+    if result_bad.returncode != 2:
+        problems.append(f"잘못된 시각 종료코드 기대 2, 실제 {result_bad.returncode}")
+
+    try:
+        ev_before = evaluate_deadline(DEADLINE_BEFORE_NOW)
+        ev_due = evaluate_deadline(DEADLINE_DUE_SOON_NOW)
+        ev_over = evaluate_deadline(DEADLINE_OVERDUE_NOW)
+        built = build_deadline(now=DEADLINE_BEFORE_NOW)
+        if ev_before.get("status") != "before_deadline" or built.get("status") != "before_deadline":
+            problems.append(f"evaluate/build before 이상: {ev_before.get('status')}")
+        if ev_due.get("status") != "due_soon":
+            problems.append(f"evaluate due_soon 이상: {ev_due.get('status')}")
+        if ev_over.get("status") != "overdue":
+            problems.append(f"evaluate overdue 이상: {ev_over.get('status')}")
+        for report in (ev_before, ev_due, ev_over, built):
+            v = validate_deadline(report)
+            if v:
+                problems.append(f"validate_deadline 정상 보고 문제: {v}")
+    except Exception as e:
+        problems.append(f"evaluate_deadline 실패: {type(e).__name__}: {e}")
+
+    status_tamper_detected = False
+    remaining_tamper_detected = False
+    submission_ready_tamper_detected = False
+    try:
+        base = evaluate_deadline(DEADLINE_BEFORE_NOW)
+        t1 = copy.deepcopy(base); t1["status"] = "overdue"
+        status_tamper_detected = any("status" in p for p in validate_deadline(t1))
+        t2 = copy.deepcopy(base); t2["remaining_seconds"] = 1
+        remaining_tamper_detected = any("remaining_seconds" in p for p in validate_deadline(t2))
+        t3 = copy.deepcopy(base); t3["submission_ready"] = True
+        submission_ready_tamper_detected = any("submission_ready" in p for p in validate_deadline(t3))
+    except Exception as e:
+        problems.append(f"변조 탐지 구동 실패: {type(e).__name__}: {e}")
+    tamper_detected = status_tamper_detected and remaining_tamper_detected and submission_ready_tamper_detected
+    ctx.note(f"마감 점검 변조 탐지 -> status {status_tamper_detected}, "
+             f"remaining {remaining_tamper_detected}, "
+             f"submission_ready {submission_ready_tamper_detected}")
+    if not tamper_detected:
+        problems.append("변조 탐지 실패: status/remaining_seconds/submission_ready 중 하나를 바꿔도 문제를 찾지 못했다")
+
+    summary = {"feature": "deadline",
+               "before_status": before.get("status"),
+               "before_remaining_seconds": before.get("remaining_seconds"),
+               "due_soon_status": due.get("status"),
+               "overdue_status": over.get("status"),
+               "overdue_exit_code": result_over.returncode,
+               "invalid_exit_code": result_bad.returncode,
+               "tamper_detected": tamper_detected,
+               "status_tamper_detected": status_tamper_detected,
+               "remaining_tamper_detected": remaining_tamper_detected,
+               "submission_ready_tamper_detected": submission_ready_tamper_detected,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"deadline-before.json": result_j.stdout,
+                    "deadline-overdue.json": result_over.stdout})
+    return summary
+
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -3807,7 +3959,8 @@ DRIVERS = {"console-home": drive_console_home,
            "sam-session": drive_sam_session,
            "pi-session-full": drive_pi_session_full,
            "submission-inventory": drive_submission_inventory,
-           "fallback-decision": drive_fallback_decision}
+           "fallback-decision": drive_fallback_decision,
+           "deadline": drive_deadline}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -56,3 +56,4 @@
 - [Pi 전체 촬영 세션](pi-session-full.md) — Pi 전체 촬영 세션 하네스(qa.pi_session)(준비 점검 차단 시 촬영 없음·가짜 session 데모 기준 대조 성공·실제 pi_session+가짜 runner 성공·capture_source/오류 차단)를 구동한다. 가짜 성공은 Pi 실촬영 검증 완료가 아니며 실제 촬영은 없다.
 - [Pi 폴백 결정](fallback-decision.md) — Pi 폴백 결정 하네스(qa.fallback_decision)(결정일 2026-11-02 기준 pending·fallback_due·pi_ready 판정·probe 대조·변조 탐지·잘못된 날짜 차단)를 구동한다. 실제 촬영을 하지 않고, 파일 입력 폴백은 Pi 실촬영이 아니며 폴백 채택은 Pi 실촬영 검증 완료를 뜻하지 않고, 결정일 전에는 폴백을 확정하지 않는다.
 - [제출물 인벤토리](submission-inventory.md) — 제출물 인벤토리 하네스(qa.submission_inventory)(제출물 18개의 존재·크기·SHA-256 대조·변조 탐지·빈 루트 정직 보고·쓰기 왕복)를 구동한다. 파일 대조만 하며 실제로 제출하지 않고, 인벤토리가 온전해도 제출 가능을 뜻하지 않는다.
+- [제출 마감 점검](deadline.md) — 제출 마감 점검 하네스(qa.deadline)(마감 2026-11-05T11:00:00+09:00 기준 before_deadline·due_soon·overdue 판정·남은 시간 계산·변조 탐지·잘못된 시각 차단)를 구동한다. 실제로 제출하지 않고, 마감 전이어도 제출 준비 완료를 뜻하지 않으며 지각 제출은 고려되지 않는다.
