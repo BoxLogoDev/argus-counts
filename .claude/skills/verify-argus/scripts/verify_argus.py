@@ -1093,6 +1093,16 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_r = readiness.get("final_package") or {}
         fp_status = fp_r.get("status")
         fp_rb = fp_r.get("blockers")
+        fp_inv_present = fp_r.get("inventory_present")
+        fp_inv_total = fp_r.get("inventory_total")
+        fp_deadline_status = fp_r.get("deadline_status")
+        fp_fallback_status = fp_r.get("fallback_status")
+        fp_submission_ready = fp_r.get("submission_ready")
+        _inv_raw = readiness.get("submission_inventory") or {}
+        if fp_inv_present != _inv_raw.get("present_files"):
+            problems.append(f"readiness final_package inventory_present가 submission_inventory present_files와 다르다: {fp_inv_present} != {_inv_raw.get('present_files')}")
+        if fp_inv_total != _inv_raw.get("total_files"):
+            problems.append(f"readiness final_package inventory_total가 submission_inventory total_files와 다르다: {fp_inv_total} != {_inv_raw.get('total_files')}")
         if fp_status != "blocked":
             problems.append(f"readiness final_package status 기대 blocked, 실제 {fp_status}")
         if fp_r.get("inventory_present") != 18:
@@ -1139,6 +1149,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fd_status, fd_pi_rb, fd_adopted, fd_dd = None, [], None, None
         dl_status, dl_rb, dl_kst = None, [], None
         fp_status, fp_rb = None, []
+        fp_inv_present, fp_inv_total = None, None
+        fp_deadline_status, fp_fallback_status = None, None
+        fp_submission_ready = None
         demo_fallback_cut = None
         video_fallback_cut = None
     summary = {"feature": "pre-submission",
@@ -1181,6 +1194,11 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_fallback_decision_date": fd_dd,
                "readiness_final_package_status": fp_status,
                "readiness_final_package_blockers": fp_rb,
+               "readiness_final_package_inventory_present": fp_inv_present,
+               "readiness_final_package_inventory_total": fp_inv_total,
+               "readiness_final_package_deadline_status": fp_deadline_status,
+               "readiness_final_package_fallback_status": fp_fallback_status,
+               "readiness_final_package_submission_ready": fp_submission_ready,
                "readiness_deadline_status": dl_status,
                "readiness_deadline_blockers": dl_rb,
                "readiness_deadline_kst": dl_kst,

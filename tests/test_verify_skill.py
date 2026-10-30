@@ -461,6 +461,46 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("SUBMISSION_READY: false", text)
             self.assertIn("BLOCKERS: 1", text)
 
+    def test_pre_submission_final_package_inventory_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-inventory"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_inventory_present"], 18)
+            self.assertEqual(summary["readiness_final_package_inventory_total"], 18)
+            self.assertEqual(summary["readiness_final_package_inventory_present"],
+                             summary["readiness_inventory_present_files"])
+            self.assertEqual(summary["readiness_final_package_inventory_total"],
+                             summary["readiness_inventory_total_files"])
+
+    def test_pre_submission_final_package_cross_status_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-cross"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_deadline_status"],
+                             summary["readiness_deadline_status"])
+            self.assertEqual(summary["readiness_final_package_fallback_status"],
+                             summary["readiness_fallback_decision_status"])
+
+    def test_pre_submission_final_package_not_ready_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-not-ready"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_status"], "blocked")
+            self.assertFalse(summary["readiness_final_package_submission_ready"])
+            self.assertFalse(summary["submission_ready"])
+
     def test_demo_video_drives_and_records_data_panel(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-video-panel"
