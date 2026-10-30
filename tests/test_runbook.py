@@ -37,7 +37,7 @@ class RunbookTests(unittest.TestCase):
     def test_blockers_and_not_ready_stated(self):
         text = _text()
         self.assertIn("pi_real_capture_pending", text)
-        self.assertIn("sam_real_call_pending", text)
+        self.assertNotIn("sam_real_call_pending", text)
         self.assertIn("SUBMISSION_READY: false", text)
 
     def test_credit_and_key_steps(self):
@@ -66,7 +66,7 @@ class RunbookTests(unittest.TestCase):
 
     def test_honesty_markers_present(self):
         text = _text()
-        for marker in ("모의", "검증 전", "미실시"):
+        for marker in ("모의", "검증 전", "단일 빈 스모크"):
             self.assertIn(marker, text)
 
     def test_claims_audit_clean_on_runbook(self):

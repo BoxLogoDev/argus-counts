@@ -48,7 +48,7 @@ class DevpostSubmissionTests(unittest.TestCase):
     def test_meta_ai_honesty(self):
         text = _text()
         self.assertIn("SAM 3.1", text)
-        self.assertIn("모의 어댑터가 동작 중이고 SAM 실호출은 미실시", text)
+        self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다", text)
         self.assertIn("가짜 transport", text)
         self.assertIn("Secure Vault", text)
         self.assertIn("가안", text)
@@ -68,7 +68,7 @@ class DevpostSubmissionTests(unittest.TestCase):
     def test_blockers_ready_and_deadline(self):
         text = _text()
         self.assertIn("pi_real_capture_pending", text)
-        self.assertIn("sam_real_call_pending", text)
+        self.assertNotIn("sam_real_call_pending", text)
         self.assertIn("SUBMISSION_READY: false", text)
         self.assertIn("https://github.com/BoxLogoDev/argus-counts", text)
         self.assertIn("2026-11-04 21:00 ET", text)

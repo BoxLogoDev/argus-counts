@@ -60,7 +60,7 @@ class TestFallbackManifest(unittest.TestCase):
         joined = " ".join(manifest["honesty"])
         self.assertIn("Pi 실촬영이 아닙니다", joined)
         self.assertIn("Pi 실촬영 검증 전", joined)
-        self.assertIn("SAM 실호출 미실시", joined)
+        self.assertIn("이 폴백 실행에서는 SAM 실호출을 하지 않았다", joined)
         self.assertIn("데모 기준", joined)
 
 

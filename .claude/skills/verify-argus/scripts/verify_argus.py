@@ -77,7 +77,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "sam-readiness", "submission-runbook", "pi-readiness",
             "console-readiness", "sam-smoke", "pi-smoke",
             "devpost-submission", "file-fallback")
-EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
+EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
 EXPECTED_SIM_SUMMARY = {"counted_bins": 6, "matched": 4, "mismatched": 2,
@@ -158,7 +158,7 @@ DEVPOST_SECTIONS = ("## 프로젝트 이름", "## 한 줄 소개", "## 소개",
 DEVPOST_DEMO_MARKERS = ("데모 기준: 빈 6개 중 일치 4건, 불일치 2건",
                         "데모 기준: 절대 차이 6개, 순차이 0, 일치율 66.7%",
                         "실제 창고 성과가 아니다")
-DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이고 SAM 실호출은 미실시",
+DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다",
                            "가짜 transport", "Secure Vault", "가안",
                            "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더")
 DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
@@ -171,7 +171,7 @@ FALLBACK_EXPECTED_SUMMARY = {"counted_bins": 6, "matched": 4,
                              "mismatched": 2, "abs_diff_total": 6,
                              "net_diff": 0}
 FALLBACK_HONESTY_MARKERS = ("Pi 실촬영이 아닙니다", "Pi 실촬영 검증 전",
-                            "SAM 실호출 미실시", "데모 기준")
+                            "이 폴백 실행에서는 SAM 실호출을 하지 않았다", "데모 기준")
 ASSEMBLY_FALLBACK_ASSET = "demo/assets/fallback.json"
 ASSEMBLY_FALLBACK_CUT_INDEX = 3
 ASSEMBLY_FALLBACK_DECISION_DATE = "2026-11-02"
@@ -748,7 +748,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 18/18 mechanical passed", "BLOCKERS: 2",
+    for needle in ("PRE_SUBMISSION: 18/18 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -1596,7 +1596,7 @@ def validate_runbook_text(text: str) -> list[str]:
                    "SAM_API_BASE_URL", "SAM_API_KEY"):
         if needle not in text:
             problems.append(f"런북에 {needle!r} 없음")
-    for needle in ("모의", "검증 전", "미실시"):
+    for needle in ("모의", "검증 전", "단일 빈 스모크"):
         if needle not in text:
             problems.append(f"런북 정직성 표기 {needle!r} 없음")
     for command in RUNBOOK_FINAL_COMMANDS:

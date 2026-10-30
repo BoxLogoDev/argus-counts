@@ -83,7 +83,7 @@ def _valid_devpost_text() -> str:
         "## 동작 방식",
         "- 촬영→계수→대조→리포트",
         "## Meta AI 도구 활용",
-        "- 모의 어댑터가 동작 중이고 SAM 실호출은 미실시이다.",
+        "- 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다.",
         "- 가짜 transport 테스트로만 검증했다.",
         "- API 키를 Secure Vault 경유로 받은 뒤에만 전환한다.",
         "- 테마는 가안이다.",
@@ -99,7 +99,6 @@ def _valid_devpost_text() -> str:
         "- 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더이다.",
         "## 현재 블로커와 제출 상태",
         "- `pi_real_capture_pending`",
-        "- `sam_real_call_pending`",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
         "- 공개 저장소: https://github.com/BoxLogoDev/argus-counts",
         "- 제출 마감은 2026-11-04 21:00 ET = 2026-11-05 11:00 KST이다.",
@@ -112,10 +111,9 @@ def _valid_devpost_text() -> str:
 def _valid_runbook_text() -> str:
     return "\n".join([
         "# Argus 제출 런북",
-        "현재는 모의 어댑터가 동작 중이며 Pi 검증 전이고 SAM 미실시 상태다.",
+        "현재는 모의 어댑터가 동작 중이며 Pi 검증 전이고 SAM 3.1 실호출은 단일 빈 스모크로 검증한 상태다.",
         "## 0. 현재 상태",
         "- `pi_real_capture_pending`",
-        "- `sam_real_call_pending`",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
         "## 1. 크레딧 확인",
         "- 확인 예정 시각은 2026-10-29 09:30이다.",
@@ -156,7 +154,8 @@ def _valid_story_text() -> str:
         "- 이번에 만든 것은 이 저장소의 모든 코드와 문서이며 2026-10-27 이후 해커톤 기간에 새로 작성했다.",
         "## Meta AI 도구 활용",
         "- 현재는 모의(mock) 어댑터로 동작한다.",
-        "- SAM 3.1 실호출은 아직 하지 않았다.",
+        "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
+        "- 전체 세션 실호출은 아직 하지 않았다.",
         "- 모의 결과를 실호출 결과로 주장하지 않는다.",
         "- Pi 실기 카메라 연동은 아직 검증 전이다.",
         "## 기술 깊이",
@@ -170,7 +169,6 @@ def _valid_story_text() -> str:
         "- 데모 기준. 빈 6개 중 불일치 2건과 절대 차이 6개를 한 번의 대조로 정리한다.",
         "## 현재 상태",
         "- `pi_real_capture_pending` — Pi 검증 전이다.",
-        "- `sam_real_call_pending` — SAM 미실시이다.",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
         "",
     ])
@@ -188,7 +186,7 @@ def _valid_en_summary_text() -> str:
         "- All code and documents in this repository.",
         "- Newly written during the hackathon period starting 2026-10-27.",
         "## Meta AI tools",
-        "- A live SAM 3.1 call has NOT been made yet.",
+        "- A live SAM 3.1 call was verified on 2026-10-30 in a single-bin smoke test.",
         "- Argus is currently running on the mock adapter.",
         "- Mock results are never claimed as live results.",
         "- Pi device camera integration is not yet verified.",
@@ -204,7 +202,6 @@ def _valid_en_summary_text() -> str:
         "- Demo basis: 2 mismatches out of 6 bins are organised in one pass.",
         "## Current status",
         "- `pi_real_capture_pending` — Pi device camera integration is not yet verified.",
-        "- `sam_real_call_pending` — A live SAM 3.1 call has NOT been made yet.",
         "- `SUBMISSION_READY: false`",
         "",
     ])
@@ -215,7 +212,7 @@ def _valid_demo_script_text() -> str:
         "# Argus 데모 영상 대본. 총 3분",
         "테마는 Build for Your World를 전제로 한다. 주인님 최종 확정 전 가안이다.",
         "- 이번에 만든 것은 이 저장소의 모든 코드와 문서이며 2026-10-27 이후 해커톤 기간에 새로 작성했다.",
-        "- SAM 3.1 실호출은 아직 하지 않았다.",
+        "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
         "- 현재는 모의(mock) 어댑터로 동작한다.",
         "- Pi 실기 카메라 연동은 아직 검증 전이다.",
         "## 컷 표",
@@ -227,7 +224,6 @@ def _valid_demo_script_text() -> str:
         "- 모의 표기가 화면에 보이는지 확인한다.",
         "## 현재 상태",
         "- `pi_real_capture_pending` — Pi 검증 전이다.",
-        "- `sam_real_call_pending` — SAM 미실시이다.",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
         "",
     ])
@@ -242,8 +238,8 @@ def _valid_readme_text() -> str:
         "- terminal, console, qa, docs",
         "## SAM 3.1 연동",
         "- 개발은 모의 어댑터로 진행한다.",
-        "- 실제 API로 검증하지 않았고 실호출은 아직 하지 않았다.",
-        "- 가짜 전송(fake transport) 테스트로만 검증했다.",
+        "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
+        "- 가짜 전송(fake transport) 테스트로도 검증했다.",
         "- 모의 결과는 화면에서 '모의'로 구분해 표기한다.",
         "## 실행법 (초안)",
         "- Pi 실촬영 검증 전이다.",
@@ -252,7 +248,6 @@ def _valid_readme_text() -> str:
         "## 현재 상태",
         "테마는 Build for Your World를 전제로 하며 가안이다.",
         "- `pi_real_capture_pending` — Pi 검증 전이다.",
-        "- `sam_real_call_pending` — SAM 미실시이다.",
         "- 데모 기준: 빈 6개 중 일치 4건, 불일치 2건이며 절대 차이 6개, 일치율 66.7%다.",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
         "",
@@ -274,7 +269,7 @@ def _valid_fallback_manifest() -> dict:
             "summary": {"counted_bins": 6, "matched": 4, "mismatched": 2, "abs_diff_total": 6, "net_diff": 0},
             "bins": bins,
             "honesty": ["파일 입력 폴백 자산이며 Pi 실촬영이 아닙니다", "Pi 실촬영 검증 전",
-                        "계수는 모의 어댑터 기준이며 SAM 실호출 미실시", "수치는 데모 기준"]}
+                        "계수는 모의 어댑터 기준이며 이 폴백 실행에서는 SAM 실호출을 하지 않았다", "수치는 데모 기준"]}
 
 
 def _minimal_root(root: Path) -> None:
@@ -342,14 +337,64 @@ def _minimal_root(root: Path) -> None:
 class BlockerTests(unittest.TestCase):
     def test_blockers_are_the_two_known_pending_items(self):
         ids = [b["id"] for b in BLOCKERS]
-        self.assertEqual(ids, ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(ids, ["pi_real_capture_pending"])
 
     def test_real_root_mechanical_pass_but_not_submission_ready(self):
         result = run_pre_submission_checks(ROOT)
         self.assertTrue(result["mechanical_pass"], result["checks"])
         self.assertEqual(result["passed"], result["total"])
         self.assertFalse(result["submission_ready"])
-        self.assertEqual(len(result["blockers"]), 2)
+        self.assertEqual(len(result["blockers"]), 1)
+
+
+class SamLiveReflectedTests(unittest.TestCase):
+    """SAM 실호출 검증(2026-10-30 단일 빈 스모크) 반영 테스트."""
+
+    def _sam_report_not_ready(self):
+        return {
+            "base_url_present": False,
+            "api_key_present": False,
+            "credit_confirmed": True,
+            "ready_for_live_call": False,
+            "would_select_live": False,
+            "blockers": [
+                {"id": "sam_base_url_missing"},
+                {"id": "sam_api_key_missing"},
+            ],
+            "honesty": ["준비 완료는 실호출 성공을 뜻하지 않는다"],
+        }
+
+    def test_sam_readiness_not_ready_without_sam_submission_blocker_ok(self):
+        self.assertEqual(validate_sam_readiness(self._sam_report_not_ready()), [])
+
+    def test_sam_readiness_stale_sam_submission_blocker_flagged(self):
+        problems = validate_sam_readiness(
+            self._sam_report_not_ready(),
+            blockers=[{"id": "sam_real_call_pending"}],
+        )
+        self.assertTrue(any("stale" in p for p in problems), problems)
+
+    def test_sam_smoke_blocked_without_sam_submission_blocker_ok(self):
+        from qa.sam_smoke import run_smoke
+
+        report = run_smoke(env={}, credit_confirmed=False)
+        self.assertEqual(validate_sam_smoke(report), [])
+
+    def test_sam_smoke_stale_sam_submission_blocker_flagged(self):
+        from qa.sam_smoke import run_smoke
+
+        report = run_smoke(env={}, credit_confirmed=False)
+        problems = validate_sam_smoke(
+            report, blockers=[{"id": "sam_real_call_pending"}]
+        )
+        self.assertTrue(any("stale" in p for p in problems), problems)
+
+    def test_real_root_sam_live_verified_but_pi_still_blocks(self):
+        result = run_pre_submission_checks(ROOT)
+        self.assertEqual(
+            [b["id"] for b in result["blockers"]], ["pi_real_capture_pending"]
+        )
+        self.assertFalse(result["submission_ready"])
 
 
 class ReportTests(unittest.TestCase):
@@ -363,9 +408,9 @@ class ReportTests(unittest.TestCase):
 
     def test_format_text_report_shows_blockers_and_not_ready(self):
         text = format_text_report(build_report(ROOT))
-        self.assertIn("BLOCKERS: 2", text)
+        self.assertIn("BLOCKERS: 1", text)
         self.assertIn("pi_real_capture_pending", text)
-        self.assertIn("sam_real_call_pending", text)
+        self.assertNotIn("sam_real_call_pending", text)
         self.assertIn("SUBMISSION_READY: false", text)
 
 
@@ -840,7 +885,7 @@ class DevpostIntegrationTests(unittest.TestCase):
         self.assertIn("section_count=11", by_name["devpost_consistent"].detail)
         devpost = result["readiness"]["devpost"]
         self.assertEqual(devpost["section_count"], 11)
-        self.assertEqual(devpost["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(devpost["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(devpost["submission_ready"])
         self.assertTrue(devpost["claims_audit_clean"])
         self.assertFalse(result["submission_ready"])
@@ -891,7 +936,7 @@ class RunbookIntegrationTests(unittest.TestCase):
         self.assertIn("final_commands=8", by_name["runbook_consistent"].detail)
         runbook = result["readiness"]["runbook"]
         self.assertEqual(runbook["section_count"], 7)
-        self.assertEqual(runbook["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(runbook["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(runbook["submission_ready"])
         self.assertTrue(runbook["claims_audit_clean"])
         self.assertEqual(runbook["final_command_count"], 8)
@@ -942,7 +987,7 @@ class StoryIntegrationTests(unittest.TestCase):
         self.assertIn("section_count=7", by_name["story_consistent"].detail)
         story = result["readiness"]["story"]
         self.assertEqual(story["section_count"], 7)
-        self.assertEqual(story["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(story["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(story["submission_ready"])
         self.assertTrue(story["claims_audit_clean"])
         self.assertFalse(result["submission_ready"])
@@ -992,7 +1037,7 @@ class EnSummaryIntegrationTests(unittest.TestCase):
         self.assertIn("section_count=8", by_name["en_summary_consistent"].detail)
         en = result["readiness"]["en_summary"]
         self.assertEqual(en["section_count"], 8)
-        self.assertEqual(en["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(en["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(en["submission_ready"])
         self.assertTrue(en["claims_audit_clean"])
         self.assertFalse(result["submission_ready"])
@@ -1042,7 +1087,7 @@ class DemoScriptIntegrationTests(unittest.TestCase):
         self.assertIn("section_count=3", by_name["demo_script_consistent"].detail)
         ds = result["readiness"]["demo_script"]
         self.assertEqual(ds["section_count"], 3)
-        self.assertEqual(ds["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(ds["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(ds["submission_ready"])
         self.assertTrue(ds["claims_audit_clean"])
         self.assertFalse(result["submission_ready"])
@@ -1092,7 +1137,7 @@ class ReadmeIntegrationTests(unittest.TestCase):
         self.assertIn("section_count=5", by_name["readme_consistent"].detail)
         rd = result["readiness"]["readme"]
         self.assertEqual(rd["section_count"], 5)
-        self.assertEqual(rd["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(rd["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(rd["submission_ready"])
         self.assertTrue(rd["claims_audit_clean"])
         self.assertFalse(result["submission_ready"])
@@ -1146,7 +1191,7 @@ class FallbackIntegrationTests(unittest.TestCase):
         self.assertIs(fb["is_pi_real_capture"], False)
         self.assertEqual(fb["capture_source"], "file")
         self.assertEqual(fb["source"], "mock")
-        self.assertEqual(fb["blockers"], ["pi_real_capture_pending", "sam_real_call_pending"])
+        self.assertEqual(fb["blockers"], ["pi_real_capture_pending"])
         self.assertFalse(fb["submission_ready"])
         self.assertFalse(result["submission_ready"])
 

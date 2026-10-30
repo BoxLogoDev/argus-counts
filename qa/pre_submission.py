@@ -40,7 +40,9 @@ source=mock·요약·A-01-02 사진 해시)이 현재 폴백 매니페스트와 
 주장하지 않는다.
 기계적 체크가 전부 통과해도 제출 블로커가 남아 있으면 제출 가능
 상태가 아니다. 블로커는 종료코드가 아니라 별도 목록으로 보고한다:
-Pi 실촬영 검증과 SAM 3.1 실호출은 아직 하지 않은 일이다.
+Pi 실촬영 검증은 아직 하지 않은 일이다. SAM 3.1 실호출은
+2026-10-30 단일 빈 스모크로 검증했지만 전체 세션 실호출은 아직
+하지 않았다.
 
 실행: 프로젝트 루트에서 `python3 -m qa.pre_submission`
 `--json`을 주면 같은 내용을 JSON으로 출력하며 readiness 섹션을 포함한다.
@@ -71,10 +73,6 @@ BLOCKERS = [
     {
         "id": "pi_real_capture_pending",
         "detail": "Pi 실촬영 검증 전 — 데모 컷 3은 플레이스홀더이며 Pi 도착 후 교체해야 한다",
-    },
-    {
-        "id": "sam_real_call_pending",
-        "detail": "SAM 3.1 실호출 미실시 — 현재 모의(mock) 어댑터이며 크레딧 입금 확인과 API 키 발급 후 전환해야 한다",
     },
 ]
 
@@ -135,7 +133,7 @@ DEVPOST_DEMO_MARKERS = (
 )
 
 DEVPOST_HONESTY_MARKERS = (
-    "모의 어댑터가 동작 중이고 SAM 실호출은 미실시",
+    "모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다",
     "가짜 transport",
     "Secure Vault",
     "가안",
@@ -186,7 +184,7 @@ RUNBOOK_KEY_MARKERS = (
     "--credit-confirmed",
 )
 
-RUNBOOK_HONESTY_MARKERS = ("모의", "검증 전", "미실시")
+RUNBOOK_HONESTY_MARKERS = ("모의", "검증 전", "단일 빈 스모크")
 
 STORY_REL = "docs/submission-story.md"
 
@@ -212,9 +210,9 @@ STORY_DEMO_MARKERS = (
 STORY_HONESTY_MARKERS = (
     "가안",
     "모의(mock) 어댑터로 동작한다",
-    "SAM 3.1 실호출은 아직 하지 않았다",
+    "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다",
     "Pi 실기 카메라 연동은 아직 검증 전이다",
-    "모의 결과를 실호출 결과로 주장하지 않는다",
+    "전체 세션 실호출은 아직 하지 않았다",
 )
 
 STORY_THEME_MARKER = "Build for Your World"
@@ -245,7 +243,7 @@ EN_SUMMARY_DEMO_MARKERS = (
 
 EN_SUMMARY_HONESTY_MARKERS = (
     "tentative",
-    "A live SAM 3.1 call has NOT been made yet.",
+    "A live SAM 3.1 call was verified on 2026-10-30 in a single-bin smoke test.",
     "Argus is currently running on the mock adapter.",
     "Mock results are never claimed as live results.",
     "Pi device camera integration is not yet verified.",
@@ -273,7 +271,7 @@ DEMO_SCRIPT_DEMO_MARKERS = (
 
 DEMO_SCRIPT_HONESTY_MARKERS = (
     "가안",
-    "SAM 3.1 실호출은 아직 하지 않았다.",
+    "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
     "현재는 모의(mock) 어댑터로 동작한다.",
     "Pi 실기 카메라 연동은 아직 검증 전이다.",
     "이 컷은 Pi 도착 후 실촬영으로 교체합니다.",
@@ -301,9 +299,9 @@ README_DEMO_MARKERS = (
 
 README_HONESTY_MARKERS = (
     "모의 어댑터로 진행한다",
-    "실호출은 아직 하지 않았다",
+    "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다",
     "Pi 실촬영 검증 전",
-    "가짜 전송(fake transport) 테스트로만 검증했다",
+    "가짜 전송(fake transport) 테스트로도 검증했다",
     "모의 결과는 화면에서 '모의'로 구분해 표기한다",
 )
 
@@ -330,7 +328,7 @@ FALLBACK_EXPECTED_SUMMARY = {
 FALLBACK_HONESTY_MARKERS = (
     "Pi 실촬영이 아닙니다",
     "Pi 실촬영 검증 전",
-    "SAM 실호출 미실시",
+    "이 폴백 실행에서는 SAM 실호출을 하지 않았다",
     "데모 기준",
 )
 
@@ -351,7 +349,7 @@ FALLBACK_VIDEO_REL = "demo/assets/argus-demo-fallback-draft.mp4"
 
 FALLBACK_RENDER_CUT_INDEX = FALLBACK_CUT_INDEX
 
-EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending", "sam_real_call_pending")
+EXPECTED_PRE_SUBMISSION_BLOCKER_IDS = ("pi_real_capture_pending",)
 
 
 @dataclass(frozen=True)
@@ -723,10 +721,11 @@ def validate_sam_readiness(report, blockers=None) -> list[str]:
                 f"!= (base_url_present={report['base_url_present']!r} and "
                 f"api_key_present={report['api_key_present']!r})"
             )
-    if not ready and "sam_real_call_pending" not in _pre_submission_blocker_ids(blockers):
+    if "sam_real_call_pending" in _pre_submission_blocker_ids(blockers):
         problems.append(
-            "sam readiness: ready_for_live_call is False but pre-submission "
-            "blockers missing 'sam_real_call_pending'"
+            "sam readiness: pre-submission blockers still contain stale "
+            "'sam_real_call_pending' (SAM live call verified by single-bin "
+            "smoke on 2026-10-30; env readiness is a separate state)"
         )
     _check_honesty(report, problems, "sam readiness", "실호출 성공")
     return problems
@@ -980,10 +979,11 @@ def validate_sam_smoke(report, sam_report=None, blockers=None) -> list[str]:
                     f"sam smoke: {key}={report[key]!r} is not None "
                     f"when ready_for_live_call is False"
                 )
-        if "sam_real_call_pending" not in _pre_submission_blocker_ids(blockers):
+        if "sam_real_call_pending" in _pre_submission_blocker_ids(blockers):
             problems.append(
-                "sam smoke: ready_for_live_call is False but pre-submission "
-                "blockers missing 'sam_real_call_pending'"
+                "sam smoke: pre-submission blockers still contain stale "
+                "'sam_real_call_pending' (SAM live call verified by "
+                "single-bin smoke on 2026-10-30)"
             )
     if ready and status == "passed":
         if not report["attempted"]:

@@ -85,7 +85,7 @@ class SkillFileTests(unittest.TestCase):
         feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
             encoding="utf-8")
         for marker in ("submission_ready", "pi_real_capture_pending",
-                       "sam_real_call_pending", "qa.pre_submission"):
+                       "BLOCKERS: 1", "qa.pre_submission"):
             self.assertIn(marker, feature)
 
     def test_pi_capture_listed_and_grounded(self):
@@ -118,7 +118,7 @@ class SkillFileTests(unittest.TestCase):
             encoding="utf-8")
         for marker in ("LiveSamCounter", "build_payload", "parse_response",
                        "SamCountingError", "fake transport", "example.invalid",
-                       "SAM 실호출 검증 전", "실제 API 호출 없음",
+                       "단일 빈 스모크로 검증", "실제 API 호출 없음",
                        "모의 폴백 없음", "Authorization"):
             self.assertIn(marker, feature)
 
@@ -171,7 +171,7 @@ class SkillFileTests(unittest.TestCase):
             encoding="utf-8")
         for marker in ("docs/devpost-submission.md", "validate_devpost_text",
                        "drive_devpost_submission", "SUBMISSION_READY: false",
-                       "pi_real_capture_pending", "sam_real_call_pending",
+                       "pi_real_capture_pending", "단일 빈 스모크",
                        "Secure Vault", "가짜 transport", "데모 기준",
                        "66.7%", "플레이스홀더", "2026-11-05 11:00 KST", "변조"):
             self.assertIn(marker, feature)
@@ -184,7 +184,7 @@ class SkillFileTests(unittest.TestCase):
             encoding="utf-8")
         for marker in ("docs/submission-runbook.md", "validate_runbook_text",
                        "drive_submission_runbook", "SUBMISSION_READY: false",
-                       "pi_real_capture_pending", "sam_real_call_pending",
+                       "pi_real_capture_pending", "단일 빈 스모크",
                        "Secure Vault", "2026-10-29 09:30",
                        "--credit-confirmed", "2026-11-05 11:00", "변조"):
             self.assertIn(marker, feature)
@@ -325,19 +325,19 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["readiness_demo_script_section_count"], 3)
             self.assertEqual(summary["readiness_readme_section_count"], 5)
             self.assertEqual(summary["readiness_readme_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["readiness_demo_script_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["readiness_en_summary_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["readiness_story_section_count"], 7)
             self.assertEqual(summary["readiness_story_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["readiness_devpost_section_count"], 11)
             self.assertEqual(summary["readiness_devpost_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["readiness_pi_smoke_status"], "blocked")
             self.assertEqual(summary["readiness_pi_smoke_blockers"], [
                 "pi_device_arrival_not_confirmed", "pi_camera_command_missing"])
@@ -371,7 +371,7 @@ class HelperRunTests(unittest.TestCase):
             text = (evidence / "pre-submission-stdout.txt").read_text(
                 encoding="utf-8")
             self.assertIn("SUBMISSION_READY: false", text)
-            self.assertIn("BLOCKERS: 2", text)
+            self.assertIn("BLOCKERS: 1", text)
 
     def test_demo_video_drives_and_records_data_panel(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -761,7 +761,7 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["all_ok"])
             self.assertEqual(summary["section_count"], 7)
             self.assertEqual(summary["blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertFalse(summary["submission_ready"])
             self.assertEqual(summary["credit_check_at"], "2026-10-29 09:30")
             self.assertEqual(summary["deadline_kst"], "2026-11-05 11:00")
@@ -769,7 +769,7 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["claims_audit_clean"])
             self.assertTrue(summary["tamper_detected"])
             self.assertEqual(summary["pre_submission_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertTrue((evidence / "submission-runbook.json").is_file())
             self.assertTrue((evidence / "submission-runbook.md").is_file())
             self.assertTrue((evidence / "transcript.txt").is_file())
@@ -785,7 +785,7 @@ class HelperRunTests(unittest.TestCase):
                     encoding="utf-8"))
             self.assertFalse(payload["submission_ready"])
             self.assertEqual(payload["blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             text = (evidence / "submission-runbook.md").read_text(
                 encoding="utf-8")
             self.assertIn("SUBMISSION_READY: false", text)
@@ -971,12 +971,12 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["all_ok"])
             self.assertEqual(summary["section_count"], 11)
             self.assertEqual(summary["blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertFalse(summary["submission_ready"])
             self.assertTrue(summary["claims_audit_clean"])
             self.assertTrue(summary["tamper_detected"])
             self.assertEqual(summary["pre_submission_blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             self.assertEqual(summary["deadline_kst"], "2026-11-05 11:00 KST")
             self.assertTrue((evidence / "devpost-submission.json").is_file())
             self.assertTrue((evidence / "devpost-submission.md").is_file())
@@ -993,12 +993,12 @@ class HelperRunTests(unittest.TestCase):
                     encoding="utf-8"))
             self.assertFalse(payload["submission_ready"])
             self.assertEqual(payload["blockers"], [
-                "pi_real_capture_pending", "sam_real_call_pending"])
+                "pi_real_capture_pending"])
             text = (evidence / "devpost-submission.md").read_text(
                 encoding="utf-8")
             self.assertIn("SUBMISSION_READY: false", text)
             self.assertNotIn("SUBMISSION_READY: true", text)
-            self.assertIn("모의 어댑터가 동작 중이고 SAM 실호출은 미실시", text)
+            self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 단일 빈 스모크로 검증했다", text)
             self.assertIn("데모 기준", text)
 
 

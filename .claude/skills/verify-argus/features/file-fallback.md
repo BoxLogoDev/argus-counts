@@ -9,7 +9,7 @@
 - `fallback-summary-bins` 요약과 빈: 요약이 빈 6개·일치 4·불일치 2·절대 차이 6·순차이 0이고, 빈 6개의 사진 SHA-256이 `fake_photo_bytes` 가짜 바이트 해시와 일치하며, `A-01-02`가 장부 8·실측 5·`short`·차이 -3인지 확인한다. 수치는 데모 기준이다.
 - `fallback-validate-asset` 검증과 저장소 자산: `validate_fallback` 결과가 비어 있고, 저장소 자산 `demo/assets/fallback.json`도 같은 검증을 통과하며 요약이 같은지 확인한다.
 - `fallback-tamper-detection` 변조 탐지: 복사본에서 `is_pi_real_capture`를 `true`로 바꾸거나 `capture_source`를 `pi-camera`로 바꾸면 `validate_fallback`이 문제를 잡아야 한다. 원본 파일은 바꾸지 않는다.
-- `fallback-honesty` 정직성 표기: `honesty`에 Pi 실촬영이 아닙니다·Pi 실촬영 검증 전·SAM 실호출 미실시·데모 기준 표기가 모두 있고, `fallback.txt`에도 파일 입력 폴백과 Pi 실촬영이 아닙니다와 데모 기준이 있는지 확인한다.
+- `fallback-honesty` 정직성 표기: `honesty`에 Pi 실촬영이 아닙니다·Pi 실촬영 검증 전·이 폴백 실행에서는 SAM 실호출을 하지 않았다·데모 기준 표기가 모두 있고, `fallback.txt`에도 파일 입력 폴백과 Pi 실촬영이 아닙니다와 데모 기준이 있는지 확인한다.
 
 ## How to get to it (user POV)
 

@@ -1,13 +1,13 @@
 # 제출 런북
 
-제출 런북은 `docs/submission-runbook.md`가 정본인 운영자 문서의 구조와 정직성 표기를 검증하는 절차다. 이 절차는 실제 제출을 하지 않으며 SAM 실호출 미실시와 Pi 실촬영 검증 전 상태를 그대로 둔다. 현재 정답은 `SUBMISSION_READY: false`이며 이 기능이 통과해도 제출 준비 완료가 아니다. 파일 원문을 읽어 절 순서와 블로커와 최종 점검 명령을 대조하고 변조 탐지를 확인하는 `submission-runbook` 구동이 대상이다.
+제출 런북은 `docs/submission-runbook.md`가 정본인 운영자 문서의 구조와 정직성 표기를 검증하는 절차다. 이 절차는 실제 제출을 하지 않으며 SAM 3.1 실호출 단일 빈 스모크 검증과 Pi 실촬영 검증 전 상태를 그대로 둔다. 현재 정답은 `SUBMISSION_READY: false`이며 이 기능이 통과해도 제출 준비 완료가 아니다. 파일 원문을 읽어 절 순서와 블로커와 최종 점검 명령을 대조하고 변조 탐지를 확인하는 `submission-runbook` 구동이 대상이다.
 
 ## Sub-features
 
 - `runbook-sections` 절 순서: `validate_runbook_text`가 런북의 절 0 현재 상태부터 절 6 제출까지 헤더가 `RUNBOOK_SECTIONS` 순서대로 모두 있음을 확인한다.
-- `runbook-blockers-not-ready` 블로커와 미준비: 블로커 `pi_real_capture_pending`와 `sam_real_call_pending`이 이 순서로 있고 `SUBMISSION_READY: false`가 현재 정답으로 남아 있음을 확인한다. `qa.pre_submission --json` 실시간 대조에서도 블로커 id 목록과 `submission_ready` false가 같아야 한다.
+- `runbook-blockers-not-ready` 블로커와 미준비: 블로커 `pi_real_capture_pending`이 있고 `SUBMISSION_READY: false`가 현재 정답으로 남아 있음을 확인한다. `qa.pre_submission --json` 실시간 대조에서도 블로커 id 목록과 `submission_ready` false가 같아야 한다.
 - `runbook-credit-key-steps` 크레딧과 키 단계: 크레딧 확인 예정 시각 `2026-10-29 09:30`와 `--credit-confirmed`, 키 수령 경로 `Secure Vault`, 환경변수 이름 `SAM_API_BASE_URL`와 `SAM_API_KEY`가 있는지만 확인한다. 값은 읽지도 쓰지도 않는다.
-- `runbook-final-commands` 최종 점검 명령: `RUNBOOK_FINAL_COMMANDS` 최종 점검 명령 8종이 모두 있고 정직성 표기 모의와 검증 전과 미실시가 남아 있으며 마감 한국 시간 `2026-11-05 11:00`이 적혀 있음을 확인한다. `qa.claims_audit`의 `audit_text` 주장 감사 결과도 비어 있어야 한다.
+- `runbook-final-commands` 최종 점검 명령: `RUNBOOK_FINAL_COMMANDS` 최종 점검 명령 8종이 모두 있고 정직성 표기 모의와 검증 전과 단일 빈 스모크가 남아 있으며 마감 한국 시간 `2026-11-05 11:00`이 적혀 있음을 확인한다. `qa.claims_audit`의 `audit_text` 주장 감사 결과도 비어 있어야 한다.
 - `runbook-tamper-detection` 변조 탐지: 메모리 사본에서 `SUBMISSION_READY: false`를 true로 바꾼 텍스트를 다시 검증하면 문제가 잡혀야 한다. 원본 파일은 바꾸지 않는다.
 
 ## How to get to it (user POV)
@@ -15,7 +15,7 @@
 - 운영자는 프로젝트 루트의 `docs/submission-runbook.md`를 정본으로 순서대로 읽는다. 절 0 현재 상태의 `SUBMISSION_READY: false`가 현재 정답이다.
 - 크레딧 단계는 2026-10-29 09:30 확인 예정이며 `--credit-confirmed`는 외부에서 입금을 확인한 뒤에만 붙인다. 키는 Secure Vault 경로로만 받으며 `SAM_API_BASE_URL`와 `SAM_API_KEY` 이름만 문서에 둔다.
 - 개발자가 경계를 점검하는 진입점은 검증 헬퍼다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature submission-runbook --evidence-dir /tmp/argus-verify-evidence/<run-id>`.
-- 제출 마감은 한국 시간으로 2026-11-05 11:00이다. 실제 제출과 SAM 실호출과 Pi 실촬영은 이 절차에서 하지 않으며 미실시와 검증 전 상태로 보고한다.
+- 제출 마감은 한국 시간으로 2026-11-05 11:00이다. 실제 제출과 SAM 실호출과 Pi 실촬영은 이 절차에서 하지 않으며 단일 빈 스모크 검증 범위와 검증 전 상태로 보고한다.
 
 ## Driving it with verify_argus.py
 
@@ -23,13 +23,13 @@ Preconditions:
 
 - 헬퍼 doctor가 PASS다.
 - 프로젝트 루트에 `docs/submission-runbook.md`가 있다.
-- 실제 제출과 SAM 실호출과 Pi 실촬영은 하지 않으며 미실시와 검증 전 상태다. 실제 키 값은 쓰지 않는다.
+- 실제 제출과 SAM 실호출과 Pi 실촬영은 하지 않으며 단일 빈 스모크 검증 범위와 검증 전 상태다. 실제 키 값은 쓰지 않는다.
 - 증거 디렉터리 `/tmp/argus-verify-evidence/<run-id>/`를 새로 정했다.
 
 - **기본 실행.** Run `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature submission-runbook --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 `drive_submission_runbook`이 파일 원문을 읽어 `validate_runbook_text`로 대조한다.
-- **절과 블로커 확인.** 헬퍼가 `RUNBOOK_SECTIONS` 절 순서와 `pi_real_capture_pending`와 `sam_real_call_pending` 순서와 `SUBMISSION_READY: false`를 대조한다.
+- **절과 블로커 확인.** 헬퍼가 `RUNBOOK_SECTIONS` 절 순서와 `pi_real_capture_pending`와 `SUBMISSION_READY: false`를 대조한다.
 - **크레딧과 키 단계 확인.** 헬퍼가 2026-10-29 09:30와 `--credit-confirmed`와 Secure Vault와 `SAM_API_BASE_URL`와 `SAM_API_KEY` 이름이 있는지를 확인한다.
-- **최종 점검과 마감 확인.** 헬퍼가 `RUNBOOK_FINAL_COMMANDS` 8종과 정직성 표기 모의와 검증 전과 미실시와 마감 2026-11-05 11:00을 대조하고 `audit_text` 주장 감사가 비었는지를 확인한다.
+- **최종 점검과 마감 확인.** 헬퍼가 `RUNBOOK_FINAL_COMMANDS` 8종과 정직성 표기 모의와 검증 전과 단일 빈 스모크와 마감 2026-11-05 11:00을 대조하고 `audit_text` 주장 감사가 비었는지를 확인한다.
 - **변조 탐지 확인.** 헬퍼가 메모리 사본에서 false를 true로 바꾼 텍스트를 `validate_runbook_text`로 다시 검증해 변조가 탐지되는지 확인한다. 원본은 수정하지 않는다.
 - **실시간 대조 확인.** 헬퍼가 `python3 -m qa.pre_submission --json`을 서브프로세스로 실행해 블로커 id 목록이 런북과 같고 `submission_ready`가 false인지 대조한다.
 - **증거 확인.** 종료 후 증거 디렉터리에 `submission-runbook.json`과 `submission-runbook.md`가 남고 `summary.json`의 `feature`가 `submission-runbook`이며 `section_count`와 `final_check_command_count`와 `claims_audit_clean`과 `tamper_detected`와 `pre_submission_blockers`를 확인한다.
@@ -37,8 +37,8 @@ Preconditions:
 ## Gotchas
 
 - `SUBMISSION_READY: false`를 true로 바꾸면 변조로 탐지된다. 변조 검사는 메모리 사본으로만 하며 원본 파일을 고치지 않는다.
-- 런북 통과가 제출 준비 완료를 뜻하지 않는다. 블로커 `pi_real_capture_pending`와 `sam_real_call_pending`이 남아 있어 `SUBMISSION_READY: false`가 현재 정답이다.
+- 런북 통과가 제출 준비 완료를 뜻하지 않는다. 블로커 `pi_real_capture_pending`이 남아 있어 `SUBMISSION_READY: false`가 현재 정답이다.
 - `--credit-confirmed`는 외부에서 입금을 확인한 뒤에만 붙인다. 확인 없이 붙이면 검증이 무효가 된다.
 - 키 값은 문서와 코드와 채팅에 쓰지 않는다. Secure Vault 경로로만 받으며 `SAM_API_BASE_URL`와 `SAM_API_KEY`는 이름만 확인한다.
-- 실제 제출과 SAM 실호출과 Pi 실촬영은 하지 않으며 미실시와 검증 전으로 남긴다. 이 절차를 그 실행으로 서술하지 않는다.
+- 실제 제출과 SAM 실호출과 Pi 실촬영은 하지 않으며 단일 빈 스모크 검증 범위와 검증 전으로 남긴다. 이 절차를 그 실행으로 서술하지 않는다.
 - 절과 블로커와 최종 점검 명령의 순서는 결정적이다. 하나라도 빠지거나 순서가 바뀌면 실패로 본다.

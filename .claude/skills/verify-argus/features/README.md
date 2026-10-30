@@ -40,15 +40,15 @@
 - [차이 리포트](difference-report.md) — 조치 우선순위와 `데모 기준` 영향 한 줄이 있는 텍스트·JSON 리포트.
 - [데모 영상 초안](demo-video-draft.md) — 180초 MP4 초안 렌더와 컷 3 플레이스홀더 표기 확인.
 - [사진 입력](photo-intake.md) — 파일 기반 사진 입력 파이프라인(Pi 실촬영 아님)을 가짜 사진 6장으로 구동해 계수→대조 리포트와 사진 SHA-256 기록을 얻는다.
-- [제출 전 전수 점검](pre-submission.md) — 제출 전 기계적 점검 6종과 블로커 2건 분리 보고를 구동한다. 기계적 통과에도 제출 가능은 아니다.
+- [제출 전 전수 점검](pre-submission.md) — 제출 전 기계적 점검 6종과 블로커 1건 분리 보고를 구동한다. 기계적 통과에도 제출 가능은 아니다.
 - [Pi 캡처](pi-capture.md) — Pi 카메라 캡처 경계(명령 탐지·부재 시 기대 실패·가짜 runner 성공)를 구동한다. Pi 실촬영 검증 전이다.
 - [Pi 촬영 세션](pi-session.md) — Pi 캡처→사진 입력→대조 통합 세션을 CLI 기대 실패와 가짜 which/runner 주입으로 구동한다. Pi 실촬영 검증 전이다.
 - [SAM 실호출 준비](sam-live.md) — SAM 실호출 경계(가짜 transport 성공·해석 변형·실패 차단)를 구동한다. SAM 실호출 검증 전이며 실제 API 호출은 없다.
 - [SAM 실호출 전환 준비 점검](sam-readiness.md) — SAM 실호출 전환 준비 점검(크레딧·환경변수 존재 여부만, 실제 API 호출 없음)을 구동한다. 준비 완료는 실호출 성공이 아니다.
-- [제출 런북](submission-runbook.md) — 제출 런북의 절 순서·블로커 2건·최종 점검 명령 8종과 SUBMISSION_READY: false를 구동한다. 제출 준비 완료가 아니다.
+- [제출 런북](submission-runbook.md) — 제출 런북의 절 순서·블로커 1건·최종 점검 명령 8종과 SUBMISSION_READY: false를 구동한다. 제출 준비 완료가 아니다.
 - [Pi 실촬영 준비 점검](pi-readiness.md) — Pi 실촬영 준비 점검(장치 도착 외부 확인·카메라 명령 존재만 탐지, 실제 촬영 없음)을 구동한다. 준비 완료는 Pi 실촬영 성공이 아니다.
 - [콘솔 준비 상태](console-readiness.md) — 콘솔 준비 상태 패널과 /api/readiness JSON(SAM 블로커 3건·Pi 블로커 2건, 가짜 환경·가짜 probe 준비 완료, 환경변수 값 누출 없음)을 구동한다. 준비 완료는 실호출·실촬영 성공이 아니다.
 - [SAM 단일 빈 스모크](sam-smoke.md) — SAM 단일 빈 스모크(준비 점검 차단 시 호출 없음·가짜 counter 성공·모의 source/오류 차단)를 구동한다. 성공해도 전체 세션 성공이 아니며 실제 API 호출은 없다.
 - [Pi 단일 빈 스모크](pi-smoke.md) — Pi 단일 빈 스모크(준비 점검 차단 시 촬영 없음·가짜 session 성공·실제 pi_session+가짜 runner 성공·capture_source/오류 차단)를 구동한다. 성공해도 전체 세션 성공이나 Pi 실촬영 검증 완료가 아니며 실제 촬영은 없다.
-- [제출 문안 패키지](devpost-submission.md) — 제출 문안 패키지의 절 11개 순서·데모 기준 수치·블로커 2건과 SUBMISSION_READY: false를 구동한다. 문안 통과가 제출 준비 완료는 아니다.
+- [제출 문안 패키지](devpost-submission.md) — 제출 문안 패키지의 절 11개 순서·데모 기준 수치·블로커 1건과 SUBMISSION_READY: false를 구동한다. 문안 통과가 제출 준비 완료는 아니다.
 - [파일 입력 폴백](file-fallback.md) — 파일 입력 폴백 데모 자산(demo.fallback CLI·fallback.json)을 임시 출력 디렉터리로 구동해 컷 3·파일 입력·모의 계수·사진 SHA-256과 변조 탐지를 확인한다. Pi 실촬영이 아니며 Pi 실촬영 검증 완료도 아니다.

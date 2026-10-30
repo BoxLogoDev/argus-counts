@@ -32,7 +32,7 @@ class SubmissionSummaryEnTests(unittest.TestCase):
     def test_mock_honesty_statements(self):
         text = _text()
         self.assertIn("mock", text)
-        self.assertIn("has NOT been made yet", text)
+        self.assertIn("was verified on 2026-10-30 in a single-bin smoke test", text)
         self.assertIn("never claimed as live", text)
 
     def test_pi_not_yet_verified(self):

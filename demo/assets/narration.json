@@ -2,7 +2,7 @@
   "title": "Argus 데모 영상 나레이션 대본",
   "total_seconds": 180,
   "cut_count": 9,
-  "total_chars": 449,
+  "total_chars": 443,
   "pace_limit_cps": 4.0,
   "honesty": [
     "나레이션 대본 (음성 파일 아님)",
@@ -47,9 +47,9 @@
       "end": 75,
       "duration": 25,
       "caption": "2. SAM 계수. 현재 모의(mock)",
-      "narration": "두 번째는 SAM 계수입니다. 지금은 모의 어댑터로 동작합니다. 실호출은 아직 하지 않았고 크레딧 입금 확인 후 전환합니다.",
-      "chars": 53,
-      "chars_per_second": 2.12
+      "narration": "두 번째는 SAM 계수입니다. 데모 계수는 모의 어댑터 기준입니다. 실호출은 단일 빈 스모크로 검증했습니다.",
+      "chars": 47,
+      "chars_per_second": 1.88
     },
     {
       "index": 5,
@@ -86,8 +86,8 @@
       "start": 155,
       "end": 170,
       "duration": 15,
-      "caption": "리포트. QA 17개와 테스트 424개",
-      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 424개로 기준값을 지킵니다.",
+      "caption": "리포트. QA 17개와 테스트 431개",
+      "narration": "마지막은 차이 리포트입니다. QA 하네스 17개 체크와 단위 테스트 431개로 기준값을 지킵니다.",
       "chars": 43,
       "chars_per_second": 2.87
     },

@@ -1,6 +1,6 @@
 # SAM 실호출 준비
 
-SAM 실호출 준비는 `terminal.sam_adapter`의 실호출 경계가 실제 호출 없이도 계약을 지키는지 검증하는 절차다. SAM 실호출 검증 전이므로 실제 API 호출 없음이 전제이며, `LiveSamCounter`에는 fake transport만 주입한다. 가짜 주소 `https://example.invalid/sam`과 가짜 키 `test-key-not-real`을 쓰며, 키는 Authorization 헤더로만 키 전송되고 본문에 키 없음 상태를 확인한다. 실패 시 모의 폴백 없음 원칙대로 `SamCountingError`가 나야 한다.
+SAM 실호출 준비는 `terminal.sam_adapter`의 실호출 경계가 실제 호출 없이도 계약을 지키는지 검증하는 절차다. 이 절차에서는 실제 API 호출 없음이 전제이며(실호출 자체는 2026-10-30 단일 빈 스모크로 검증했다), `LiveSamCounter`에는 fake transport만 주입한다. 가짜 주소 `https://example.invalid/sam`과 가짜 키 `test-key-not-real`을 쓰며, 키는 Authorization 헤더로만 키 전송되고 본문에 키 없음 상태를 확인한다. 실패 시 모의 폴백 없음 원칙대로 `SamCountingError`가 나야 한다.
 
 ## Sub-features
 
@@ -12,7 +12,7 @@ SAM 실호출 준비는 `terminal.sam_adapter`의 실호출 경계가 실제 호
 
 ## How to get to it (user POV)
 
-- 사용자에게 닿는 SAM 실호출 진입점은 아직 없다. SAM 실호출 검증 전이며 실제 API 호출 없음 상태이므로, 콘솔과 단말 CLI의 기본 계수는 모의 어댑터 기준이다.
+- 사용자에게 닿는 SAM 실호출 진입점은 아직 없다. 실호출은 단일 빈 스모크로 검증했지만 이 절차에서는 실제 API 호출 없음 상태이므로, 콘솔과 단말 CLI의 기본 계수는 모의 어댑터 기준이다.
 - 개발자가 경계를 점검하는 진입점은 검증 헬퍼다: `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature sam-live --evidence-dir /tmp/argus-verify-evidence/<run-id>`.
 - 실제 API 주소와 실제 키를 넣고 호출하는 경로는 이 절차의 범위가 아니다. 크레딧과 공식 규격이 확인되기 전까지 `LiveSamCounter`의 기본 transport로 `count`를 실행하지 않는다.
 
@@ -21,7 +21,7 @@ SAM 실호출 준비는 `terminal.sam_adapter`의 실호출 경계가 실제 호
 Preconditions:
 
 - 헬퍼 doctor가 PASS다.
-- SAM 실호출 검증 전임을 전제로 한다. 실제 API 호출 없음 조건을 지키며, 모든 `LiveSamCounter` 호출에는 fake transport만 주입한다.
+- 이 절차에서는 실제 API를 호출하지 않음을 전제로 한다. 실제 API 호출 없음 조건을 지키며, 모든 `LiveSamCounter` 호출에는 fake transport만 주입한다.
 - 가짜 주소는 `https://example.invalid/sam`이며 가짜 키는 `test-key-not-real`이다. `example.invalid`는 도달 대상이 아니라 기록용 가짜 주소다.
 - 증거 디렉터리 `/tmp/argus-verify-evidence/<run-id>/`를 새로 정했다.
 
@@ -34,7 +34,7 @@ Preconditions:
 
 ## Gotchas
 
-- 가짜 성공을 SAM 실호출 성공으로 서술하지 않는다. 증거와 보고 모두 SAM 실호출 검증 전으로 표기한다.
+- 가짜 성공을 SAM 실호출 성공으로 서술하지 않는다. 증거와 보고 모두 이 절차 안에서는 fake transport 구동으로 표기한다.
 - 기본 transport를 쓰는 `LiveSamCounter.count`를 이 절차에서 실행하지 않는다. 실제 API 호출 없음 조건이 깨진다.
 - HTTP 실패와 전송 실패에서 모의 폴백 없음이 정답이다. 예외 없이 모의 숫자가 돌아오면 실패로 본다.
 - 키는 Authorization 헤더로만 키 전송된다. 본문에 키 없음 상태를 깨거나 증거 파일에 `test-key-not-real` 원문을 남기면 실패로 본다.

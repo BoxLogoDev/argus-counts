@@ -25,6 +25,15 @@ class AuditTextTests(unittest.TestCase):
         text = "SAM 3.1 실호출은 아직 미실시이며 모의 어댑터로 동작합니다.\n"
         self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
 
+    def test_verified_single_bin_smoke_claim_clean(self):
+        text = "SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.\n"
+        self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
+
+    def test_full_session_live_claim_flagged(self):
+        text = "전체 세션 실호출을 완료했습니다.\n"
+        v = claims_audit.audit_text("docs/x.md", text)
+        self.assertGreaterEqual(len(v), 1)
+
     def test_real_filming_claim_flagged(self):
         text = "Pi 실촬영으로 전체 플로우를 검증 완료했습니다.\n"
         v = claims_audit.audit_text("docs/x.md", text)

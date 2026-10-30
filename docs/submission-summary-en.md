@@ -49,10 +49,11 @@ Reconciliation, report, and console only consume its result.
 Switching is via environment variables `SAM_API_BASE_URL` and `SAM_API_KEY`.
 Unset means the mock adapter runs.
 
-A live SAM 3.1 call has NOT been made yet.
-The live adapter code path is prepared but has NOT been verified against the real API; it is exercised only with a fake transport in tests.
+A live SAM 3.1 call was verified on 2026-10-30 in a single-bin smoke test.
+The single-bin smoke counted 14 boxes in a generated virtual warehouse photo (ledger 8, delta +6).
+The live adapter code path was verified against the real API in that smoke test; unit tests also exercise it with a fake transport.
 Argus is currently running on the mock adapter.
-Live calling starts only after the Model API credit deposit is confirmed.
+A full-session live run has NOT been done yet.
 Mock results are labelled as mock in the UI and reports.
 Mock results are never claimed as live results.
 
@@ -69,7 +70,7 @@ The report module produces a human-readable text report.
 The same module produces a structured payload.
 Argus uses the Python standard library only.
 The QA harness runs 17 baseline checks with literals fixed in the harness file.
-Unit tests currently number 424.
+Unit tests currently number 431.
 
 ## Demo data
 
@@ -92,5 +93,4 @@ Demo basis: 2 mismatches out of 6 bins, total absolute delta 6, and a 66.7% matc
 Blockers that remain before submission:
 
 - `pi_real_capture_pending` — Pi device camera integration is not yet verified.
-- `sam_real_call_pending` — A live SAM 3.1 call has NOT been made yet.
 - `SUBMISSION_READY: false`
