@@ -19,10 +19,11 @@ Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
 (docs/demo-script.md) 원문이 전수 점검 블로커와 어긋나지 않는지의
 정합, README(README.md) 원문이 전수 점검 블로커와 어긋나지
 않는지의 정합, 제출물 인벤토리(qa.submission_inventory) 보고가 전수 점검
-블로커와 어긋나지 않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
+블로커와 어긋나지 않는지의 정합, 폴백 결정(qa.fallback_decision) 보고가
+Pi 준비 점검 보고와 어긋나지 않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 21종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 22종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -31,6 +32,9 @@ Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 �
 문안·런북·스토리·영문 요약·데모 대본·README 정합은 파일 원문을 읽어 대조만 하며 실제로 제출하지 않는다.
 인벤토리 정합은 제출물 파일을 다시 읽어 해시·크기를 대조만 하며 실제로 제출하지 않는다.
 폴백 정합은 저장된 JSON 자산을 읽어 대조만 하며 Pi 실촬영으로 주장하지 않는다.
+폴백 결정 정합은 날짜·준비 상태 판정만 대조하며 실제 촬영을 하지 않는다.
+결정일 전 pending은 실패가 아니고, fallback_due(폴백 채택)도 Pi 실촬영
+성공을 뜻하지 않는다.
 스모크·전체 세션 정합은 가짜 counter와 가짜 session으로만 구동하며 실제
 API를 호출하지 않고 실제 촬영도 하지 않는다.
 준비 점검 자체는 실호출·실촬영을 하지 않으며, 준비가 안 된
@@ -75,6 +79,11 @@ from qa.sam_session import run_sam_session
 from qa.standalone import run_standalone_checks
 from qa.submission_inventory import DELIVERABLES as INVENTORY_DELIVERABLES
 from qa.submission_inventory import build_inventory, validate_inventory
+from qa.fallback_decision import DECISION_DATE as FB_DECISION_DATE
+from qa.fallback_decision import FALLBACK_ASSET as FB_DECISION_ASSET
+from qa.fallback_decision import FALLBACK_RENDER as FB_DECISION_RENDER
+from qa.fallback_decision import build_decision as _build_fb_decision
+from qa.fallback_decision import validate_decision as _validate_fb_decision
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -2914,6 +2923,96 @@ def _check_fallback(root):
     return PreSubmissionCheck(name, True, detail), report
 
 
+def validate_fallback_decision(report, pi_report=None, blockers=None) -> list[str]:
+    """폴백 결정 보고가 내부적으로, 그리고 Pi 준비 보고와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"fallback decision: report is not a dict: {report!r}"]
+    required = (
+        "date",
+        "decision_date",
+        "pi_ready",
+        "pi_blockers",
+        "status",
+        "fallback_adopted",
+        "fallback_asset",
+        "fallback_render",
+        "is_pi_real_capture",
+        "honesty",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"fallback decision: missing required keys: {missing}")
+        return problems
+    if report["decision_date"] != FB_DECISION_DATE:
+        problems.append(
+            f"fallback decision: decision_date={report['decision_date']!r} != {FB_DECISION_DATE!r}"
+        )
+    if report["fallback_asset"] != FB_DECISION_ASSET:
+        problems.append(
+            f"fallback decision: fallback_asset={report['fallback_asset']!r} != {FB_DECISION_ASSET!r}"
+        )
+    if report["fallback_render"] != FB_DECISION_RENDER:
+        problems.append(
+            f"fallback decision: fallback_render={report['fallback_render']!r} != {FB_DECISION_RENDER!r}"
+        )
+    try:
+        for problem in _validate_fb_decision(report):
+            problems.append(f"fallback decision: {problem}")
+    except Exception as exc:
+        problems.append(f"fallback decision: validate_decision raised: {exc!r}")
+    if isinstance(pi_report, dict):
+        if "ready_for_real_capture" in pi_report:
+            if bool(report["pi_ready"]) != bool(pi_report["ready_for_real_capture"]):
+                problems.append(
+                    f"fallback decision: pi_ready={report['pi_ready']!r} "
+                    f"!= pi readiness ready_for_real_capture="
+                    f"{pi_report['ready_for_real_capture']!r}"
+                )
+        if isinstance(pi_report.get("blockers"), (list, tuple)):
+            pi_ids = _readiness_blocker_ids(
+                pi_report["blockers"], problems, "pi readiness"
+            )
+            if list(report["pi_blockers"]) != pi_ids:
+                problems.append(
+                    f"fallback decision: pi_blockers {list(report['pi_blockers'])} != "
+                    f"pi readiness blocker ids {pi_ids}"
+                )
+    if not bool(report["pi_ready"]) and (
+        "pi_real_capture_pending" not in _pre_submission_blocker_ids(blockers)
+    ):
+        problems.append(
+            "fallback decision: pi_ready is False but pre-submission "
+            "blockers missing 'pi_real_capture_pending'"
+        )
+    return problems
+
+
+def _check_fallback_decision(
+    pi_probe=None, pi_device_confirmed=False, pi_which=None, pi_report=None
+):
+    name = "fallback_decision_consistent"
+    try:
+        report = _build_fb_decision(
+            pi_probe=pi_probe, device_confirmed=pi_device_confirmed, which=pi_which
+        )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_fallback_decision(report, pi_report=pi_report)
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} "
+        f"fallback_adopted={report['fallback_adopted']} "
+        f"pi_ready={report['pi_ready']} "
+        f"pi_blockers={report['pi_blockers']} "
+        f"decision_date={report['decision_date']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -3026,6 +3125,14 @@ def run_pre_submission_checks(
     inventory_check, inventory_report = _check_submission_inventory(root)
     checks.append(inventory_check)
 
+    decision_check, decision_report = _check_fallback_decision(
+        pi_probe=pi_probe,
+        pi_device_confirmed=pi_device_confirmed,
+        pi_which=pi_which,
+        pi_report=pi_report,
+    )
+    checks.append(decision_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -3062,6 +3169,7 @@ def run_pre_submission_checks(
             "readme": readme_report,
             "fallback": fallback_report,
             "submission_inventory": inventory_report,
+            "fallback_decision": decision_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,

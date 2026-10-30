@@ -45,6 +45,7 @@ from qa.pre_submission import (
     validate_fallback_panel,
     build_current_fallback_panel,
     validate_submission_inventory,
+    validate_fallback_decision,
     validate_inventory_report,
     build_inventory_report,
 )
@@ -579,7 +580,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 21)
+        self.assertEqual(result["total"], 22)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -693,7 +694,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 21)
+            self.assertEqual(result["total"], 22)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1448,7 +1449,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 21)
+        self.assertEqual(result["total"], 22)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1532,3 +1533,62 @@ class InventoryIntegrationTests(unittest.TestCase):
         inv["total_files"] = 99
         problems = validate_submission_inventory(inv)
         self.assertTrue(any("total_files" in x for x in problems), problems)
+
+
+class FallbackDecisionIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_fallback_decision_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("fallback_decision_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["fallback_decision_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("decision_date=2026-11-02", check.detail)
+        decision = result["readiness"]["fallback_decision"]
+        self.assertIn(decision["status"], ("pending", "fallback_due"))
+        self.assertEqual(
+            decision["pi_blockers"],
+            ["pi_device_arrival_not_confirmed", "pi_camera_command_missing"],
+        )
+        self.assertFalse(decision["pi_ready"])
+        self.assertIs(decision["is_pi_real_capture"], False)
+        self.assertEqual(decision["decision_date"], "2026-11-02")
+        self.assertEqual(decision["fallback_asset"], "demo/assets/fallback.json")
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_fallback_decision_accepts_ready_probe(self):
+        from qa.fallback_decision import build_decision
+        from qa.pi_readiness import check_readiness as check_pi
+
+        pi_report = check_pi(probe=READY_PI_PROBE, device_confirmed=True)
+        decision = build_decision(pi_probe=READY_PI_PROBE, device_confirmed=True)
+        self.assertEqual(decision["status"], "pi_ready")
+        self.assertEqual(validate_fallback_decision(decision, pi_report=pi_report), [])
+
+    def test_validate_fallback_decision_detects_status_tamper(self):
+        from qa.fallback_decision import build_decision
+
+        decision = build_decision(today="2026-10-30", pi_probe=MISSING_PI_PROBE)
+        self.assertEqual(decision["status"], "pending")
+        decision["status"] = "fallback_due"
+        problems = validate_fallback_decision(decision)
+        self.assertTrue(any("status" in x for x in problems), problems)
+
+    def test_validate_fallback_decision_detects_pi_cross_mismatch(self):
+        from qa.fallback_decision import build_decision
+        from qa.pi_readiness import check_readiness as check_pi
+
+        decision = build_decision(today="2026-10-30", pi_probe=MISSING_PI_PROBE)
+        ready_report = check_pi(probe=READY_PI_PROBE, device_confirmed=True)
+        problems = validate_fallback_decision(decision, pi_report=ready_report)
+        self.assertTrue(
+            any("pi_ready" in x or "pi_blockers" in x for x in problems), problems
+        )
+
+    def test_validate_fallback_decision_detects_adopted_tamper(self):
+        from qa.fallback_decision import build_decision
+
+        decision = build_decision(today="2026-10-30", pi_probe=MISSING_PI_PROBE)
+        decision["fallback_adopted"] = True
+        problems = validate_fallback_decision(decision)
+        self.assertTrue(any("fallback_adopted" in x for x in problems), problems)
