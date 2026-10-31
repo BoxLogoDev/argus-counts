@@ -52,6 +52,11 @@ Pi 폴백 결정(fallback-decision)은 qa.fallback_decision CLI와
 프로세스 내 evaluate_final_package·build_final_package·
 validate_final_package으로만 구동한다(실제로 제출하지 않으며,
 패키지 준비 상태는 제출 완료를 뜻하지 않고, Pi 실촬영 검증 전이다).
+SAM 빈별 서로 다른 사진 세션(sam-per-bin)은 qa.sam_per_bin 하네스를 실제
+API 호출 없이 CLI 기본 차단과 프로세스 내 가짜 counter 주입으로만
+구동한다(차단·사진 누락·중복 사진 시 counter를 부르지 않으며, 가짜 성공은
+호출자가 제공한 가상 사진 잘라내기의 대조 검증일 뿐 실제 빈 촬영이나
+Pi 실촬영이 아니고 빈별 정확도 검증도 아니다).
 제출 패키지 내보내기(package-export)는 qa.package_export CLI와
 프로세스 내 build_export·validate_export으로만 구동한다(제출물 18개를
 임시 staging 디렉터리로 복사·해시 재대조만 하며 실제로 제출하지 않는다.
@@ -74,7 +79,7 @@ pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
 fallback-decision, deadline, final-package, package-export,
-all(전부, 기능별 하위 디렉터리).
+sam-per-bin, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -113,7 +118,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "devpost-submission", "file-fallback", "sam-session",
             "pi-session-full", "submission-inventory",
             "fallback-decision", "deadline", "final-package",
-            "package-export")
+            "package-export", "sam-per-bin")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -141,6 +146,10 @@ SAM_SESSION_FAKE_URL = "https://sentinel-session.example.invalid/sam"
 SAM_SESSION_FAKE_KEY_VALUE = "sentinel-session-key-not-real"
 SAM_SESSION_ID = "VERIFY-SAM-SESSION-1"
 SAM_SESSION_SENTINEL = "sentinel-session-not-real"
+SAM_PERBIN_FAKE_URL = "https://sentinel-perbin.example.invalid/sam"
+SAM_PERBIN_FAKE_KEY_VALUE = "sentinel-perbin-key-not-real"
+SAM_PERBIN_SESSION_ID = "VERIFY-SAM-PERBIN-1"
+SAM_PERBIN_SENTINEL = "sentinel-perbin-not-real"
 PI_SMOKE_BIN_ID = "A-01-02"
 PI_SMOKE_FAKE_COUNT = 5
 PI_SMOKE_BOOK_QTY = 8
@@ -3126,6 +3135,215 @@ def drive_sam_session(ctx: Ctx, evidence: Path) -> dict:
                         passed, ensure_ascii=False, indent=2) + "\n"})
     return summary
 
+
+def drive_sam_per_bin(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.sam_per_bin import run_sam_per_bin
+    from qa.sam_readiness import ENV_BASE_URL, ENV_KEY_VAR
+    from terminal.demo_data import DEMO_COUNTED_QTY, demo_bin_ids
+    from terminal.models import CountResult
+    from terminal.sam_adapter import SamCountingError
+
+    class _FakeCounter:
+        def __init__(self, counts=None) -> None:
+            self.calls: list = []
+            self.counts = dict(counts) if counts is not None else dict(DEMO_COUNTED_QTY)
+
+        def count(self, bin_id: str, image_ref: str | None = None):
+            self.calls.append((bin_id, image_ref))
+            return CountResult(bin_id, self.counts[bin_id], source="sam")
+
+    class _MockCounter:
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        def count(self, bin_id: str, image_ref: str | None = None):
+            self.calls.append((bin_id, image_ref))
+            return CountResult(bin_id, 5, source="mock")
+
+    class _RaisingCounter:
+        def count(self, bin_id: str, image_ref: str | None = None):
+            raise SamCountingError("fake per-bin failure")
+
+    class _LeakyCounter:
+        def count(self, bin_id: str, image_ref: str | None = None):
+            raise RuntimeError(f"boom {SAM_PERBIN_SENTINEL}")
+
+    result = run_cli(["-m", "qa.sam_per_bin"])
+    ctx.note(f"python3 -m qa.sam_per_bin -> 종료코드 {result.returncode}")
+    if result.returncode != 1:
+        problems.append(f"sam_per_bin 기본 종료코드 기대 1, 실제 {result.returncode}: {result.stderr[:200]}")
+    for needle in ("STATUS: blocked", "ATTEMPTED: false", "DISTINCT_IMAGES: 0", "BLOCKERS: 3", "SESSION_PASSED: false"):
+        if needle not in result.stdout:
+            problems.append(f"sam_per_bin 텍스트에 {needle!r} 없음")
+    positions = [result.stdout.find(b) for b in EXPECTED_READINESS_BLOCKER_IDS]
+    if any(x < 0 for x in positions):
+        problems.append(f"sam_per_bin 텍스트에 블로커 id 누락: 위치 {positions}")
+    elif positions != sorted(positions):
+        problems.append(f"sam_per_bin 블로커 id 순서 이상: 위치 {positions}")
+
+    result_j = run_cli(["-m", "qa.sam_per_bin", "--json"])
+    ctx.note(f"python3 -m qa.sam_per_bin --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 1:
+        problems.append(f"sam_per_bin --json 종료코드 기대 1, 실제 {result_j.returncode}: {result_j.stderr[:200]}")
+    report: dict = {}
+    try:
+        report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"--json 파싱 실패: {e}")
+    blocked_blockers: list = []
+    if report:
+        if report.get("status") != "blocked":
+            problems.append(f"status 기대 blocked, 실제 {report.get('status')}")
+        if report.get("attempted") is not False:
+            problems.append(f"attempted 기대 False, 실제 {report.get('attempted')}")
+        if report.get("ready_for_live_call") is not False:
+            problems.append(f"ready_for_live_call 기대 False, 실제 {report.get('ready_for_live_call')}")
+        blocked_blockers = [b["id"] for b in report.get("blockers", [])]
+        if blocked_blockers != list(EXPECTED_READINESS_BLOCKER_IDS):
+            problems.append(f"blockers 기대 {list(EXPECTED_READINESS_BLOCKER_IDS)}, 실제 {blocked_blockers}")
+        if report.get("source") is not None:
+            problems.append(f"source 기대 None, 실제 {report.get('source')}")
+        if report.get("distinct_image_count") != 0:
+            problems.append(f"distinct_image_count 기대 0, 실제 {report.get('distinct_image_count')}")
+        if report.get("bins") != []:
+            problems.append(f"bins 기대 [], 실제 {report.get('bins')}")
+        if report.get("summary") is not None:
+            problems.append(f"summary 기대 None, 실제 {report.get('summary')}")
+        joined = " ".join(str(x) for x in report.get("honesty", []))
+        for marker in ("서로 다른 사진", "Pi 실촬영이 아니다", "호출하지 않는다"):
+            if marker not in joined:
+                problems.append(f"honesty에 {marker!r} 없음")
+
+    fake_env = {ENV_BASE_URL: SAM_PERBIN_FAKE_URL, ENV_KEY_VAR: SAM_PERBIN_FAKE_KEY_VALUE}
+    passed: dict = {}
+    duplicate_report: dict = {}
+    missing_report: dict = {}
+    mock_report: dict = {}
+    error_report: dict = {}
+    leaky_report: dict = {}
+    blocked_inproc: dict = {}
+    fake_counter = _FakeCounter()
+    dup_counter = _FakeCounter()
+    miss_counter = _FakeCounter()
+    blocked_counter = _FakeCounter()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        refs: dict[str, str] = {}
+        expected_hashes: dict[str, str] = {}
+        for bin_id in demo_bin_ids():
+            data = f"fake-per-bin-photo-{bin_id}".encode()
+            path = root / f"{bin_id}.jpg"
+            path.write_bytes(data)
+            refs[bin_id] = str(path)
+            expected_hashes[bin_id] = hashlib.sha256(data).hexdigest()
+        passed = run_sam_per_bin(env=fake_env, credit_confirmed=True, image_refs=refs, counter=fake_counter, session_id=SAM_PERBIN_SESSION_ID)
+        ctx.note(f"run_sam_per_bin 가짜 counter -> status={passed.get('status')}, summary={passed.get('summary')}")
+        if passed.get("status") != "passed":
+            problems.append(f"가짜 counter status 기대 passed, 실제 {passed.get('status')}")
+        if passed.get("source") != "sam":
+            problems.append(f"가짜 counter source 기대 sam, 실제 {passed.get('source')}")
+        if passed.get("distinct_image_count") != 6:
+            problems.append(f"distinct_image_count 기대 6, 실제 {passed.get('distinct_image_count')}")
+        if passed.get("session_id") != SAM_PERBIN_SESSION_ID:
+            problems.append(f"session_id 기대 {SAM_PERBIN_SESSION_ID}, 실제 {passed.get('session_id')}")
+        expected_calls = [(b, refs[b]) for b in demo_bin_ids()]
+        if fake_counter.calls != expected_calls:
+            problems.append(f"가짜 counter 호출 기대 {expected_calls}, 실제 {fake_counter.calls}")
+        bins = passed.get("bins") or []
+        if len(bins) != 6:
+            problems.append(f"bins 기대 6개, 실제 {len(bins)}개")
+        by_bin = {b.get("bin_id"): b for b in bins}
+        for bin_id in demo_bin_ids():
+            if (by_bin.get(bin_id) or {}).get("image_sha256") != expected_hashes[bin_id]:
+                problems.append(f"{bin_id} image_sha256 기대 {expected_hashes[bin_id]}, 실제 {(by_bin.get(bin_id) or {}).get('image_sha256')}")
+        a0102 = by_bin.get("A-01-02") or {}
+        for key, expected in (("book_qty", 8), ("counted_qty", 5), ("diff", -3)):
+            if a0102.get(key) != expected:
+                problems.append(f"A-01-02 {key} 기대 {expected}, 실제 {a0102.get(key)}")
+        if a0102.get("verdict") != "short":
+            problems.append(f"A-01-02 verdict 기대 short, 실제 {a0102.get('verdict')}")
+        b0102 = by_bin.get("B-01-02") or {}
+        if b0102.get("diff") != 3 or b0102.get("verdict") != "over":
+            problems.append(f"B-01-02 기대 diff 3/over, 실제 {b0102}")
+        summary_map = passed.get("summary") or {}
+        for key, expected in (("counted_bins", 6), ("matched", 4), ("mismatched", 2), ("abs_diff_total", 6), ("net_diff", 0)):
+            if summary_map.get(key) != expected:
+                problems.append(f"summary.{key} 기대 {expected}, 실제 {summary_map.get(key)}")
+
+        dup_refs = dict(refs)
+        dup_refs["B-01-02"] = refs["A-01-02"]
+        duplicate_report = run_sam_per_bin(env=fake_env, credit_confirmed=True, image_refs=dup_refs, counter=dup_counter)
+        ctx.note(f"run_sam_per_bin 중복 사진 -> status={duplicate_report.get('status')}, error_type={duplicate_report.get('error_type')}, calls={len(dup_counter.calls)}")
+        if duplicate_report.get("status") != "failed" or duplicate_report.get("error_type") != "duplicate_image":
+            problems.append(f"중복 사진 차단 이상: {duplicate_report.get('status')}/{duplicate_report.get('error_type')}")
+        if dup_counter.calls != []:
+            problems.append(f"중복 사진 시 counter를 부르면 안 된다: {dup_counter.calls}")
+        if duplicate_report.get("attempted") is not False:
+            problems.append(f"중복 사진 attempted 기대 False, 실제 {duplicate_report.get('attempted')}")
+
+        miss_refs = dict(refs)
+        del miss_refs["B-02-02"]
+        missing_report = run_sam_per_bin(env=fake_env, credit_confirmed=True, image_refs=miss_refs, counter=miss_counter)
+        ctx.note(f"run_sam_per_bin 사진 누락 -> status={missing_report.get('status')}, error_type={missing_report.get('error_type')}")
+        if missing_report.get("status") != "failed" or missing_report.get("error_type") != "missing_image":
+            problems.append(f"사진 누락 차단 이상: {missing_report.get('status')}/{missing_report.get('error_type')}")
+        if miss_counter.calls != []:
+            problems.append(f"사진 누락 시 counter를 부르면 안 된다: {miss_counter.calls}")
+
+        blocked_inproc = run_sam_per_bin(env={}, credit_confirmed=False, image_refs=refs, counter=blocked_counter)
+        ctx.note(f"run_sam_per_bin 차단 -> status={blocked_inproc.get('status')}, counter 호출 {len(blocked_counter.calls)}건")
+        if blocked_inproc.get("status") != "blocked":
+            problems.append(f"차단 시 status 기대 blocked, 실제 {blocked_inproc.get('status')}")
+        if blocked_counter.calls != []:
+            problems.append(f"차단 시 counter를 부르면 안 된다: 호출 {blocked_counter.calls}")
+
+        mock_report = run_sam_per_bin(env=fake_env, credit_confirmed=True, image_refs=refs, counter=_MockCounter())
+        ctx.note(f"run_sam_per_bin 모의 source -> status={mock_report.get('status')}, error_type={mock_report.get('error_type')}")
+        if mock_report.get("status") != "failed" or mock_report.get("error_type") != "unexpected_source":
+            problems.append(f"모의 source 차단 이상: {mock_report.get('status')}/{mock_report.get('error_type')}")
+        if mock_report.get("summary") is not None:
+            problems.append("모의 source 실패 시 summary는 None이어야 한다")
+
+        error_report = run_sam_per_bin(env=fake_env, credit_confirmed=True, image_refs=refs, counter=_RaisingCounter())
+        ctx.note(f"run_sam_per_bin SamCountingError -> status={error_report.get('status')}, error_type={error_report.get('error_type')}")
+        if error_report.get("status") != "failed" or error_report.get("error_type") != "SamCountingError":
+            problems.append(f"오류 차단 이상: {error_report.get('status')}/{error_report.get('error_type')}")
+
+        leaky_report = run_sam_per_bin(env=fake_env, credit_confirmed=True, image_refs=refs, counter=_LeakyCounter())
+        ctx.note(f"run_sam_per_bin RuntimeError -> status={leaky_report.get('status')}, error_type={leaky_report.get('error_type')}")
+        if leaky_report.get("status") != "failed" or leaky_report.get("error_type") != "RuntimeError":
+            problems.append(f"일반 예외 차단 이상: {leaky_report.get('status')}/{leaky_report.get('error_type')}")
+
+    summary_map = passed.get("summary") or {}
+    dumped = "".join(json.dumps(item, ensure_ascii=False) for item in (passed, blocked_inproc, duplicate_report, missing_report, mock_report, error_report, leaky_report, report)) + result.stdout + result_j.stdout
+    sentinel_leaked = (SAM_PERBIN_FAKE_KEY_VALUE in dumped or SAM_PERBIN_FAKE_URL in dumped or SAM_PERBIN_SENTINEL in dumped)
+    ctx.note(f"가짜 키/URL/예외 원본 누출 -> {sentinel_leaked}")
+    if sentinel_leaked:
+        problems.append("가짜 환경변수 값이나 예외 원본이 sam_per_bin 보고나 CLI 출력에 새어 나왔다")
+
+    summary = {"feature": "sam-per-bin",
+               "blocked_blockers": blocked_blockers,
+               "default_exit_code": result.returncode,
+               "fake_passed": passed.get("status") == "passed",
+               "session_id": passed.get("session_id"),
+               "distinct_image_count": passed.get("distinct_image_count"),
+               "matched": summary_map.get("matched"),
+               "mismatched": summary_map.get("mismatched"),
+               "abs_diff_total": summary_map.get("abs_diff_total"),
+               "net_diff": summary_map.get("net_diff"),
+               "blocked_counter_calls": len(blocked_counter.calls),
+               "duplicate_blocked": duplicate_report.get("error_type") == "duplicate_image",
+               "missing_blocked": missing_report.get("error_type") == "missing_image",
+               "mock_source_blocked": mock_report.get("error_type") == "unexpected_source",
+               "sam_error_blocked": error_report.get("error_type") == "SamCountingError",
+               "sentinel_leaked": sentinel_leaked,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"sam-per-bin-blocked.json": result_j.stdout,
+                    "sam-per-bin-passed.json": json.dumps(passed, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
 def drive_pi_session_full(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
     from qa.pi_session import run_pi_full_session
@@ -4603,7 +4821,8 @@ DRIVERS = {"console-home": drive_console_home,
            "fallback-decision": drive_fallback_decision,
            "deadline": drive_deadline,
            "final-package": drive_final_package,
-           "package-export": drive_package_export}
+           "package-export": drive_package_export,
+           "sam-per-bin": drive_sam_per_bin}
 
 
 def main(argv: list[str] | None = None) -> int:
