@@ -30,7 +30,9 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 인벤토리의 present_files·total_files·missing·total_bytes와
 교차 대조하는 것을 포함한다),
 제출 패키지 내보내기(qa.package_export) 보고가 제출물 인벤토리 보고와
-어긋나지 않는지의 정합,
+어긋나지 않는지의 정합(같은 staging을 매니페스트만으로 다시 대조하는
+재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
+필수로 검사하는 것을 포함한다),
 데모 자산의 존재·정합을
 한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 25종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
@@ -111,6 +113,7 @@ from qa.final_package import build_final_package as _build_fp
 from qa.final_package import validate_final_package as _validate_fp
 from qa.package_export import build_export as _build_pkg_export
 from qa.package_export import validate_export as _validate_pkg_export
+from qa.package_export import verify_export_dir as _verify_pkg_export_dir
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -3319,8 +3322,10 @@ def build_package_export_report(root, blockers=None) -> dict:
         with tempfile.TemporaryDirectory(prefix="argus-pre-pkg-") as tmp:
             out_dir = Path(tmp) / "package"
             export = _build_pkg_export(out_dir, source_root=Path(root))
+            verified_export, verify_problems = _verify_pkg_export_dir(
+                out_dir, source_root=Path(root))
     except Exception:
-        return {"total_files": 0, "copied_files": 0, "missing": [], "total_bytes": 0, "blockers": [], "submission_ready": False}
+        return {"total_files": 0, "copied_files": 0, "missing": [], "total_bytes": 0, "blockers": [], "submission_ready": False, "verify_verified": False, "verify_copied_files": None, "verify_total_bytes": None}
     return {
         "total_files": export.get("total_files", 0),
         "copied_files": export.get("copied_files", 0),
@@ -3328,6 +3333,14 @@ def build_package_export_report(root, blockers=None) -> dict:
         "total_bytes": export.get("total_bytes", 0),
         "blockers": [b["id"] if isinstance(b, dict) else b for b in (export.get("blockers") or [])],
         "submission_ready": False,
+        "verify_verified": bool(
+            isinstance(verified_export, dict) and not verify_problems),
+        "verify_copied_files": (
+            verified_export.get("copied_files")
+            if isinstance(verified_export, dict) else None),
+        "verify_total_bytes": (
+            verified_export.get("total_bytes")
+            if isinstance(verified_export, dict) else None),
     }
 
 
@@ -3338,11 +3351,23 @@ def validate_package_export_report(report, blockers=None, inventory_report=None)
     problems: list[str] = []
     if not isinstance(report, dict):
         return [f"package export report is not a dict: {report!r}"]
-    required = ("total_files", "copied_files", "missing", "total_bytes", "blockers", "submission_ready")
+    required = ("total_files", "copied_files", "missing", "total_bytes", "blockers", "submission_ready", "verify_verified", "verify_copied_files", "verify_total_bytes")
     missing_keys = [k for k in required if k not in report]
     if missing_keys:
         problems.append(f"package export: missing required keys: {missing_keys}")
         return problems
+    if report["verify_verified"] is not True:
+        problems.append(f"package export: verify_verified={report['verify_verified']!r} is not True")
+    verify_copied = report["verify_copied_files"]
+    if isinstance(verify_copied, bool) or not isinstance(verify_copied, int):
+        problems.append(f"package export: verify_copied_files={verify_copied!r} is not an int")
+    elif verify_copied != report["copied_files"]:
+        problems.append(f"package export: verify_copied_files={verify_copied!r} != copied_files={report['copied_files']!r}")
+    verify_bytes = report["verify_total_bytes"]
+    if isinstance(verify_bytes, bool) or not isinstance(verify_bytes, int):
+        problems.append(f"package export: verify_total_bytes={verify_bytes!r} is not an int")
+    elif verify_bytes != report["total_bytes"]:
+        problems.append(f"package export: verify_total_bytes={verify_bytes!r} != total_bytes={report['total_bytes']!r}")
     if report["total_files"] != INVENTORY_TOTAL_FILES:
         problems.append(f"package export: total_files={report['total_files']!r} != {INVENTORY_TOTAL_FILES}")
     missing = report["missing"]
@@ -3375,10 +3400,14 @@ def _check_package_export(root, inventory_report=None):
             out_dir = Path(tmp) / "package"
             export = _build_pkg_export(out_dir, source_root=Path(root))
             problems = _validate_pkg_export(export, out_dir, source_root=Path(root))
+            verified_export, verify_problems = _verify_pkg_export_dir(
+                out_dir, source_root=Path(root))
     except Exception as exc:
         report = build_package_export_report(root)
         return PreSubmissionCheck(name, False, f"raised: {exc!r}"), report
     problems = [f"package export: {p}" for p in problems]
+    problems.extend(
+        f"package export verify: {p}" for p in verify_problems)
     problems.extend(validate_package_export(export, inventory_report=inventory_report))
     report = {
         "total_files": export.get("total_files", 0),
@@ -3387,6 +3416,14 @@ def _check_package_export(root, inventory_report=None):
         "total_bytes": export.get("total_bytes", 0),
         "blockers": [b["id"] if isinstance(b, dict) else b for b in (export.get("blockers") or [])],
         "submission_ready": False,
+        "verify_verified": bool(
+            isinstance(verified_export, dict) and not verify_problems),
+        "verify_copied_files": (
+            verified_export.get("copied_files")
+            if isinstance(verified_export, dict) else None),
+        "verify_total_bytes": (
+            verified_export.get("total_bytes")
+            if isinstance(verified_export, dict) else None),
     }
     problems.extend(validate_package_export_report(report, inventory_report=inventory_report))
     if problems:
@@ -3395,7 +3432,8 @@ def _check_package_export(root, inventory_report=None):
         f"total_files={report['total_files']} "
         f"copied_files={report['copied_files']} "
         f"missing={report['missing']} "
-        f"total_bytes={report['total_bytes']}"
+        f"total_bytes={report['total_bytes']} "
+        f"verify_verified={report['verify_verified']}"
     )
     return PreSubmissionCheck(name, True, detail), report
 

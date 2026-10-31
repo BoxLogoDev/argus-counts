@@ -1859,3 +1859,39 @@ class PackageExportIntegrationTests(unittest.TestCase):
         report["copied_files"] = 0
         problems = validate_package_export_report(report, inventory_report=inv)
         self.assertTrue(any("copied_files" in x for x in problems), problems)
+
+    def test_package_export_report_includes_verify_evidence(self):
+        report = build_package_export_report(ROOT)
+        self.assertIs(report["verify_verified"], True)
+        self.assertEqual(report["verify_copied_files"], 18)
+        self.assertEqual(report["verify_copied_files"], report["copied_files"])
+        self.assertEqual(report["verify_total_bytes"], report["total_bytes"])
+        self.assertEqual(validate_package_export_report(report), [])
+
+    def test_validate_package_export_report_detects_verify_not_verified(self):
+        report = build_package_export_report(ROOT)
+        report["verify_verified"] = False
+        problems = validate_package_export_report(report)
+        self.assertTrue(any("verify_verified" in x for x in problems), problems)
+
+    def test_validate_package_export_report_detects_missing_verify_key(self):
+        report = build_package_export_report(ROOT)
+        del report["verify_copied_files"]
+        problems = validate_package_export_report(report)
+        self.assertTrue(any("verify_copied_files" in x for x in problems), problems)
+
+    def test_validate_package_export_report_detects_verify_copied_mismatch(self):
+        report = build_package_export_report(ROOT)
+        report["verify_copied_files"] = 17
+        problems = validate_package_export_report(report)
+        self.assertTrue(any("verify_copied_files" in x for x in problems), problems)
+
+    def test_validate_package_export_report_detects_verify_bytes_tamper(self):
+        report = build_package_export_report(ROOT)
+        report["verify_total_bytes"] = None
+        problems = validate_package_export_report(report)
+        self.assertTrue(any("verify_total_bytes" in x for x in problems), problems)
+        report = build_package_export_report(ROOT)
+        report["verify_total_bytes"] = report["total_bytes"] + 1
+        problems = validate_package_export_report(report)
+        self.assertTrue(any("verify_total_bytes" in x for x in problems), problems)
