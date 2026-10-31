@@ -507,6 +507,59 @@ class HelperRunTests(unittest.TestCase):
             self.assertFalse(summary["readiness_final_package_submission_ready"])
             self.assertFalse(summary["submission_ready"])
 
+    def test_pre_submission_final_package_export_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-export"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_export_copied"], 18)
+            self.assertEqual(summary["readiness_final_package_export_total"], 18)
+            self.assertEqual(summary["readiness_final_package_export_copied"],
+                             summary["readiness_inventory_present_files"])
+            self.assertEqual(summary["readiness_final_package_export_total"],
+                             summary["readiness_inventory_total_files"])
+
+    def test_pre_submission_final_package_export_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-export-cross"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_export_missing"], [])
+            self.assertEqual(summary["readiness_final_package_export_missing"],
+                             payload["readiness"]["submission_inventory"]["missing"])
+            self.assertEqual(summary["readiness_final_package_export_missing"],
+                             payload["readiness"]["package_export"]["missing"])
+            self.assertEqual(summary["readiness_final_package_export_missing"],
+                             summary["readiness_package_export_missing"])
+
+    def test_pre_submission_final_package_export_bytes_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-export-bytes"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertIsInstance(summary["readiness_final_package_export_total_bytes"], int)
+            self.assertGreater(summary["readiness_final_package_export_total_bytes"], 0)
+            self.assertEqual(summary["readiness_final_package_export_total_bytes"],
+                             payload["readiness"]["final_package"]["export_total_bytes"])
+            self.assertEqual(summary["readiness_final_package_export_total_bytes"],
+                             payload["readiness"]["submission_inventory"]["total_bytes"])
+            self.assertEqual(summary["readiness_final_package_export_total_bytes"],
+                             payload["readiness"]["package_export"]["total_bytes"])
+            self.assertFalse(summary["readiness_final_package_submission_ready"])
+
     def test_pre_submission_package_export_bytes_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-pre-pkg-bytes"

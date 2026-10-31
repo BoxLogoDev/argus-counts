@@ -1106,6 +1106,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_deadline_status = fp_r.get("deadline_status")
         fp_fallback_status = fp_r.get("fallback_status")
         fp_submission_ready = fp_r.get("submission_ready")
+        fp_export_copied = fp_r.get("export_copied")
+        fp_export_total = fp_r.get("export_total")
+        fp_export_missing = fp_r.get("export_missing")
+        fp_export_total_bytes = fp_r.get("export_total_bytes")
         _inv_raw = readiness.get("submission_inventory") or {}
         if fp_inv_present != _inv_raw.get("present_files"):
             problems.append(f"readiness final_package inventory_present가 submission_inventory present_files와 다르다: {fp_inv_present} != {_inv_raw.get('present_files')}")
@@ -1125,6 +1129,22 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness final_package blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {fp_rb}")
         if fp_r.get("submission_ready") is not False:
             problems.append(f"readiness final_package submission_ready 기대 False, 실제 {fp_r.get('submission_ready')}")
+        if fp_export_copied != 18:
+            problems.append(f"readiness final_package export_copied 기대 18, 실제 {fp_export_copied}")
+        if fp_export_copied != _inv_raw.get("present_files"):
+            problems.append(f"readiness final_package export_copied가 submission_inventory present_files와 다르다: {fp_export_copied} != {_inv_raw.get('present_files')}")
+        if fp_export_total != 18:
+            problems.append(f"readiness final_package export_total 기대 18, 실제 {fp_export_total}")
+        if fp_export_total != _inv_raw.get("total_files"):
+            problems.append(f"readiness final_package export_total가 submission_inventory total_files와 다르다: {fp_export_total} != {_inv_raw.get('total_files')}")
+        if fp_export_missing != []:
+            problems.append(f"readiness final_package export_missing 기대 [], 실제 {fp_export_missing}")
+        if fp_export_missing != _inv_raw.get("missing"):
+            problems.append(f"readiness final_package export_missing가 submission_inventory missing와 다르다: {fp_export_missing} != {_inv_raw.get('missing')}")
+        if not isinstance(fp_export_total_bytes, int) or isinstance(fp_export_total_bytes, bool) or fp_export_total_bytes <= 0:
+            problems.append(f"readiness final_package export_total_bytes 기대 양의 int, 실제 {fp_export_total_bytes}")
+        if fp_export_total_bytes != _inv_raw.get("total_bytes"):
+            problems.append(f"readiness final_package export_total_bytes가 submission_inventory total_bytes와 다르다: {fp_export_total_bytes} != {_inv_raw.get('total_bytes')}")
         pkg_r = readiness.get("package_export") or {}
         pkg_total = pkg_r.get("total_files")
         pkg_copied = pkg_r.get("copied_files")
@@ -1146,6 +1166,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness package_export blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {pkg_rb}")
         if pkg_submission_ready is not False:
             problems.append(f"readiness package_export submission_ready 기대 False, 실제 {pkg_submission_ready}")
+        if fp_export_missing != pkg_missing:
+            problems.append(f"readiness final_package export_missing가 package_export missing와 다르다: {fp_export_missing} != {pkg_missing}")
+        if fp_export_total_bytes != pkg_total_bytes:
+            problems.append(f"readiness final_package export_total_bytes가 package_export total_bytes와 다르다: {fp_export_total_bytes} != {pkg_total_bytes}")
         inv_r = readiness.get("submission_inventory") or {}
         inv_total = inv_r.get("total_files")
         inv_present = inv_r.get("present_files")
@@ -1181,6 +1205,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_inv_present, fp_inv_total = None, None
         fp_deadline_status, fp_fallback_status = None, None
         fp_submission_ready = None
+        fp_export_copied, fp_export_total = None, None
+        fp_export_missing, fp_export_total_bytes = None, None
         pkg_total, pkg_copied, pkg_rb = None, None, []
         pkg_missing, pkg_total_bytes, pkg_submission_ready = None, None, None
         demo_fallback_cut = None
@@ -1230,6 +1256,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_final_package_deadline_status": fp_deadline_status,
                "readiness_final_package_fallback_status": fp_fallback_status,
                "readiness_final_package_submission_ready": fp_submission_ready,
+               "readiness_final_package_export_copied": fp_export_copied,
+               "readiness_final_package_export_total": fp_export_total,
+               "readiness_final_package_export_missing": fp_export_missing,
+               "readiness_final_package_export_total_bytes": fp_export_total_bytes,
                "readiness_package_export_total_files": pkg_total,
                "readiness_package_export_copied_files": pkg_copied,
                "readiness_package_export_blockers": pkg_rb,
