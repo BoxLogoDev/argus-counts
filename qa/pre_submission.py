@@ -6,7 +6,9 @@ SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 어긋나지 않는지의 정합, SAM 단일 빈 스모크(qa.sam_smoke) 보고가
 SAM 준비 점검 보고와 어긋나지 않는지의 정합, SAM 전체 세션
 (qa.sam_session) 보고가 SAM 준비 점검 보고와 어긋나지 않는지의
-정합, Pi 단일 빈 스모크
+정합, SAM 빈별 서로 다른 사진 세션(qa.sam_per_bin) 보고가 SAM 준비
+점검 보고와 어긋나지 않는지의 정합(빈별 사진 해시의 서로 다름을
+포함한다), Pi 단일 빈 스모크
 (qa.pi_smoke) 보고가 Pi 준비 점검 보고와 어긋나지 않는지의 정합,
 Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
 어긋나지 않는지의 정합,
@@ -34,7 +36,7 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
 필수로 검사하는 것을 포함한다),
 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 25종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 26종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -95,6 +97,7 @@ from qa.pi_smoke import run_smoke as run_pi_smoke
 from qa.sam_smoke import run_smoke as run_sam_smoke
 from qa.pi_session import run_pi_full_session
 from qa.sam_session import run_sam_session
+from qa.sam_per_bin import run_sam_per_bin
 from qa.standalone import run_standalone_checks
 from qa.submission_inventory import DELIVERABLES as INVENTORY_DELIVERABLES
 from qa.submission_inventory import build_inventory, validate_inventory
@@ -1433,6 +1436,280 @@ def _check_sam_session(sam_env=None, sam_credit_confirmed=False, sam_report=None
         return PreSubmissionCheck(name, False, "; ".join(problems)), report
     detail = (
         f"status={report['status']} attempted={report['attempted']} "
+        f"blockers={[b['id'] for b in report['blockers']]} "
+        f"fake_calls={len(fake.calls)}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
+def validate_sam_per_bin(report, sam_report=None, blockers=None) -> list[str]:
+    """SAM 빈별 세션 보고가 내부적으로, 그리고 SAM 준비 보고와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = (
+        "status",
+        "attempted",
+        "ready_for_live_call",
+        "blockers",
+        "session_id",
+        "source",
+        "distinct_image_count",
+        "bins",
+        "summary",
+        "error_type",
+        "honesty",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    ids = _readiness_blocker_ids(report["blockers"], problems, "sam per-bin")
+    if isinstance(report["blockers"], (list, tuple)):
+        expected_subsequence = [b for b in SAM_READINESS_BLOCKER_ORDER if b in ids]
+        if ids != expected_subsequence:
+            problems.append(
+                f"sam per-bin: blocker ids {ids} are not a subsequence of "
+                f"{list(SAM_READINESS_BLOCKER_ORDER)}"
+            )
+    ready = bool(report["ready_for_live_call"])
+    if isinstance(sam_report, dict):
+        if "ready_for_live_call" in sam_report:
+            if ready != bool(sam_report["ready_for_live_call"]):
+                problems.append(
+                    f"sam per-bin: ready_for_live_call={report['ready_for_live_call']!r} "
+                    f"!= sam readiness ready_for_live_call="
+                    f"{sam_report['ready_for_live_call']!r}"
+                )
+        if isinstance(sam_report.get("blockers"), (list, tuple)):
+            sam_ids = _readiness_blocker_ids(
+                sam_report["blockers"], problems, "sam readiness"
+            )
+            if ids != sam_ids:
+                problems.append(
+                    f"sam per-bin: blocker ids {ids} != "
+                    f"sam readiness blocker ids {sam_ids}"
+                )
+    status = report["status"]
+    if status not in ("blocked", "passed", "failed"):
+        problems.append(
+            f"sam per-bin: status={status!r} is not one of "
+            f"['blocked', 'passed', 'failed']"
+        )
+    if not ready:
+        if status != "blocked":
+            problems.append(
+                f"sam per-bin: status={status!r} != 'blocked' "
+                f"when ready_for_live_call is False"
+            )
+        if bool(report["attempted"]):
+            problems.append(
+                f"sam per-bin: attempted={report['attempted']!r} != False "
+                f"when ready_for_live_call is False"
+            )
+        if report["source"] is not None:
+            problems.append(
+                f"sam per-bin: source={report['source']!r} is not None "
+                f"when ready_for_live_call is False"
+            )
+        if report["distinct_image_count"] != 0:
+            problems.append(
+                f"sam per-bin: distinct_image_count="
+                f"{report['distinct_image_count']!r} != 0 "
+                f"when ready_for_live_call is False"
+            )
+        if report["bins"] != []:
+            problems.append(
+                f"sam per-bin: bins={report['bins']!r} != [] "
+                f"when ready_for_live_call is False"
+            )
+        if report["summary"] is not None:
+            problems.append(
+                f"sam per-bin: summary={report['summary']!r} is not None "
+                f"when ready_for_live_call is False"
+            )
+        if report["error_type"] is not None:
+            problems.append(
+                f"sam per-bin: error_type={report['error_type']!r} is not None "
+                f"when ready_for_live_call is False"
+            )
+        if "sam_real_call_pending" in _pre_submission_blocker_ids(blockers):
+            problems.append(
+                "sam per-bin: pre-submission blockers still contain stale "
+                "'sam_real_call_pending' (SAM live call verified by "
+                "full-session run on 2026-10-30)"
+            )
+    if ready and status == "passed":
+        if not report["attempted"]:
+            problems.append(
+                f"sam per-bin: attempted={report['attempted']!r} != True "
+                f"when ready_for_live_call is True and status is 'passed'"
+            )
+        if report["source"] != "sam":
+            problems.append(
+                f"sam per-bin: source={report['source']!r} != 'sam' "
+                f"when ready_for_live_call is True and status is 'passed'"
+            )
+        bins = report["bins"]
+        if not isinstance(bins, (list, tuple)) or len(bins) != len(EXPECTED_BIN_IDS):
+            problems.append(
+                f"sam per-bin: bins={bins!r} does not have "
+                f"{len(EXPECTED_BIN_IDS)} entries when status is 'passed'"
+            )
+            bins = []
+        bin_ids = [
+            comp.get("bin_id") if isinstance(comp, dict) else None for comp in bins
+        ]
+        if bins and bin_ids != list(EXPECTED_BIN_IDS):
+            problems.append(
+                f"sam per-bin: bin order {bin_ids} != {list(EXPECTED_BIN_IDS)}"
+            )
+        hashes = [
+            comp.get("image_sha256") if isinstance(comp, dict) else None
+            for comp in bins
+        ]
+        if bins:
+            if any(not isinstance(h, str) or len(h) != 64 for h in hashes):
+                problems.append(
+                    f"sam per-bin: image_sha256 values are not 64-char "
+                    f"strings: {hashes!r}"
+                )
+            elif len(set(hashes)) != len(bins):
+                problems.append(
+                    f"sam per-bin: image_sha256 values are not all "
+                    f"distinct: {hashes!r}"
+                )
+            if report["distinct_image_count"] != len(set(hashes)):
+                problems.append(
+                    f"sam per-bin: distinct_image_count="
+                    f"{report['distinct_image_count']!r} != "
+                    f"{len(set(hashes))} distinct image hashes in bins"
+                )
+        diffs_ok = True
+        for comp in bins:
+            if not isinstance(comp, dict):
+                problems.append(f"sam per-bin: bin entry is not a dict: {comp!r}")
+                diffs_ok = False
+                continue
+            counted = comp.get("counted_qty")
+            book = comp.get("book_qty")
+            if not (isinstance(counted, int) and not isinstance(counted, bool)
+                    and isinstance(book, int) and not isinstance(book, bool)):
+                problems.append(
+                    f"sam per-bin: bin {comp.get('bin_id')!r} counted_qty/book_qty "
+                    f"are not ints: {comp!r}"
+                )
+                diffs_ok = False
+            elif comp.get("diff") != counted - book:
+                problems.append(
+                    f"sam per-bin: bin {comp.get('bin_id')!r} "
+                    f"diff={comp.get('diff')!r} != counted_qty - book_qty="
+                    f"{counted - book}"
+                )
+                diffs_ok = False
+        summary = report["summary"]
+        if not isinstance(summary, dict):
+            problems.append(
+                f"sam per-bin: summary={summary!r} is not a dict "
+                f"when status is 'passed'"
+            )
+        elif bins and diffs_ok:
+            matched = sum(1 for comp in bins if comp.get("verdict") == "match")
+            expected_summary = {
+                "counted_bins": len(bins),
+                "matched": matched,
+                "mismatched": len(bins) - matched,
+                "abs_diff_total": sum(abs(comp["diff"]) for comp in bins),
+                "net_diff": sum(comp["diff"] for comp in bins),
+            }
+            for key, expected in expected_summary.items():
+                if summary.get(key) != expected:
+                    problems.append(
+                        f"sam per-bin: summary {key}={summary.get(key)!r} "
+                        f"!= {expected} computed from bins"
+                    )
+            if summary.get("counted_bins"):
+                expected_rate = matched / summary["counted_bins"]
+                rate = summary.get("match_rate")
+                if not isinstance(rate, (int, float)) or isinstance(rate, bool) \
+                        or abs(rate - expected_rate) > 1e-9:
+                    problems.append(
+                        f"sam per-bin: summary match_rate={rate!r} "
+                        f"!= {expected_rate} computed from bins"
+                    )
+    if ready and status == "failed":
+        error_type = report["error_type"]
+        if not isinstance(error_type, str) or not error_type:
+            problems.append(
+                f"sam per-bin: error_type={error_type!r} is not a non-empty "
+                f"string when ready_for_live_call is True and status is 'failed'"
+            )
+        if report["summary"] is not None:
+            problems.append(
+                f"sam per-bin: summary={report['summary']!r} is not None "
+                f"when status is 'failed'"
+            )
+        if report["bins"] != []:
+            problems.append(
+                f"sam per-bin: bins={report['bins']!r} != [] "
+                f"when status is 'failed'"
+            )
+        if error_type in ("missing_image", "image_file_missing", "duplicate_image"):
+            if bool(report["attempted"]):
+                problems.append(
+                    f"sam per-bin: attempted={report['attempted']!r} != False "
+                    f"when image precondition failed ({error_type})"
+                )
+            if report["distinct_image_count"] != 0:
+                problems.append(
+                    f"sam per-bin: distinct_image_count="
+                    f"{report['distinct_image_count']!r} != 0 "
+                    f"when image precondition failed ({error_type})"
+                )
+    _check_honesty(report, problems, "sam per-bin", "호출하지 않는다")
+    _check_honesty(report, problems, "sam per-bin", "대체하지 않는다")
+    _check_honesty(report, problems, "sam per-bin", "Pi 실촬영이 아니다")
+    return problems
+
+
+def _check_sam_per_bin(sam_env=None, sam_credit_confirmed=False, sam_report=None):
+    name = "sam_per_bin_consistent"
+    fake = _SessionFakeCounter()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            refs = {}
+            for bin_id in EXPECTED_BIN_IDS:
+                path = Path(tmp) / f"perbin-{bin_id}.jpg"
+                path.write_bytes(f"fake-perbin-photo-{bin_id}".encode("utf-8"))
+                refs[bin_id] = str(path)
+            report = run_sam_per_bin(
+                env=sam_env,
+                credit_confirmed=sam_credit_confirmed,
+                image_refs=refs,
+                counter=fake,
+                session_id="PRE-SUBMISSION-SAM-PERBIN",
+            )
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_sam_per_bin(report, sam_report=sam_report)
+    if isinstance(report, dict) and "ready_for_live_call" in report:
+        if not bool(report["ready_for_live_call"]) and len(fake.calls) != 0:
+            problems.append(
+                f"sam per-bin: fake counter calls={len(fake.calls)} != 0 "
+                f"when ready_for_live_call is False"
+            )
+        if bool(report["ready_for_live_call"]) and len(fake.calls) != len(EXPECTED_BIN_IDS):
+            problems.append(
+                f"sam per-bin: fake counter calls={len(fake.calls)} != "
+                f"{len(EXPECTED_BIN_IDS)} when ready_for_live_call is True"
+            )
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} attempted={report['attempted']} "
+        f"distinct_image_count={report['distinct_image_count']} "
         f"blockers={[b['id'] for b in report['blockers']]} "
         f"fake_calls={len(fake.calls)}"
     )
@@ -3516,6 +3793,13 @@ def run_pre_submission_checks(
     )
     checks.append(session_check)
 
+    per_bin_check, per_bin_report = _check_sam_per_bin(
+        sam_env=sam_env,
+        sam_credit_confirmed=sam_credit_confirmed,
+        sam_report=sam_report,
+    )
+    checks.append(per_bin_check)
+
     pi_smoke_check, pi_smoke_report = _check_pi_smoke(
         pi_probe=pi_probe,
         pi_device_confirmed=pi_device_confirmed,
@@ -3609,6 +3893,7 @@ def run_pre_submission_checks(
             "console": console_report,
             "smoke": smoke_report,
             "sam_session": session_report,
+            "sam_per_bin": per_bin_report,
             "pi_smoke": pi_smoke_report,
             "pi_session": pi_session_report,
             "devpost": devpost_report,

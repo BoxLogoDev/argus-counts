@@ -53,6 +53,7 @@ from qa.pre_submission import (
     validate_package_export,
     validate_package_export_report,
     build_package_export_report,
+    validate_sam_per_bin,
 )
 
 MISSING_PI_PROBE = {
@@ -585,7 +586,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 25)
+        self.assertEqual(result["total"], 26)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -699,7 +700,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 25)
+            self.assertEqual(result["total"], 26)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -922,6 +923,109 @@ class ReadinessIntegrationTests(unittest.TestCase):
         report["summary"]["abs_diff_total"] = 99
         problems = validate_sam_session(report)
         self.assertTrue(any("abs_diff_total" in p for p in problems), problems)
+
+    def test_real_root_includes_sam_per_bin_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
+        )
+        names = [c.name for c in result["checks"]]
+        self.assertIn("sam_per_bin_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["sam_per_bin_consistent"].passed)
+        self.assertIn("fake_calls=0", by_name["sam_per_bin_consistent"].detail)
+        self.assertIn(
+            "distinct_image_count=0", by_name["sam_per_bin_consistent"].detail)
+        per_bin = result["readiness"]["sam_per_bin"]
+        self.assertEqual(per_bin["status"], "blocked")
+        self.assertFalse(per_bin["attempted"])
+        self.assertFalse(per_bin["ready_for_live_call"])
+        self.assertEqual(per_bin["distinct_image_count"], 0)
+        self.assertEqual(per_bin["bins"], [])
+        self.assertIsNone(per_bin["summary"])
+        self.assertEqual(
+            [b["id"] for b in per_bin["blockers"]],
+            [b["id"] for b in result["readiness"]["sam"]["blockers"]],
+        )
+        self.assertFalse(result["submission_ready"])
+
+    def test_sam_per_bin_ready_fake_env_passes_with_fake_counter(self):
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        result = run_pre_submission_checks(
+            ROOT,
+            sam_env=env,
+            sam_credit_confirmed=True,
+            pi_probe=MISSING_PI_PROBE,
+        )
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertTrue(by_name["sam_per_bin_consistent"].passed)
+        self.assertIn("fake_calls=6", by_name["sam_per_bin_consistent"].detail)
+        per_bin = result["readiness"]["sam_per_bin"]
+        self.assertEqual(per_bin["status"], "passed")
+        self.assertTrue(per_bin["attempted"])
+        self.assertEqual(per_bin["source"], "sam")
+        self.assertEqual(per_bin["distinct_image_count"], 6)
+        self.assertEqual(len(per_bin["bins"]), 6)
+        hashes = [b["image_sha256"] for b in per_bin["bins"]]
+        self.assertEqual(len(set(hashes)), 6)
+        summary = per_bin["summary"]
+        self.assertEqual(summary["counted_bins"], 6)
+        self.assertEqual(summary["matched"], 4)
+        self.assertEqual(summary["mismatched"], 2)
+        self.assertEqual(summary["abs_diff_total"], 6)
+        self.assertEqual(summary["net_diff"], 0)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_sam_per_bin_detects_blocked_distinct(self):
+        from qa.sam_per_bin import run_sam_per_bin
+
+        report = run_sam_per_bin(env={}, credit_confirmed=False)
+        self.assertEqual(validate_sam_per_bin(report), [])
+        report["distinct_image_count"] = 6
+        problems = validate_sam_per_bin(report)
+        self.assertTrue(any("distinct_image_count" in p for p in problems), problems)
+
+    def test_validate_sam_per_bin_detects_cross_mismatch_with_sam_report(self):
+        from qa.sam_per_bin import run_sam_per_bin
+        from qa.sam_readiness import check_readiness as check_sam
+
+        per_bin = run_sam_per_bin(env={}, credit_confirmed=False)
+        sam_report = check_sam(
+            env={"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"},
+            credit_confirmed=True,
+        )
+        problems = validate_sam_per_bin(per_bin, sam_report=sam_report)
+        self.assertTrue(any("sam per-bin" in p for p in problems), problems)
+
+    def test_validate_sam_per_bin_detects_duplicate_hash_tamper(self):
+        import tempfile
+        from pathlib import Path as _Path
+
+        from qa.sam_per_bin import run_sam_per_bin
+        from terminal.demo_data import DEMO_COUNTED_QTY
+        from terminal.models import CountResult
+
+        class _Counter:
+            def count(self, bin_id, image_ref=None):
+                return CountResult(
+                    bin_id=bin_id,
+                    counted_qty=DEMO_COUNTED_QTY[bin_id],
+                    source="sam",
+                )
+
+        env = {"SAM_API_BASE_URL": "https://example.invalid", "SAM_API_KEY": "fake"}
+        with tempfile.TemporaryDirectory() as tmp:
+            refs = {}
+            for bin_id in ("A-01-01", "A-01-02", "A-02-02",
+                           "A-03-01", "B-01-02", "B-02-02"):
+                path = _Path(tmp) / f"{bin_id}.jpg"
+                path.write_bytes(f"img-{bin_id}".encode("utf-8"))
+                refs[bin_id] = str(path)
+            report = run_sam_per_bin(
+                env=env, credit_confirmed=True, image_refs=refs, counter=_Counter())
+        self.assertEqual(validate_sam_per_bin(report), [])
+        report["bins"][1]["image_sha256"] = report["bins"][0]["image_sha256"]
+        problems = validate_sam_per_bin(report)
+        self.assertTrue(any("distinct" in p for p in problems), problems)
 
     def test_real_root_includes_pi_smoke_check_and_section(self):
         result = run_pre_submission_checks(
@@ -1454,7 +1558,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 25)
+        self.assertEqual(result["total"], 26)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1606,7 +1710,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 25)
+        self.assertEqual(result["total"], 26)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1658,7 +1762,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("final_package_consistent", names)
-        self.assertEqual(result["total"], 25)
+        self.assertEqual(result["total"], 26)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["final_package_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1808,7 +1912,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
 class PackageExportIntegrationTests(unittest.TestCase):
     def test_real_root_includes_package_export_check_and_section(self):
         result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
-        self.assertEqual(result["total"], 25)
+        self.assertEqual(result["total"], 26)
         names = [c.name for c in result["checks"]]
         self.assertIn("package_export_consistent", names)
         by_name = {c.name: c for c in result["checks"]}
