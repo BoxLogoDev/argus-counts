@@ -52,6 +52,10 @@ Pi 폴백 결정(fallback-decision)은 qa.fallback_decision CLI와
 프로세스 내 evaluate_final_package·build_final_package·
 validate_final_package으로만 구동한다(실제로 제출하지 않으며,
 패키지 준비 상태는 제출 완료를 뜻하지 않고, Pi 실촬영 검증 전이다).
+제출 패키지 내보내기(package-export)는 qa.package_export CLI와
+프로세스 내 build_export·validate_export으로만 구동한다(제출물 18개를
+임시 staging 디렉터리로 복사·해시 재대조만 하며 실제로 제출하지 않는다.
+내보내기가 온전해도 제출 가능을 뜻하지 않고, Pi 실촬영 검증 전이다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -65,7 +69,8 @@ difference-report, demo-video-draft, photo-intake, pre-submission,
 pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
-fallback-decision, deadline, final-package, all(전부, 기능별 하위 디렉터리).
+fallback-decision, deadline, final-package, package-export,
+all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -103,7 +108,8 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "console-readiness", "sam-smoke", "pi-smoke",
             "devpost-submission", "file-fallback", "sam-session",
             "pi-session-full", "submission-inventory",
-            "fallback-decision", "deadline", "final-package")
+            "fallback-decision", "deadline", "final-package",
+            "package-export")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -4185,6 +4191,133 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                     "final-package-overdue.json": result_over.stdout})
     return summary
 
+def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.package_export import MANIFEST_NAME, build_export, validate_export
+
+    result = result_j = None
+    exported: dict = {}
+    total_bytes = None
+    validate_problems: list = []
+    tamper_detected = False
+    ready_tamper_detected = False
+    manifest_ok = False
+    with tempfile.TemporaryDirectory() as tmp:
+        staging = Path(tmp) / "pkg-cli"
+        result = run_cli(["-m", "qa.package_export", "--out-dir", str(staging)])
+        ctx.note(f"python3 -m qa.package_export --out-dir <tmp> -> 종료코드 {result.returncode}")
+        if result.returncode != 0:
+            problems.append(
+                f"package_export 종료코드 기대 0, 실제 {result.returncode}: "
+                f"{result.stderr[:200]}")
+        for needle in ("제출물 18/18개 복사", "BLOCKERS: 1",
+                       "pi_real_capture_pending", "SUBMISSION_READY: false",
+                       "실제로 제출하지 않는다", "Pi 실촬영 검증 전",
+                       f"매니페스트: {MANIFEST_NAME}"):
+            if needle not in result.stdout:
+                problems.append(f"package_export 텍스트에 {needle!r} 없음")
+
+        staging_j = Path(tmp) / "pkg-json"
+        result_j = run_cli(["-m", "qa.package_export", "--out-dir",
+                            str(staging_j), "--json"])
+        ctx.note(f"python3 -m qa.package_export --out-dir <tmp> --json "
+                 f"-> 종료코드 {result_j.returncode}")
+        if result_j.returncode != 0:
+            problems.append(
+                f"package_export --json 종료코드 기대 0, 실제 {result_j.returncode}: "
+                f"{result_j.stderr[:200]}")
+        try:
+            exported = json.loads(result_j.stdout)
+        except json.JSONDecodeError as e:
+            problems.append(f"package_export --json 파싱 실패: {e}")
+        if exported:
+            if exported.get("total_files") != INVENTORY_TOTAL_FILES:
+                problems.append(
+                    f"total_files 기대 {INVENTORY_TOTAL_FILES}, 실제 {exported.get('total_files')}")
+            if exported.get("copied_files") != INVENTORY_TOTAL_FILES:
+                problems.append(
+                    f"copied_files 기대 {INVENTORY_TOTAL_FILES}, 실제 {exported.get('copied_files')}")
+            if exported.get("missing") != []:
+                problems.append(f"missing 기대 [], 실제 {exported.get('missing')}")
+            blocker_ids = [b.get("id") for b in exported.get("blockers", [])]
+            if blocker_ids != list(EXPECTED_BLOCKER_IDS):
+                problems.append(f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
+            if exported.get("submission_ready") is not False:
+                problems.append(
+                    f"submission_ready 기대 False, 실제 {exported.get('submission_ready')}")
+            total_bytes = exported.get("total_bytes")
+            copied_sum = sum(f.get("size_bytes") or 0
+                             for f in exported.get("files", []) if f.get("copied"))
+            if total_bytes != copied_sum or not total_bytes:
+                problems.append(f"total_bytes 이상: {total_bytes} != 복사 합 {copied_sum}")
+            joined = " ".join(str(x) for x in exported.get("honesty", []))
+            for marker in ("실제로 제출하지 않는다", "Pi 실촬영 검증 전", "데모 기준"):
+                if marker not in joined:
+                    problems.append(f"honesty에 {marker!r} 없음")
+
+        result_bad = run_cli(["-m", "qa.package_export"])
+        ctx.note(f"python3 -m qa.package_export (인자 없음) -> 종료코드 {result_bad.returncode}")
+        if result_bad.returncode != 2:
+            problems.append(f"인자 없음 종료코드 기대 2, 실제 {result_bad.returncode}")
+
+        staging_in = Path(tmp) / "pkg-inproc"
+        built = build_export(staging_in, ROOT)
+        validate_problems = validate_export(built, staging_in, ROOT)
+        ctx.note(f"validate_export(build_export) -> 문제 {len(validate_problems)}건")
+        if validate_problems:
+            problems.append(f"validate_export 문제: {validate_problems}")
+        manifest_path = staging_in / MANIFEST_NAME
+        manifest_ok = manifest_path.is_file()
+        paths = [f.get("path") for f in built.get("files", [])]
+        if not manifest_ok:
+            problems.append("package-manifest.json이 staging에 없다")
+        if MANIFEST_NAME in paths:
+            problems.append("매니페스트가 복사 대상에 포함됐다(자기 참조)")
+        for entry in built.get("files", []):
+            rel = entry.get("path")
+            dest = staging_in / str(rel)
+            if not dest.is_file():
+                problems.append(f"복사본 파일 없음: {rel}")
+                continue
+            data = dest.read_bytes()
+            if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+                problems.append(f"{rel}: 복사본 sha256이 기록과 다르다")
+            if hashlib.sha256((ROOT / str(rel)).read_bytes()).hexdigest() != entry.get("sha256"):
+                problems.append(f"{rel}: 기록 sha256이 원본과 다르다")
+
+        (staging_in / "README.md").write_bytes(b"tampered")
+        tamper_problems = validate_export(built, staging_in, ROOT)
+        tamper_detected = any("README.md" in p for p in tamper_problems)
+        ctx.note(f"복사본 변조 탐지 -> {tamper_detected}")
+        if not tamper_detected:
+            problems.append("변조 탐지 실패: 복사본 README.md를 바꿔도 문제를 찾지 못했다")
+
+        tampered_ready = copy.deepcopy(built)
+        tampered_ready["submission_ready"] = True
+        ready_tamper_detected = any(
+            "submission_ready" in p
+            for p in validate_export(tampered_ready, staging_in, ROOT))
+        ctx.note(f"submission_ready 변조 탐지 -> {ready_tamper_detected}")
+        if not ready_tamper_detected:
+            problems.append("변조 탐지 실패: submission_ready를 True로 바꿔도 문제를 찾지 못했다")
+
+    summary = {"feature": "package-export",
+               "total_files": exported.get("total_files"),
+               "copied_files": exported.get("copied_files"),
+               "total_bytes": total_bytes,
+               "blockers": [b.get("id") for b in exported.get("blockers", [])],
+               "submission_ready": exported.get("submission_ready"),
+               "validate_problems": validate_problems,
+               "manifest_ok": manifest_ok,
+               "tamper_detected": tamper_detected,
+               "ready_tamper_detected": ready_tamper_detected,
+               "invalid_exit_code": result_bad.returncode,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"package-export.json": result_j.stdout if result_j else "",
+                    "package-export.txt": result.stdout if result else ""})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -4208,7 +4341,8 @@ DRIVERS = {"console-home": drive_console_home,
            "submission-inventory": drive_submission_inventory,
            "fallback-decision": drive_fallback_decision,
            "deadline": drive_deadline,
-           "final-package": drive_final_package}
+           "final-package": drive_final_package,
+           "package-export": drive_package_export}
 
 
 def main(argv: list[str] | None = None) -> int:
