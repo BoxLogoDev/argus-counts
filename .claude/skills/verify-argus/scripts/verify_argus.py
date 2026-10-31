@@ -62,6 +62,11 @@ SAM 실호출 증거 검증(sam-live-evidence)은 qa.sam_live_evidence 하네스
 build_report·validate_report으로만 구동한다(합성한 유효 증거의 내부
 정합·해시 서로 다름·요약 재계산·변조 탐지만 확인하며, 증거 검증 통과는
 실제 빈 촬영이나 Pi 실촬영, 제출 준비 완료를 뜻하지 않는다).
+데모 영상 제출 후보 선택(video-selection)은 qa.video_selection 하네스를
+CLI 날짜 구동과 프로세스 내 evaluate_selection·build_selection·
+validate_selection으로만 구동한다(실제로 제출하지 않으며 선택은 제출
+준비 완료를 뜻하지 않는다. 폴백 영상은 Pi 실촬영이 아니고, Pi 준비
+완료만으로 기본 영상이 실촬영본이 되지는 않는다).
 제출 패키지 내보내기(package-export)는 qa.package_export CLI와
 프로세스 내 build_export·validate_export으로만 구동한다(제출물 18개를
 임시 staging 디렉터리로 복사·해시 재대조만 하며 실제로 제출하지 않는다.
@@ -84,7 +89,7 @@ pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
 fallback-decision, deadline, final-package, package-export,
-sam-per-bin, sam-live-evidence, all(전부, 기능별 하위 디렉터리).
+sam-per-bin, sam-live-evidence, video-selection, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -123,7 +128,8 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "devpost-submission", "file-fallback", "sam-session",
             "pi-session-full", "submission-inventory",
             "fallback-decision", "deadline", "final-package",
-            "package-export", "sam-per-bin", "sam-live-evidence")
+            "package-export", "sam-per-bin", "sam-live-evidence",
+            "video-selection")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -158,6 +164,11 @@ SAM_PERBIN_SENTINEL = "sentinel-perbin-not-real"
 SAM_EVIDENCE_SESSION_ID = "VERIFY-SAM-EVIDENCE-1"
 SAM_EVIDENCE_COUNTED = {"A-01-01": 9, "A-01-02": 3, "A-02-02": 7,
                         "A-03-01": 5, "B-01-02": 6, "B-02-02": 11}
+VIDEO_SELECTION_PENDING_DATE = "2026-11-01"
+VIDEO_SELECTION_DUE_DATE = "2026-11-02"
+VIDEO_SELECTION_READY_DATE = "2026-11-03"
+VIDEO_SELECTION_PRIMARY_SIZE = 1000000
+VIDEO_SELECTION_FALLBACK_SIZE = 1050000
 PI_SMOKE_BIN_ID = "A-01-02"
 PI_SMOKE_FAKE_COUNT = 5
 PI_SMOKE_BOOK_QTY = 8
@@ -5088,6 +5099,185 @@ def drive_sam_live_evidence(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.video_selection import (FALLBACK_VIDEO, PRIMARY_VIDEO,
+                                    build_selection, evaluate_selection,
+                                    validate_selection)
+
+    blockers = list(EXPECTED_PI_READINESS_BLOCKER_IDS)
+
+    result = run_cli(["-m", "qa.video_selection", "--date",
+                      VIDEO_SELECTION_PENDING_DATE])
+    ctx.note(f"python3 -m qa.video_selection --date {VIDEO_SELECTION_PENDING_DATE} "
+             f"-> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(f"video_selection pending 종료코드 기대 0, 실제 {result.returncode}: {result.stderr[:200]}")
+    for needle in ("FALLBACK_STATUS: pending",
+                   f"SELECTED_VIDEO: {PRIMARY_VIDEO}",
+                   "SELECTION_REASON: pending_default",
+                   "SUBMISSION_READY: false", "Pi 실촬영이 아닙니다"):
+        if needle not in result.stdout:
+            problems.append(f"video_selection 텍스트에 {needle!r} 없음")
+
+    result_j = run_cli(["-m", "qa.video_selection", "--date",
+                        VIDEO_SELECTION_PENDING_DATE, "--json"])
+    ctx.note(f"python3 -m qa.video_selection --date {VIDEO_SELECTION_PENDING_DATE} --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(f"video_selection pending --json 종료코드 기대 0, 실제 {result_j.returncode}")
+    pending: dict = {}
+    try:
+        pending = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"pending --json 파싱 실패: {e}")
+    if pending:
+        if pending.get("fallback_status") != "pending":
+            problems.append(f"pending status 기대 pending, 실제 {pending.get('fallback_status')}")
+        if pending.get("selected_video") != PRIMARY_VIDEO:
+            problems.append(f"pending selected 기대 {PRIMARY_VIDEO}, 실제 {pending.get('selected_video')}")
+        if pending.get("selection_reason") != "pending_default":
+            problems.append(f"pending reason 기대 pending_default, 실제 {pending.get('selection_reason')}")
+        if pending.get("submission_ready") is not False:
+            problems.append("pending submission_ready는 False여야 한다")
+        if list(pending.get("pi_blockers") or []) != blockers:
+            problems.append(f"pending pi_blockers 기대 {blockers}, 실제 {pending.get('pi_blockers')}")
+        if not (isinstance(pending.get("primary_size"), int) and pending["primary_size"] > 0):
+            problems.append(f"pending primary_size 이상: {pending.get('primary_size')}")
+        if not (isinstance(pending.get("fallback_size"), int) and pending["fallback_size"] > 0):
+            problems.append(f"pending fallback_size 이상: {pending.get('fallback_size')}")
+        joined = " ".join(str(x) for x in pending.get("honesty", []))
+        for marker in ("실제로 제출하지 않는다", "제출 준비 완료를 뜻하지 않는다",
+                       "Pi 실촬영이 아닙니다", "실촬영본이 되지는 않는다"):
+            if marker not in joined:
+                problems.append(f"pending honesty에 {marker!r} 없음")
+
+    result_due = run_cli(["-m", "qa.video_selection", "--date",
+                          VIDEO_SELECTION_DUE_DATE, "--json"])
+    ctx.note(f"python3 -m qa.video_selection --date {VIDEO_SELECTION_DUE_DATE} --json -> 종료코드 {result_due.returncode} (가정 날짜 구동)")
+    if result_due.returncode != 0:
+        problems.append(f"video_selection due --json 종료코드 기대 0, 실제 {result_due.returncode}")
+    due: dict = {}
+    try:
+        due = json.loads(result_due.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"due --json 파싱 실패: {e}")
+    if due:
+        if due.get("fallback_status") != "fallback_due":
+            problems.append(f"due status 기대 fallback_due, 실제 {due.get('fallback_status')}")
+        if due.get("selected_video") != FALLBACK_VIDEO:
+            problems.append(f"due selected 기대 {FALLBACK_VIDEO}, 실제 {due.get('selected_video')}")
+        if due.get("fallback_adopted") is not True:
+            problems.append(f"due fallback_adopted 기대 True, 실제 {due.get('fallback_adopted')}")
+        if due.get("selection_reason") != "fallback_due":
+            problems.append(f"due reason 기대 fallback_due, 실제 {due.get('selection_reason')}")
+
+    result_bad = run_cli(["-m", "qa.video_selection", "--date", "not-a-date"])
+    ctx.note(f"python3 -m qa.video_selection --date not-a-date -> 종료코드 {result_bad.returncode}")
+    if result_bad.returncode != 2:
+        problems.append(f"잘못된 날짜 종료코드 기대 2, 실제 {result_bad.returncode}")
+
+    # In-process evaluate / validate
+    ev_pending = ev_due = ev_ready = {}
+    try:
+        ev_pending = evaluate_selection(VIDEO_SELECTION_PENDING_DATE, False, blockers,
+                                        VIDEO_SELECTION_PRIMARY_SIZE, VIDEO_SELECTION_FALLBACK_SIZE)
+        ev_due = evaluate_selection(VIDEO_SELECTION_DUE_DATE, False, blockers,
+                                    VIDEO_SELECTION_PRIMARY_SIZE, VIDEO_SELECTION_FALLBACK_SIZE)
+        ev_ready = evaluate_selection(VIDEO_SELECTION_READY_DATE, True, [],
+                                      VIDEO_SELECTION_PRIMARY_SIZE, VIDEO_SELECTION_FALLBACK_SIZE)
+        for label, rep_ in (("pending", ev_pending), ("due", ev_due), ("ready", ev_ready)):
+            v = validate_selection(rep_)
+            if v:
+                problems.append(f"validate_selection {label} 문제: {v}")
+            if rep_.get("problems") != []:
+                problems.append(f"evaluate {label} problems 기대 [], 실제 {rep_.get('problems')}")
+        if ev_pending.get("selected_video") != PRIMARY_VIDEO or ev_pending.get("selection_reason") != "pending_default":
+            problems.append(f"evaluate pending 선택 이상: {ev_pending}")
+        if ev_due.get("selected_video") != FALLBACK_VIDEO or ev_due.get("fallback_adopted") is not True:
+            problems.append(f"evaluate due 선택 이상: {ev_due}")
+        if ev_ready.get("fallback_status") != "pi_ready" or ev_ready.get("selected_video") != PRIMARY_VIDEO:
+            problems.append(f"evaluate ready 선택 이상: {ev_ready}")
+    except Exception as e:
+        problems.append(f"evaluate_selection 실패: {type(e).__name__}: {e}")
+
+    # build_selection with probes
+    built_pending: dict = {}
+    built_ready: dict = {}
+    try:
+        built_pending = build_selection(today=VIDEO_SELECTION_PENDING_DATE,
+                                        pi_probe=PI_READINESS_MISSING_PROBE)
+        built_ready = build_selection(today=VIDEO_SELECTION_DUE_DATE,
+                                      pi_probe=PI_READINESS_READY_PROBE,
+                                      device_confirmed=True)
+    except Exception as e:
+        problems.append(f"build_selection 실패: {type(e).__name__}: {e}")
+    if built_pending:
+        ctx.note(f"build_selection missing probe -> status={built_pending.get('fallback_status')} selected={built_pending.get('selected_video')}")
+        if built_pending.get("fallback_status") != "pending" or built_pending.get("selected_video") != PRIMARY_VIDEO:
+            problems.append(f"build pending 이상: {built_pending}")
+        if validate_selection(built_pending) != []:
+            problems.append(f"build pending validate 문제: {validate_selection(built_pending)}")
+    if built_ready:
+        ctx.note(f"build_selection ready probe -> status={built_ready.get('fallback_status')} selected={built_ready.get('selected_video')}")
+        if built_ready.get("fallback_status") != "pi_ready" or built_ready.get("selected_video") != PRIMARY_VIDEO:
+            problems.append(f"build ready 이상: {built_ready}")
+
+    # Missing selected detection
+    missing_detected = False
+    try:
+        miss = evaluate_selection(VIDEO_SELECTION_DUE_DATE, False, blockers,
+                                  VIDEO_SELECTION_PRIMARY_SIZE, None)
+        missing_detected = any(FALLBACK_VIDEO in p for p in (miss.get("problems") or []))
+    except Exception as e:
+        problems.append(f"missing 구동 실패: {type(e).__name__}: {e}")
+    ctx.note(f"영상 선택 missing 탐지 -> {missing_detected}")
+    if not missing_detected:
+        problems.append("missing 탐지 실패: 폴백 크기 None인데 문제를 찾지 못했다")
+
+    # Tamper detection
+    tamper_parts = {}
+    try:
+        base = evaluate_selection(VIDEO_SELECTION_PENDING_DATE, False, blockers,
+                                  VIDEO_SELECTION_PRIMARY_SIZE, VIDEO_SELECTION_FALLBACK_SIZE)
+        t1 = dict(base, selected_video=FALLBACK_VIDEO)
+        tamper_parts["selected_video"] = any("selected_video" in p for p in validate_selection(t1))
+        t2 = dict(base, submission_ready=True)
+        tamper_parts["submission_ready"] = any("submission_ready" in p for p in validate_selection(t2))
+        t3 = dict(base, fallback_status="fallback_due")
+        tamper_parts["fallback_status"] = any("fallback_status" in p for p in validate_selection(t3))
+        t4 = dict(base, honesty=["선택은 실제로 제출하지 않는다"])
+        tamper_parts["honesty"] = any("honesty" in p for p in validate_selection(t4))
+    except Exception as e:
+        problems.append(f"변조 탐지 구동 실패: {type(e).__name__}: {e}")
+    tamper_detected = bool(tamper_parts) and all(tamper_parts.values())
+    ctx.note(f"영상 선택 변조 탐지 -> {tamper_parts}")
+    if not tamper_detected:
+        problems.append(f"변조 탐지 실패: {tamper_parts}")
+
+    summary = {"feature": "video-selection",
+               "pending_status": pending.get("fallback_status"),
+               "due_status": due.get("fallback_status"),
+               "ready_status": ev_ready.get("fallback_status"),
+               "pending_selected": pending.get("selected_video"),
+               "due_selected": due.get("selected_video"),
+               "ready_selected": ev_ready.get("selected_video"),
+               "pending_reason": pending.get("selection_reason"),
+               "due_reason": due.get("selection_reason"),
+               "pending_primary_size": pending.get("primary_size"),
+               "pending_fallback_size": pending.get("fallback_size"),
+               "submission_ready": pending.get("submission_ready"),
+               "tamper_detected": tamper_detected,
+               "tamper_parts": tamper_parts,
+               "missing_detected": missing_detected,
+               "invalid_exit_code": result_bad.returncode,
+               "pending_exit_code": result.returncode,
+               "due_exit_code": result_due.returncode,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"video-selection-pending.json": result_j.stdout,
+                    "video-selection-due.json": result_due.stdout})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -5114,7 +5304,8 @@ DRIVERS = {"console-home": drive_console_home,
            "final-package": drive_final_package,
            "package-export": drive_package_export,
            "sam-per-bin": drive_sam_per_bin,
-           "sam-live-evidence": drive_sam_live_evidence}
+           "sam-live-evidence": drive_sam_live_evidence,
+           "video-selection": drive_video_selection}
 
 
 def main(argv: list[str] | None = None) -> int:
