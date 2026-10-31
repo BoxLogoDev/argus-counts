@@ -677,6 +677,56 @@ class HelperRunTests(unittest.TestCase):
                              payload["readiness"]["submission_inventory"]["total_bytes"])
             self.assertFalse(summary["submission_ready"])
 
+    def test_pre_submission_sam_per_bin_attempted_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-perbin-attempted"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertFalse(summary["readiness_sam_per_bin_attempted"])
+            self.assertEqual(summary["readiness_sam_per_bin_attempted"],
+                             payload["readiness"]["sam_per_bin"]["attempted"])
+            self.assertEqual(summary["readiness_sam_per_bin_attempted"],
+                             payload["readiness"]["sam_session"]["attempted"])
+            self.assertEqual(summary["readiness_sam_per_bin_attempted"],
+                             payload["readiness"]["smoke"]["attempted"])
+
+    def test_pre_submission_sam_per_bin_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-perbin-cross"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertIsNone(summary["readiness_sam_per_bin_source"])
+            self.assertEqual(summary["readiness_sam_per_bin_source"],
+                             payload["readiness"]["sam_session"]["source"])
+            self.assertIsNone(summary["readiness_sam_per_bin_summary"])
+            self.assertIsNone(summary["readiness_sam_per_bin_error_type"])
+            self.assertEqual(summary["readiness_sam_per_bin_bins_count"], 0)
+            self.assertEqual(summary["readiness_sam_per_bin_bins_count"],
+                             summary["readiness_sam_per_bin_distinct_image_count"])
+
+    def test_pre_submission_sam_per_bin_ready_and_session_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-perbin-ready"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertFalse(summary["readiness_sam_per_bin_ready_for_live_call"])
+            self.assertEqual(summary["readiness_sam_per_bin_session_id"],
+                             "PRE-SUBMISSION-SAM-PERBIN")
+            self.assertFalse(summary["submission_ready"])
+
     def test_demo_video_drives_and_records_data_panel(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-video-panel"

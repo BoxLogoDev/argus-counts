@@ -966,21 +966,58 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         perbin_status = perbin_r.get("status")
         perbin_rb = [b["id"] for b in perbin_r.get("blockers", [])]
         perbin_distinct = perbin_r.get("distinct_image_count")
+        perbin_attempted = perbin_r.get("attempted")
+        perbin_source = perbin_r.get("source")
+        perbin_summary = perbin_r.get("summary")
+        perbin_error_type = perbin_r.get("error_type")
+        _perbin_bins = perbin_r.get("bins")
+        perbin_bins_count = len(_perbin_bins) if isinstance(_perbin_bins, list) else None
+        perbin_ready = perbin_r.get("ready_for_live_call")
+        perbin_session_id = perbin_r.get("session_id")
         if perbin_status != "blocked":
             problems.append(f"readiness sam_per_bin status 기대 blocked, 실제 {perbin_status}")
         if perbin_r.get("attempted") is not False:
             problems.append(
                 f"readiness sam_per_bin attempted 기대 False, 실제 {perbin_r.get('attempted')}")
+        if perbin_attempted != session_r.get("attempted"):
+            problems.append(
+                f"readiness sam_per_bin attempted가 sam_session attempted와 다르다: {perbin_attempted} != {session_r.get('attempted')}")
+        if perbin_attempted != smoke_r.get("attempted"):
+            problems.append(
+                f"readiness sam_per_bin attempted가 sam_smoke attempted와 다르다: {perbin_attempted} != {smoke_r.get('attempted')}")
         if perbin_rb != sam_rb:
             problems.append(
                 f"readiness sam_per_bin blockers가 sam 블로커와 다르다: {perbin_rb}")
         if perbin_r.get("source") is not None:
             problems.append(f"readiness sam_per_bin source 기대 None, 실제 {perbin_r.get('source')}")
+        if perbin_source != session_r.get("source"):
+            problems.append(
+                f"readiness sam_per_bin source가 sam_session source와 다르다: {perbin_source} != {session_r.get('source')}")
         if perbin_r.get("summary") is not None:
             problems.append(f"readiness sam_per_bin summary 기대 None, 실제 {perbin_r.get('summary')}")
+        if perbin_summary != session_r.get("summary"):
+            problems.append(
+                f"readiness sam_per_bin summary가 sam_session summary와 다르다: {perbin_summary} != {session_r.get('summary')}")
         if perbin_distinct != 0:
             problems.append(
                 f"readiness sam_per_bin distinct_image_count 기대 0, 실제 {perbin_distinct}")
+        if perbin_error_type is not None:
+            problems.append(f"readiness sam_per_bin error_type 기대 None, 실제 {perbin_error_type}")
+        if perbin_bins_count != 0:
+            problems.append(
+                f"readiness sam_per_bin bins 개수 기대 0, 실제 {perbin_bins_count}")
+        if perbin_bins_count != perbin_distinct:
+            problems.append(
+                f"readiness sam_per_bin bins 개수가 distinct_image_count와 다르다: {perbin_bins_count} != {perbin_distinct}")
+        if perbin_ready is not False:
+            problems.append(
+                f"readiness sam_per_bin ready_for_live_call 기대 False, 실제 {perbin_ready}")
+        if perbin_ready != sam_r.get("ready_for_live_call"):
+            problems.append(
+                f"readiness sam_per_bin ready_for_live_call가 sam ready와 다르다: {perbin_ready} != {sam_r.get('ready_for_live_call')}")
+        if perbin_session_id != "PRE-SUBMISSION-SAM-PERBIN":
+            problems.append(
+                f"readiness sam_per_bin session_id 기대 PRE-SUBMISSION-SAM-PERBIN, 실제 {perbin_session_id}")
         pi_smoke_r = readiness.get("pi_smoke") or {}
         pi_smoke_status = pi_smoke_r.get("status")
         pi_smoke_rb = [b["id"] for b in pi_smoke_r.get("blockers", [])]
@@ -1241,6 +1278,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         smoke_status, smoke_rb = None, []
         session_status, session_rb = None, []
         perbin_status, perbin_rb, perbin_distinct = None, [], None
+        perbin_attempted, perbin_source, perbin_summary = None, None, None
+        perbin_error_type, perbin_bins_count = None, None
+        perbin_ready, perbin_session_id = None, None
         pi_smoke_status, pi_smoke_rb = None, []
         pi_session_status, pi_session_rb = None, []
         devpost_sc, devpost_rb = None, []
@@ -1279,6 +1319,13 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_sam_per_bin_status": perbin_status,
                "readiness_sam_per_bin_blockers": perbin_rb,
                "readiness_sam_per_bin_distinct_image_count": perbin_distinct,
+               "readiness_sam_per_bin_attempted": perbin_attempted,
+               "readiness_sam_per_bin_source": perbin_source,
+               "readiness_sam_per_bin_summary": perbin_summary,
+               "readiness_sam_per_bin_error_type": perbin_error_type,
+               "readiness_sam_per_bin_bins_count": perbin_bins_count,
+               "readiness_sam_per_bin_ready_for_live_call": perbin_ready,
+               "readiness_sam_per_bin_session_id": perbin_session_id,
                "readiness_pi_smoke_status": pi_smoke_status,
                "readiness_pi_smoke_blockers": pi_smoke_rb,
                "readiness_pi_session_status": pi_session_status,
