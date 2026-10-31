@@ -16,7 +16,10 @@ SUBMISSION_READY: false다. Pi 실촬영 검증 전이며, 데모 컷 3은
 
 실행: 프로젝트 루트에서 `python3 -m qa.package_export --out-dir <경로>`
 `--json`을 주면 같은 내용을 JSON으로 출력한다.
-종료코드: 검증 통과 0, 검증 실패 1, 인자 오류 2(argparse).
+이미 내보낸 staging은 `python3 -m qa.package_export --verify-dir <경로>`로
+매니페스트(package-manifest.json)만 읽어 읽기 전용으로 재검증할 수 있다 —
+재내보내기로 원본 staging을 덮지 않고 복사본을 다시 대조하는 경로다.
+종료코드: 검증 통과 0, 검증 실패 1, 인자 오류·매니페스트 없음 2(argparse 포함).
 """
 from __future__ import annotations
 
@@ -191,6 +194,61 @@ def validate_export(export, out_dir=None, source_root: Path | None = None) -> li
     return problems
 
 
+def verify_export_dir(out_dir, source_root: Path | None = None):
+    """기존 staging 디렉터리를 매니페스트만으로 읽기 전용 재검증한다.
+
+    반환값은 (export, problems)다. 매니페스트가 없거나 JSON이 아니거나
+    dict가 아니면 예외를 내지 않고 (None, [문제])를 돌려준다.
+    매니페스트에 기록된 out_dir 문자열이 현재 경로와 달라도(이동된
+    staging) 그 자체는 문제로 보지 않는다 — 파일 대조는 인자로 받은
+    out_dir 기준으로만 한다. 이 함수는 어떤 파일도 쓰지 않는다.
+    """
+    out = Path(out_dir)
+    manifest_path = out / MANIFEST_NAME
+    if not manifest_path.is_file():
+        return None, [f"manifest missing: {MANIFEST_NAME} not found in {out}"]
+    try:
+        export = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return None, [f"manifest unreadable: {MANIFEST_NAME}: {type(exc).__name__}"]
+    if not isinstance(export, dict):
+        return None, [f"manifest is not a dict: {type(export).__name__}"]
+    problems = validate_export(export, out, source_root)
+    return export, problems
+
+
+def build_verify_text(export, problems, out_dir) -> str:
+    lines = [
+        "Argus 제출 패키지 재검증",
+        f"검증 디렉터리: {out_dir}",
+    ]
+    if export is None:
+        lines.append("매니페스트를 읽지 못했습니다")
+    else:
+        lines.append(
+            f"제출물 {export.get('copied_files')}/{export.get('total_files')}개 복사 · "
+            f"합계 {export.get('total_bytes')}바이트"
+        )
+        lines.append(f"매니페스트: {MANIFEST_NAME}")
+        blocker_ids = [
+            b.get("id") if isinstance(b, dict) else None
+            for b in (export.get("blockers") or [])
+        ]
+        lines.append(f"BLOCKERS: {len(blocker_ids)}")
+        for blocker_id in blocker_ids:
+            lines.append(f"- {blocker_id}")
+    lines.append(f"VERIFIED: {str(not problems).lower()}")
+    if problems:
+        lines.append(f"PROBLEMS: {len(problems)}")
+        for problem in problems:
+            lines.append(f"- {problem}")
+    lines.append("SUBMISSION_READY: false")
+    lines.append("- 재검증은 파일을 복사하거나 수정하지 않는다")
+    lines.append("- 재검증은 실제로 제출하지 않는다")
+    lines.append("- Pi 실촬영 검증 전")
+    return "\n".join(lines) + "\n"
+
+
 def build_export_text(export: dict) -> str:
     lines = [
         str(export["title"]),
@@ -221,9 +279,27 @@ def build_export_text(export: dict) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Argus 제출 패키지 내보내기")
-    parser.add_argument("--out-dir", required=True)
+    parser.add_argument("--out-dir")
+    parser.add_argument("--verify-dir")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if bool(args.out_dir) == bool(args.verify_dir):
+        parser.error("--out-dir와 --verify-dir 중 정확히 하나만 지정해야 합니다")
+
+    if args.verify_dir:
+        export, problems = verify_export_dir(args.verify_dir)
+        if args.json:
+            payload = {
+                "verified": export is not None and not problems,
+                "problems": problems,
+                "export": export,
+            }
+            sys.stdout.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+        else:
+            sys.stdout.write(build_verify_text(export, problems, args.verify_dir))
+        if export is None:
+            return 2
+        return 0 if not problems else 1
 
     export = build_export(args.out_dir)
     problems = validate_export(export, args.out_dir)
