@@ -836,7 +836,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 27/27 mechanical passed", "BLOCKERS: 1",
+    for needle in ("PRE_SUBMISSION: 28/28 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -851,10 +851,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 27:
-            problems.append(f"passed 기대 27, 실제 {report.get('passed')}")
-        if report.get("total") != 27:
-            problems.append(f"total 기대 27, 실제 {report.get('total')}")
+        if report.get("passed") != 28:
+            problems.append(f"passed 기대 28, 실제 {report.get('passed')}")
+        if report.get("total") != 28:
+            problems.append(f"total 기대 28, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -867,8 +867,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 27:
-            problems.append(f"checks 기대 27, 실제 {len(checks)}")
+        if len(checks) != 28:
+            problems.append(f"checks 기대 28, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
@@ -902,6 +902,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 submission_inventory_consistent 없음")
         if "fallback_decision_consistent" not in check_names:
             problems.append("checks에 fallback_decision_consistent 없음")
+        if "video_selection_consistent" not in check_names:
+            problems.append("checks에 video_selection_consistent 없음")
         if "deadline_consistent" not in check_names:
             problems.append("checks에 deadline_consistent 없음")
         if "final_package_consistent" not in check_names:
@@ -1201,6 +1203,30 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness fallback_decision status/adopted 쌍이 어긋난다: {fd_status}/{fd_adopted}")
         if fd_r.get("fallback_asset") != "demo/assets/fallback.json":
             problems.append(f"readiness fallback_decision fallback_asset 기대 demo/assets/fallback.json, 실제 {fd_r.get('fallback_asset')}")
+        vs_r = readiness.get("video_selection") or {}
+        vs_status = vs_r.get("fallback_status")
+        vs_selected = vs_r.get("selected_video")
+        vs_reason = vs_r.get("selection_reason")
+        vs_selected_size = vs_r.get("selected_size")
+        vs_submission_ready = vs_r.get("submission_ready")
+        if vs_status != fd_status:
+            problems.append(f"readiness video_selection fallback_status가 fallback_decision status와 다르다: {vs_status} != {fd_status}")
+        if vs_r.get("fallback_adopted") != fd_adopted:
+            problems.append(f"readiness video_selection fallback_adopted가 fallback_decision과 다르다: {vs_r.get('fallback_adopted')} != {fd_adopted}")
+        if vs_r.get("pi_blockers") != pi_rb:
+            problems.append(f"readiness video_selection pi_blockers가 pi 블로커와 다르다: {vs_r.get('pi_blockers')}")
+        if vs_r.get("pi_ready") is not False:
+            problems.append(f"readiness video_selection pi_ready 기대 False, 실제 {vs_r.get('pi_ready')}")
+        if vs_selected not in ("demo/assets/argus-demo-draft.mp4", "demo/assets/argus-demo-fallback-draft.mp4"):
+            problems.append(f"readiness video_selection selected_video 기대 두 후보 중 하나, 실제 {vs_selected}")
+        if (vs_status, vs_reason) not in (("pending", "pending_default"), ("fallback_due", "fallback_due"), ("pi_ready", "pi_ready")):
+            problems.append(f"readiness video_selection status/reason 쌍이 어긋난다: {vs_status}/{vs_reason}")
+        if not isinstance(vs_selected_size, int) or isinstance(vs_selected_size, bool) or vs_selected_size <= 0:
+            problems.append(f"readiness video_selection selected_size 기대 양의 int, 실제 {vs_selected_size}")
+        if vs_r.get("problems") != []:
+            problems.append(f"readiness video_selection problems 기대 [], 실제 {vs_r.get('problems')}")
+        if vs_submission_ready is not False:
+            problems.append(f"readiness video_selection submission_ready 기대 False, 실제 {vs_submission_ready}")
         dl_r = readiness.get("deadline") or {}
         dl_status = dl_r.get("status")
         dl_rb = dl_r.get("blockers")
@@ -1338,6 +1364,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fb_cut, fb_source = None, None
         inv_total, inv_present, inv_rb = None, None, []
         fd_status, fd_pi_rb, fd_adopted, fd_dd = None, [], None, None
+        vs_status, vs_selected, vs_reason = None, None, None
+        vs_selected_size, vs_submission_ready = None, None
         dl_status, dl_rb, dl_kst = None, [], None
         fp_status, fp_rb = None, []
         fp_inv_present, fp_inv_total = None, None
@@ -1424,6 +1452,11 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_package_export_verify_verified": pkg_verify_verified,
                "readiness_package_export_verify_copied_files": pkg_verify_copied,
                "readiness_package_export_verify_total_bytes": pkg_verify_bytes,
+               "readiness_video_selection_status": vs_status,
+               "readiness_video_selection_selected_video": vs_selected,
+               "readiness_video_selection_reason": vs_reason,
+               "readiness_video_selection_selected_size": vs_selected_size,
+               "readiness_video_selection_submission_ready": vs_submission_ready,
                "readiness_deadline_status": dl_status,
                "readiness_deadline_blockers": dl_rb,
                "readiness_deadline_kst": dl_kst,

@@ -26,7 +26,7 @@ Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
 정합, README(README.md) 원문이 전수 점검 블로커와 어긋나지
 않는지의 정합, 제출물 인벤토리(qa.submission_inventory) 보고가 전수 점검
 블로커와 어긋나지 않는지의 정합, 폴백 결정(qa.fallback_decision) 보고가
-Pi 준비 점검 보고와 어긋나지 않는지의 정합, 파일 입력 폴백 자산(demo/assets/fallback.json)이
+Pi 준비 점검 보고와 어긋나지 않는지의 정합, 데모 영상 제출 후보 선택(qa.video_selection) 보고가 폴백 결정·Pi 준비 점검 보고와 어긋나지 않는지의 정합(선택 파일 존재·크기 대조를 포함한다), 파일 입력 폴백 자산(demo/assets/fallback.json)이
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 제출 마감 점검(qa.deadline) 보고가 전수 점검 블로커와
 어긋나지 않는지의 정합, 제출 패키지 최종 묶음(qa.final_package) 보고가
@@ -40,7 +40,7 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
 필수로 검사하는 것을 포함한다),
 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 27종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 28종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -50,6 +50,7 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 인벤토리 정합은 제출물 파일을 다시 읽어 해시·크기를 대조만 하며 실제로 제출하지 않는다.
 폴백 정합은 저장된 JSON 자산을 읽어 대조만 하며 Pi 실촬영으로 주장하지 않는다.
 폴백 결정 정합은 날짜·준비 상태 판정만 대조하며 실제 촬영을 하지 않는다.
+영상 선택 정합은 폴백 결정·Pi 준비 점검 보고와 선택 파일 크기만 대조하며 실제로 제출하지 않는다. 선택은 제출 준비 완료를 뜻하지 않고 폴백 영상은 Pi 실촬영이 아니다.
 마감 정합은 남은 시간 계산·상태 판정만 대조하며 실제로 제출하지 않는다.
 마감 전이어도 제출 준비 완료를 뜻하지 않는다.
 최종 묶음 정합은 세 보고를 모아 만든 묶음 보고를 대조만 하며 실제로 제출하지 않는다.
@@ -131,6 +132,8 @@ from qa.final_package import validate_final_package as _validate_fp
 from qa.package_export import build_export as _build_pkg_export
 from qa.package_export import validate_export as _validate_pkg_export
 from qa.package_export import verify_export_dir as _verify_pkg_export_dir
+from qa.video_selection import build_selection as _build_vs
+from qa.video_selection import validate_selection as _validate_vs
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -3460,6 +3463,107 @@ def _check_fallback_decision(
     )
     return PreSubmissionCheck(name, True, detail), report
 
+def validate_video_selection_report(report, pi_report=None, decision_report=None, blockers=None) -> list[str]:
+    """영상 선택 보고가 내부적으로, 그리고 Pi 준비·폴백 결정 보고와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"video selection: report is not a dict: {report!r}"]
+    required = (
+        "date",
+        "decision_date",
+        "pi_ready",
+        "pi_blockers",
+        "fallback_status",
+        "fallback_adopted",
+        "selected_video",
+        "selection_reason",
+        "primary_size",
+        "fallback_size",
+        "selected_size",
+        "submission_ready",
+        "problems",
+        "honesty",
+    )
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"video selection: missing required keys: {missing}")
+        return problems
+    if report["decision_date"] != FB_DECISION_DATE:
+        problems.append(
+            f"video selection: decision_date={report['decision_date']!r} != {FB_DECISION_DATE!r}"
+        )
+    if report["submission_ready"] is not False:
+        problems.append("video selection: submission_ready is not False")
+    if report["problems"]:
+        problems.append(f"video selection: problems is not empty: {report['problems']!r}")
+    try:
+        for problem in _validate_vs(report):
+            problems.append(f"video selection: {problem}")
+    except Exception as exc:
+        problems.append(f"video selection: validate_selection raised: {exc!r}")
+    if isinstance(pi_report, dict):
+        if "ready_for_real_capture" in pi_report:
+            if bool(report["pi_ready"]) != bool(pi_report["ready_for_real_capture"]):
+                problems.append(
+                    f"video selection: pi_ready={report['pi_ready']!r} "
+                    f"!= pi readiness ready_for_real_capture="
+                    f"{pi_report['ready_for_real_capture']!r}"
+                )
+        if isinstance(pi_report.get("blockers"), (list, tuple)):
+            pi_ids = _readiness_blocker_ids(
+                pi_report["blockers"], problems, "pi readiness"
+            )
+            if list(report["pi_blockers"]) != pi_ids:
+                problems.append(
+                    f"video selection: pi_blockers {list(report['pi_blockers'])} != "
+                    f"pi readiness blocker ids {pi_ids}"
+                )
+    if isinstance(decision_report, dict):
+        if "date" in decision_report and report["date"] != decision_report["date"]:
+            problems.append(
+                f"video selection: date={report['date']!r} != "
+                f"fallback decision date={decision_report['date']!r}"
+            )
+        if "status" in decision_report and report["fallback_status"] != decision_report["status"]:
+            problems.append(
+                f"video selection: fallback_status={report['fallback_status']!r} != "
+                f"fallback decision status={decision_report['status']!r}"
+            )
+        if "fallback_adopted" in decision_report and bool(report["fallback_adopted"]) != bool(decision_report["fallback_adopted"]):
+            problems.append(
+                f"video selection: fallback_adopted={report['fallback_adopted']!r} != "
+                f"fallback decision fallback_adopted={decision_report['fallback_adopted']!r}"
+            )
+    _check_honesty(report, problems, "video selection", "실제로 제출하지 않는다")
+    _check_honesty(report, problems, "video selection", "제출 준비 완료를 뜻하지 않는다")
+    _check_honesty(report, problems, "video selection", "Pi 실촬영이 아닙니다")
+    _check_honesty(report, problems, "video selection", "실촬영본이 되지는 않는다")
+    return problems
+
+
+def _check_video_selection(root, pi_probe=None, pi_device_confirmed=False, pi_which=None, pi_report=None, decision_report=None):
+    name = "video_selection_consistent"
+    today = decision_report.get("date") if isinstance(decision_report, dict) else None
+    try:
+        report = _build_vs(
+            root=Path(root), today=today, pi_probe=pi_probe,
+            device_confirmed=pi_device_confirmed, which=pi_which)
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = validate_video_selection_report(
+        report, pi_report=pi_report, decision_report=decision_report)
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"fallback_status={report['fallback_status']} "
+        f"selected_video={report['selected_video']} "
+        f"selection_reason={report['selection_reason']} "
+        f"selected_size={report['selected_size']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
 def validate_deadline_report(report, blockers=None) -> list[str]:
     """제출 마감 점검 보고가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
     if blockers is None:
@@ -3992,6 +4096,16 @@ def run_pre_submission_checks(
     )
     checks.append(decision_check)
 
+    vs_check, vs_report = _check_video_selection(
+        root,
+        pi_probe=pi_probe,
+        pi_device_confirmed=pi_device_confirmed,
+        pi_which=pi_which,
+        pi_report=pi_report,
+        decision_report=decision_report,
+    )
+    checks.append(vs_check)
+
     deadline_check, deadline_report = _check_deadline(deadline_now=deadline_now)
     checks.append(deadline_check)
 
@@ -4050,6 +4164,7 @@ def run_pre_submission_checks(
             "fallback": fallback_report,
             "submission_inventory": inventory_report,
             "fallback_decision": decision_report,
+            "video_selection": vs_report,
             "deadline": deadline_report,
             "final_package": fp_report,
             "package_export": pkg_report,

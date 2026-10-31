@@ -56,6 +56,7 @@ from qa.pre_submission import (
     validate_sam_per_bin,
     validate_sam_live_evidence_report,
     build_synthetic_sam_evidence,
+    validate_video_selection_report,
 )
 
 MISSING_PI_PROBE = {
@@ -628,7 +629,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 27)
+        self.assertEqual(result["total"], 28)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -742,7 +743,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 27)
+            self.assertEqual(result["total"], 28)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1600,7 +1601,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 27)
+        self.assertEqual(result["total"], 28)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1644,7 +1645,7 @@ class SamLiveEvidenceIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T03:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("sam_live_evidence_consistent", names)
-        self.assertEqual(result["total"], 27)
+        self.assertEqual(result["total"], 28)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["sam_live_evidence_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1812,6 +1813,79 @@ class FallbackDecisionIntegrationTests(unittest.TestCase):
         self.assertTrue(any("fallback_adopted" in x for x in problems), problems)
 
 
+class VideoSelectionIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_video_selection_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE,
+            deadline_now="2026-11-01T06:50:00+09:00")
+        names = [c.name for c in result["checks"]]
+        self.assertIn("video_selection_consistent", names)
+        self.assertEqual(result["total"], 28)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["video_selection_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("selected_video=", check.detail)
+        vs = result["readiness"]["video_selection"]
+        decision = result["readiness"]["fallback_decision"]
+        self.assertEqual(vs["fallback_status"], decision["status"])
+        self.assertEqual(vs["fallback_adopted"], decision["fallback_adopted"])
+        self.assertEqual(vs["date"], decision["date"])
+        self.assertEqual(
+            vs["pi_blockers"],
+            ["pi_device_arrival_not_confirmed", "pi_camera_command_missing"])
+        self.assertIn(vs["selected_video"], (
+            "demo/assets/argus-demo-draft.mp4",
+            "demo/assets/argus-demo-fallback-draft.mp4"))
+        self.assertGreater(vs["selected_size"], 0)
+        self.assertEqual(vs["problems"], [])
+        self.assertIs(vs["submission_ready"], False)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_video_selection_report_accepts_built_report(self):
+        from qa.video_selection import build_selection
+
+        report = build_selection(
+            ROOT, today="2026-11-01", pi_probe=MISSING_PI_PROBE)
+        self.assertEqual(report["fallback_status"], "pending")
+        self.assertEqual(report["selection_reason"], "pending_default")
+        self.assertEqual(validate_video_selection_report(report), [])
+
+    def test_validate_video_selection_report_detects_selected_video_tamper(self):
+        from qa.video_selection import build_selection
+
+        report = build_selection(
+            ROOT, today="2026-11-01", pi_probe=MISSING_PI_PROBE)
+        report["selected_video"] = "demo/assets/argus-demo-fallback-draft.mp4"
+        problems = validate_video_selection_report(report)
+        self.assertTrue(any("selected_video" in x for x in problems), problems)
+
+    def test_validate_video_selection_report_detects_submission_ready_tamper(self):
+        from qa.video_selection import build_selection
+
+        report = build_selection(
+            ROOT, today="2026-11-01", pi_probe=MISSING_PI_PROBE)
+        report["submission_ready"] = True
+        problems = validate_video_selection_report(report)
+        self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+    def test_validate_video_selection_report_detects_cross_mismatch(self):
+        from qa.fallback_decision import build_decision
+        from qa.pi_readiness import check_readiness as check_pi
+        from qa.video_selection import build_selection
+
+        report = build_selection(
+            ROOT, today="2026-11-01", pi_probe=MISSING_PI_PROBE)
+        ready_report = check_pi(probe=READY_PI_PROBE, device_confirmed=True)
+        problems = validate_video_selection_report(report, pi_report=ready_report)
+        self.assertTrue(
+            any("pi_ready" in x or "pi_blockers" in x for x in problems), problems)
+        decision = build_decision(today="2026-11-02", pi_probe=MISSING_PI_PROBE)
+        self.assertEqual(decision["status"], "fallback_due")
+        problems = validate_video_selection_report(report, decision_report=decision)
+        self.assertTrue(
+            any("fallback_status" in x or "date" in x for x in problems), problems)
+
+
 class DeadlineIntegrationTests(unittest.TestCase):
     def test_real_root_includes_deadline_check_and_section(self):
         result = run_pre_submission_checks(
@@ -1819,7 +1893,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 27)
+        self.assertEqual(result["total"], 28)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1871,7 +1945,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("final_package_consistent", names)
-        self.assertEqual(result["total"], 27)
+        self.assertEqual(result["total"], 28)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["final_package_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2021,7 +2095,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
 class PackageExportIntegrationTests(unittest.TestCase):
     def test_real_root_includes_package_export_check_and_section(self):
         result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
-        self.assertEqual(result["total"], 27)
+        self.assertEqual(result["total"], 28)
         names = [c.name for c in result["checks"]]
         self.assertIn("package_export_consistent", names)
         by_name = {c.name: c for c in result["checks"]}

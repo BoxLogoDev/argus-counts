@@ -449,8 +449,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 27)
-            self.assertEqual(summary["total"], 27)
+            self.assertEqual(summary["passed"], 28)
+            self.assertEqual(summary["total"], 28)
             self.assertIn(summary["readiness_deadline_status"], ("before_deadline", "due_soon", "overdue"))
             self.assertEqual(summary["readiness_deadline_blockers"], ["pi_real_capture_pending"])
             self.assertEqual(summary["readiness_deadline_kst"], "2026-11-05T11:00:00+09:00")
@@ -505,6 +505,59 @@ class HelperRunTests(unittest.TestCase):
             self.assertFalse(summary["submission_ready"])
             self.assertTrue((evidence / "pre-submission.json").is_file())
             self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_pre_submission_records_video_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-vs"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIn(summary["readiness_video_selection_status"],
+                          ("pending", "fallback_due"))
+            self.assertEqual(summary["readiness_video_selection_status"],
+                             summary["readiness_fallback_decision_status"])
+            self.assertIn(summary["readiness_video_selection_selected_video"], (
+                "demo/assets/argus-demo-draft.mp4",
+                "demo/assets/argus-demo-fallback-draft.mp4"))
+            self.assertGreater(
+                summary["readiness_video_selection_selected_size"], 0)
+            self.assertFalse(
+                summary["readiness_video_selection_submission_ready"])
+
+    def test_pre_submission_video_selection_evidence_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-vs-payload"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            vs = payload["readiness"]["video_selection"]
+            self.assertEqual(vs["decision_date"], "2026-11-02")
+            self.assertEqual(vs["problems"], [])
+            self.assertEqual(
+                vs["pi_blockers"],
+                ["pi_device_arrival_not_confirmed",
+                 "pi_camera_command_missing"])
+            names = [c["name"] for c in payload["checks"]]
+            self.assertIn("video_selection_consistent", names)
+            self.assertEqual(payload["total"], 28)
+
+    def test_pre_submission_video_selection_honesty_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-vs-honesty"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            vs = payload["readiness"]["video_selection"]
+            joined = " ".join(vs["honesty"])
+            self.assertIn("실제로 제출하지 않는다", joined)
+            self.assertIn("Pi 실촬영이 아닙니다", joined)
+            self.assertFalse(vs["submission_ready"])
 
     def test_pre_submission_evidence_keeps_not_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
