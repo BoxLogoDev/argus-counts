@@ -430,8 +430,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 26)
-            self.assertEqual(summary["total"], 26)
+            self.assertEqual(summary["passed"], 27)
+            self.assertEqual(summary["total"], 27)
             self.assertIn(summary["readiness_deadline_status"], ("before_deadline", "due_soon", "overdue"))
             self.assertEqual(summary["readiness_deadline_blockers"], ["pi_real_capture_pending"])
             self.assertEqual(summary["readiness_deadline_kst"], "2026-11-05T11:00:00+09:00")
@@ -2088,6 +2088,42 @@ class HelperRunTests(unittest.TestCase):
             text = (evidence / "fallback.txt").read_text(encoding="utf-8")
             self.assertIn("파일 입력 폴백", text)
             self.assertIn("Pi 실촬영이 아닙니다", text)
+
+    def test_pre_submission_records_sam_live_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-sle"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["readiness_sam_live_evidence_valid"], True)
+            self.assertEqual(summary["readiness_sam_live_evidence_source"], "sam")
+            self.assertEqual(
+                summary["readiness_sam_live_evidence_distinct_image_count"], 6)
+
+    def test_pre_submission_sam_live_evidence_session_and_tamper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-sle2"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_sam_live_evidence_session_id"],
+                             "PRE-SUBMISSION-SAM-EVIDENCE")
+            self.assertIs(summary["readiness_sam_live_evidence_tamper_detected"], True)
+
+    def test_pre_submission_sam_live_evidence_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-sle3"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["readiness_sam_live_evidence_submission_ready"], False)
+            self.assertFalse(summary["submission_ready"])
 
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

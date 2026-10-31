@@ -54,6 +54,8 @@ from qa.pre_submission import (
     validate_package_export_report,
     build_package_export_report,
     validate_sam_per_bin,
+    validate_sam_live_evidence_report,
+    build_synthetic_sam_evidence,
 )
 
 MISSING_PI_PROBE = {
@@ -626,7 +628,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 26)
+        self.assertEqual(result["total"], 27)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -740,7 +742,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 26)
+            self.assertEqual(result["total"], 27)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1598,7 +1600,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 26)
+        self.assertEqual(result["total"], 27)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1633,6 +1635,73 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
             by_name = {c.name: c.passed for c in result["checks"]}
             self.assertFalse(by_name["demo_assets_consistent"])
             self.assertFalse(result["mechanical_pass"])
+
+
+class SamLiveEvidenceIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_sam_live_evidence_check_and_section(self):
+        result = run_pre_submission_checks(
+            ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE,
+            deadline_now="2026-11-01T03:50:00+09:00")
+        names = [c.name for c in result["checks"]]
+        self.assertIn("sam_live_evidence_consistent", names)
+        self.assertEqual(result["total"], 27)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["sam_live_evidence_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("valid=True", check.detail)
+        self.assertIn("distinct_image_count=6", check.detail)
+        self.assertIn("tamper_detected=True", check.detail)
+        sle = result["readiness"]["sam_live_evidence"]
+        self.assertIs(sle["valid"], True)
+        self.assertEqual(sle["source"], "sam")
+        self.assertEqual(sle["distinct_image_count"], 6)
+        self.assertEqual(sle["session_id"], "PRE-SUBMISSION-SAM-EVIDENCE")
+        self.assertIs(sle["tamper_detected"], True)
+        self.assertIs(sle["submission_ready"], False)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_sam_live_evidence_report_accepts_synthetic_report(self):
+        from qa.sam_live_evidence import build_report as build_sle_report
+
+        report = build_sle_report(build_synthetic_sam_evidence())
+        report["tamper_detected"] = True
+        self.assertEqual(validate_sam_live_evidence_report(report), [])
+
+    def test_validate_sam_live_evidence_report_detects_submission_ready_tamper(self):
+        from qa.sam_live_evidence import build_report as build_sle_report
+
+        report = build_sle_report(build_synthetic_sam_evidence())
+        report["tamper_detected"] = True
+        report["submission_ready"] = True
+        problems = validate_sam_live_evidence_report(report)
+        self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+    def test_validate_sam_live_evidence_report_detects_distinct_and_source_tamper(self):
+        from qa.sam_live_evidence import build_report as build_sle_report
+
+        report = build_sle_report(build_synthetic_sam_evidence())
+        report["tamper_detected"] = True
+        report["distinct_image_count"] = 5
+        problems = validate_sam_live_evidence_report(report)
+        self.assertTrue(any("distinct_image_count" in x for x in problems), problems)
+        report = build_sle_report(build_synthetic_sam_evidence())
+        report["tamper_detected"] = True
+        report["source"] = "mock"
+        problems = validate_sam_live_evidence_report(report)
+        self.assertTrue(any("source" in x for x in problems), problems)
+
+    def test_validate_sam_live_evidence_report_detects_tamper_flag_and_summary(self):
+        from qa.sam_live_evidence import build_report as build_sle_report
+
+        report = build_sle_report(build_synthetic_sam_evidence())
+        report["tamper_detected"] = False
+        problems = validate_sam_live_evidence_report(report)
+        self.assertTrue(any("tamper_detected" in x for x in problems), problems)
+        report = build_sle_report(build_synthetic_sam_evidence())
+        report["tamper_detected"] = True
+        report["summary"]["net_diff"] = 0
+        problems = validate_sam_live_evidence_report(report)
+        self.assertTrue(any("net_diff" in x for x in problems), problems)
 
 if __name__ == "__main__":
     unittest.main()
@@ -1750,7 +1819,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 26)
+        self.assertEqual(result["total"], 27)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1802,7 +1871,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("final_package_consistent", names)
-        self.assertEqual(result["total"], 26)
+        self.assertEqual(result["total"], 27)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["final_package_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1952,7 +2021,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
 class PackageExportIntegrationTests(unittest.TestCase):
     def test_real_root_includes_package_export_check_and_section(self):
         result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
-        self.assertEqual(result["total"], 26)
+        self.assertEqual(result["total"], 27)
         names = [c.name for c in result["checks"]]
         self.assertIn("package_export_consistent", names)
         by_name = {c.name: c for c in result["checks"]}

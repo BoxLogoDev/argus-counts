@@ -8,7 +8,11 @@ SAM 준비 점검 보고와 어긋나지 않는지의 정합, SAM 전체 세션
 (qa.sam_session) 보고가 SAM 준비 점검 보고와 어긋나지 않는지의
 정합, SAM 빈별 서로 다른 사진 세션(qa.sam_per_bin) 보고가 SAM 준비
 점검 보고와 어긋나지 않는지의 정합(빈별 사진 해시의 서로 다름을
-포함한다), Pi 단일 빈 스모크
+포함한다), SAM 실호출 증거 검증(qa.sam_live_evidence) 보고가 합성
+유효 증거의 내부 정합과 전수 점검 블로커와 어긋나지 않는지의
+정합(중복 해시 변조 탐지를 포함한다. 이 점검은 API를 호출하지
+않고 합성 증거의 내부 정합만 검증하며 실제 빈 촬영이나 제출
+준비 완료를 주장하지 않는다), Pi 단일 빈 스모크
 (qa.pi_smoke) 보고가 Pi 준비 점검 보고와 어긋나지 않는지의 정합,
 Pi 전체 촬영 세션(qa.pi_session) 보고가 Pi 준비 점검 보고와
 어긋나지 않는지의 정합,
@@ -36,7 +40,7 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
 필수로 검사하는 것을 포함한다),
 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 26종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 27종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -82,7 +86,9 @@ Pi 실촬영 검증은 아직 하지 않은 일이다. SAM 3.1 실호출은
 """
 from __future__ import annotations
 
+import copy
 import datetime
+import hashlib
 import json
 import sys
 import tempfile
@@ -100,6 +106,12 @@ from qa.sam_smoke import run_smoke as run_sam_smoke
 from qa.pi_session import run_pi_full_session
 from qa.sam_session import run_sam_session
 from qa.sam_per_bin import run_sam_per_bin
+from qa.sam_live_evidence import EXPECTED_ENDPOINT as SLE_ENDPOINT
+from qa.sam_live_evidence import build_report as _build_sle_report
+from qa.sam_live_evidence import validate_evidence as _validate_sle_evidence
+from qa.sam_live_evidence import validate_report as _validate_sle_report
+from terminal.demo_data import demo_bin_ids as _demo_bin_ids
+from terminal.demo_data import demo_ledger as _demo_ledger
 from qa.standalone import run_standalone_checks
 from qa.submission_inventory import DELIVERABLES as INVENTORY_DELIVERABLES
 from qa.submission_inventory import build_inventory, validate_inventory
@@ -163,6 +175,12 @@ PI_SMOKE_BIN_ID = "A-01-02"
 PI_SMOKE_FAKE_COUNT = 5
 
 PI_SMOKE_FAKE_SHA = "f" * 64
+
+SAM_EVIDENCE_SESSION_ID = "PRE-SUBMISSION-SAM-EVIDENCE"
+
+SAM_EVIDENCE_COUNTED = {"A-01-01": 9, "A-01-02": 3, "A-02-02": 7, "A-03-01": 5, "B-01-02": 6, "B-02-02": 11}
+
+SAM_EVIDENCE_EXPECTED_SUMMARY = {"counted_bins": 6, "matched": 1, "mismatched": 5, "match_rate": 1 / 6, "abs_diff_total": 30, "net_diff": -28}
 
 DEVPOST_REL = "docs/devpost-submission.md"
 
@@ -1721,6 +1739,122 @@ def _check_sam_per_bin(sam_env=None, sam_credit_confirmed=False, sam_report=None
         f"fake_calls={len(fake.calls)}"
     )
     return PreSubmissionCheck(name, True, detail), report
+
+def build_synthetic_sam_evidence() -> dict:
+    """전수 점검 전용 합성 유효 증거. 실제 API를 호출하지 않는다."""
+    ledger = _demo_ledger()
+    bins = []
+    for bin_id in _demo_bin_ids():
+        book = ledger[bin_id].book_qty
+        qty = SAM_EVIDENCE_COUNTED[bin_id]
+        diff = qty - book
+        verdict = "match" if diff == 0 else ("short" if diff < 0 else "over")
+        sha = hashlib.sha256(f"fake-evidence-{bin_id}".encode("utf-8")).hexdigest()
+        bins.append({"bin_id": bin_id, "book_qty": book, "counted_qty": qty,
+                     "diff": diff, "verdict": verdict, "image_sha256": sha})
+    matched = sum(1 for b in bins if b["diff"] == 0)
+    summary = {"counted_bins": len(bins), "matched": matched,
+               "mismatched": len(bins) - matched,
+               "match_rate": (matched / len(bins)) if bins else 0.0,
+               "abs_diff_total": sum(abs(b["diff"]) for b in bins),
+               "net_diff": sum(b["diff"] for b in bins)}
+    return {"bridge": "custom.meta-model-api connector transport (synthetic)",
+            "endpoint": SLE_ENDPOINT,
+            "image_source": "synthetic probe photo, 6 distinct crops",
+            "report": {"status": "passed", "attempted": True,
+                       "ready_for_live_call": True, "blockers": [],
+                       "session_id": SAM_EVIDENCE_SESSION_ID,
+                       "source": "sam", "distinct_image_count": 6,
+                       "bins": bins, "summary": summary, "error_type": None,
+                       "honesty": ["빈별 사진은 가상 사진의 서로 다른 잘라내기이며 실제 빈 촬영이나 Pi 실촬영이 아니다"]}}
+
+
+def validate_sam_live_evidence_report(report, blockers=None) -> list[str]:
+    """SAM 실호출 증거 검증 보고가 내부적으로, 그리고 전수 블로커와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"report is not a dict: {report!r}"]
+    required = ("valid", "problems", "session_id", "source",
+                "distinct_image_count", "summary", "blockers",
+                "submission_ready", "honesty", "tamper_detected")
+    missing = [key for key in required if key not in report]
+    if missing:
+        problems.append(f"missing required keys: {missing}")
+        return problems
+    if report["valid"] != (not report["problems"]):
+        problems.append(
+            f"sam live evidence: valid={report['valid']!r} does not match "
+            f"problems={report['problems']!r}")
+    if report["valid"] is True:
+        if report["source"] != "sam":
+            problems.append(
+                f"sam live evidence: source={report['source']!r} != 'sam' when valid")
+        if report["distinct_image_count"] != 6:
+            problems.append(
+                f"sam live evidence: distinct_image_count="
+                f"{report['distinct_image_count']!r} != 6 when valid")
+        if report["session_id"] != SAM_EVIDENCE_SESSION_ID:
+            problems.append(
+                f"sam live evidence: session_id={report['session_id']!r} "
+                f"!= {SAM_EVIDENCE_SESSION_ID!r}")
+        summary = report["summary"]
+        if not isinstance(summary, dict):
+            problems.append(
+                f"sam live evidence: summary={summary!r} is not a dict when valid")
+        else:
+            for key, expected in SAM_EVIDENCE_EXPECTED_SUMMARY.items():
+                actual = summary.get(key)
+                if isinstance(expected, float):
+                    if not isinstance(actual, (int, float)) or isinstance(actual, bool) or abs(actual - expected) > 1e-9:
+                        problems.append(
+                            f"sam live evidence: summary {key}={actual!r} != {expected!r}")
+                elif actual != expected:
+                    problems.append(
+                        f"sam live evidence: summary {key}={actual!r} != {expected!r}")
+    if report["blockers"] != []:
+        problems.append(
+            f"sam live evidence: blockers={report['blockers']!r} != []")
+    if report["submission_ready"] is not False:
+        problems.append(
+            f"sam live evidence: submission_ready={report['submission_ready']!r} is not False")
+    if "sam_real_call_pending" in _pre_submission_blocker_ids(blockers):
+        problems.append(
+            "sam live evidence: pre-submission blockers still contain stale "
+            "'sam_real_call_pending' (SAM live call verified 2026-10-30/31)")
+    if report["tamper_detected"] is not True:
+        problems.append(
+            f"sam live evidence: tamper_detected={report['tamper_detected']!r} is not True")
+    _check_honesty(report, problems, "sam live evidence", "API를 호출하지 않는다")
+    _check_honesty(report, problems, "sam live evidence", "Pi 실촬영이 아니다")
+    for problem in _validate_sle_report(report):
+        problems.append(f"sam live evidence: {problem}")
+    return problems
+
+
+def _check_sam_live_evidence():
+    name = "sam_live_evidence_consistent"
+    try:
+        evidence = build_synthetic_sam_evidence()
+        problems = list(_validate_sle_evidence(evidence))
+        tampered = copy.deepcopy(evidence)
+        tampered["report"]["bins"][1]["image_sha256"] = tampered["report"]["bins"][0]["image_sha256"]
+        tamper_problems = _validate_sle_evidence(tampered)
+        tamper_detected = any("distinct" in x for x in tamper_problems)
+        sle_report = _build_sle_report(evidence)
+        sle_report["tamper_detected"] = tamper_detected
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems += validate_sam_live_evidence_report(sle_report)
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), sle_report
+    detail = (
+        f"valid={sle_report['valid']} source={sle_report['source']} "
+        f"distinct_image_count={sle_report['distinct_image_count']} "
+        f"session_id={sle_report['session_id']} tamper_detected={tamper_detected}"
+    )
+    return PreSubmissionCheck(name, True, detail), sle_report
 
 
 class _PiSmokeFakeSession:
@@ -3807,6 +3941,9 @@ def run_pre_submission_checks(
     )
     checks.append(per_bin_check)
 
+    sle_check, sle_report = _check_sam_live_evidence()
+    checks.append(sle_check)
+
     pi_smoke_check, pi_smoke_report = _check_pi_smoke(
         pi_probe=pi_probe,
         pi_device_confirmed=pi_device_confirmed,
@@ -3901,6 +4038,7 @@ def run_pre_submission_checks(
             "smoke": smoke_report,
             "sam_session": session_report,
             "sam_per_bin": per_bin_report,
+            "sam_live_evidence": sle_report,
             "pi_smoke": pi_smoke_report,
             "pi_session": pi_session_report,
             "devpost": devpost_report,
