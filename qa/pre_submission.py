@@ -25,8 +25,10 @@ Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 �
 정합, 제출 마감 점검(qa.deadline) 보고가 전수 점검 블로커와
 어긋나지 않는지의 정합, 제출 패키지 최종 묶음(qa.final_package) 보고가
 제출물 인벤토리·제출 마감·폴백 결정 보고와 어긋나지 않는지의 정합,
+제출 패키지 내보내기(qa.package_export) 보고가 제출물 인벤토리 보고와
+어긋나지 않는지의 정합,
 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 24종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 25종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -39,6 +41,9 @@ Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 �
 마감 정합은 남은 시간 계산·상태 판정만 대조하며 실제로 제출하지 않는다.
 마감 전이어도 제출 준비 완료를 뜻하지 않는다.
 최종 묶음 정합은 세 보고를 모아 만든 묶음 보고를 대조만 하며 실제로 제출하지 않는다.
+패키지 내보내기 정합은 제출물을 임시 staging 디렉터리로 실제로 복사해
+복사본 해시를 대조만 하며 실제로 제출하지 않는다. 내보내기가 온전해도
+제출 가능을 뜻하지 않는다.
 최종 묶음 상태가 blocked인 것은 실패가 아니고, ready_for_packaging이어도 제출 완료를 뜻하지 않는다.
 결정일 전 pending은 실패가 아니고, fallback_due(폴백 채택)도 Pi 실촬영
 성공을 뜻하지 않는다.
@@ -100,6 +105,8 @@ from qa.deadline import validate_deadline as _validate_dl
 from qa.final_package import PACKAGE_DATE_TARGET as FP_PACKAGE_DATE_TARGET
 from qa.final_package import build_final_package as _build_fp
 from qa.final_package import validate_final_package as _validate_fp
+from qa.package_export import build_export as _build_pkg_export
+from qa.package_export import validate_export as _validate_pkg_export
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -3207,6 +3214,146 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
     return PreSubmissionCheck(name, True, detail), report
 
 
+
+def validate_package_export(export, blockers=None, inventory_report=None) -> list[str]:
+    """패키지 내보내기 전체 보고가 내부적으로, 그리고 인벤토리와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(export, dict):
+        return [f"package export: export is not a dict: {export!r}"]
+    required = ("files", "total_files", "copied_files", "missing", "total_bytes", "blockers", "submission_ready", "honesty")
+    missing_keys = [k for k in required if k not in export]
+    if missing_keys:
+        problems.append(f"package export: missing required keys: {missing_keys}")
+        return problems
+    if export["total_files"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"package export: total_files={export['total_files']!r} != {INVENTORY_TOTAL_FILES}")
+    files = export["files"]
+    if not isinstance(files, list):
+        problems.append(f"package export: files is not a list: {files!r}")
+        files = []
+    if len(files) != export["total_files"]:
+        problems.append(f"package export: files len={len(files)} != total_files={export['total_files']!r}")
+    copied = [f for f in files if isinstance(f, dict) and f.get("copied")]
+    if export["copied_files"] != len(copied):
+        problems.append(f"package export: copied_files={export['copied_files']!r} != actual {len(copied)}")
+    copied_bytes = sum(f.get("size_bytes") or 0 for f in copied)
+    if export["total_bytes"] != copied_bytes:
+        problems.append(f"package export: total_bytes={export['total_bytes']!r} != copied sum {copied_bytes}")
+    missing_expected = [f.get("path") for f in files if isinstance(f, dict) and not f.get("copied")]
+    if list(export["missing"]) != missing_expected:
+        problems.append(f"package export: missing={list(export['missing'])!r} != {missing_expected!r} from files")
+    ids = _readiness_blocker_ids(export["blockers"], problems, "package export") if isinstance(export["blockers"], (list, tuple)) else []
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if ids != expected_ids:
+        problems.append(f"package export: blocker ids {ids} != pre-submission blockers {expected_ids}")
+    if export["submission_ready"] is not False:
+        problems.append(f"package export: submission_ready={export['submission_ready']!r} is not False")
+    _check_honesty(export, problems, "package export", "실제로 제출하지 않는다")
+    _check_honesty(export, problems, "package export", "Pi 실촬영 검증 전")
+    _check_honesty(export, problems, "package export", "데모 기준")
+    if isinstance(inventory_report, dict):
+        if "total_files" in inventory_report and export["total_files"] != inventory_report["total_files"]:
+            problems.append(f"package export: total_files={export['total_files']!r} != submission inventory total_files={inventory_report['total_files']!r}")
+        if "present_files" in inventory_report and export["copied_files"] != inventory_report["present_files"]:
+            problems.append(f"package export: copied_files={export['copied_files']!r} != submission inventory present_files={inventory_report['present_files']!r}")
+        if "missing" in inventory_report and list(export["missing"]) != list(inventory_report["missing"]):
+            problems.append(f"package export: missing {list(export['missing'])} != submission inventory missing {list(inventory_report['missing'])}")
+        if "total_bytes" in inventory_report and export["total_bytes"] != inventory_report["total_bytes"]:
+            problems.append(f"package export: total_bytes={export['total_bytes']!r} != submission inventory total_bytes={inventory_report['total_bytes']!r}")
+    return problems
+
+
+def build_package_export_report(root, blockers=None) -> dict:
+    """임시 staging으로 내보낸 결과에서 trimmed 보고 dict를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    try:
+        with tempfile.TemporaryDirectory(prefix="argus-pre-pkg-") as tmp:
+            out_dir = Path(tmp) / "package"
+            export = _build_pkg_export(out_dir, source_root=Path(root))
+    except Exception:
+        return {"total_files": 0, "copied_files": 0, "missing": [], "total_bytes": 0, "blockers": [], "submission_ready": False}
+    return {
+        "total_files": export.get("total_files", 0),
+        "copied_files": export.get("copied_files", 0),
+        "missing": list(export.get("missing") or []),
+        "total_bytes": export.get("total_bytes", 0),
+        "blockers": [b["id"] if isinstance(b, dict) else b for b in (export.get("blockers") or [])],
+        "submission_ready": False,
+    }
+
+
+def validate_package_export_report(report, blockers=None, inventory_report=None) -> list[str]:
+    """패키지 내보내기 trimmed 보고가 내부적으로, 그리고 인벤토리와 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"package export report is not a dict: {report!r}"]
+    required = ("total_files", "copied_files", "missing", "total_bytes", "blockers", "submission_ready")
+    missing_keys = [k for k in required if k not in report]
+    if missing_keys:
+        problems.append(f"package export: missing required keys: {missing_keys}")
+        return problems
+    if report["total_files"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"package export: total_files={report['total_files']!r} != {INVENTORY_TOTAL_FILES}")
+    missing = report["missing"]
+    if not isinstance(missing, list):
+        problems.append(f"package export: missing is not a list: {missing!r}")
+        missing = []
+    if report["copied_files"] != INVENTORY_TOTAL_FILES - len(missing):
+        problems.append(f"package export: copied_files={report['copied_files']!r} != {INVENTORY_TOTAL_FILES - len(missing)}")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(f"package export: blockers {list(report['blockers'])} != {expected_ids}")
+    if report["submission_ready"] is not False:
+        problems.append(f"package export: submission_ready={report['submission_ready']!r} is not False")
+    if isinstance(inventory_report, dict):
+        if "total_files" in inventory_report and report["total_files"] != inventory_report["total_files"]:
+            problems.append(f"package export: total_files={report['total_files']!r} != submission inventory total_files={inventory_report['total_files']!r}")
+        if "present_files" in inventory_report and report["copied_files"] != inventory_report["present_files"]:
+            problems.append(f"package export: copied_files={report['copied_files']!r} != submission inventory present_files={inventory_report['present_files']!r}")
+        if "missing" in inventory_report and list(report["missing"]) != list(inventory_report["missing"]):
+            problems.append(f"package export: missing {list(report['missing'])} != submission inventory missing {list(inventory_report['missing'])}")
+        if "total_bytes" in inventory_report and report["total_bytes"] != inventory_report["total_bytes"]:
+            problems.append(f"package export: total_bytes={report['total_bytes']!r} != submission inventory total_bytes={inventory_report['total_bytes']!r}")
+    return problems
+
+
+def _check_package_export(root, inventory_report=None):
+    name = "package_export_consistent"
+    try:
+        with tempfile.TemporaryDirectory(prefix="argus-pre-pkg-") as tmp:
+            out_dir = Path(tmp) / "package"
+            export = _build_pkg_export(out_dir, source_root=Path(root))
+            problems = _validate_pkg_export(export, out_dir, source_root=Path(root))
+    except Exception as exc:
+        report = build_package_export_report(root)
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), report
+    problems = [f"package export: {p}" for p in problems]
+    problems.extend(validate_package_export(export, inventory_report=inventory_report))
+    report = {
+        "total_files": export.get("total_files", 0),
+        "copied_files": export.get("copied_files", 0),
+        "missing": list(export.get("missing") or []),
+        "total_bytes": export.get("total_bytes", 0),
+        "blockers": [b["id"] if isinstance(b, dict) else b for b in (export.get("blockers") or [])],
+        "submission_ready": False,
+    }
+    problems.extend(validate_package_export_report(report, inventory_report=inventory_report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"total_files={report['total_files']} "
+        f"copied_files={report['copied_files']} "
+        f"missing={report['missing']} "
+        f"total_bytes={report['total_bytes']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -3348,6 +3495,10 @@ def run_pre_submission_checks(
     )
     checks.append(fp_check)
 
+    pkg_check, pkg_report = _check_package_export(
+        root, inventory_report=inventory_report)
+    checks.append(pkg_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -3387,6 +3538,7 @@ def run_pre_submission_checks(
             "fallback_decision": decision_report,
             "deadline": deadline_report,
             "final_package": fp_report,
+            "package_export": pkg_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,

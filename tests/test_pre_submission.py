@@ -50,6 +50,9 @@ from qa.pre_submission import (
     validate_final_package_report,
     validate_inventory_report,
     build_inventory_report,
+    validate_package_export,
+    validate_package_export_report,
+    build_package_export_report,
 )
 
 MISSING_PI_PROBE = {
@@ -582,7 +585,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 24)
+        self.assertEqual(result["total"], 25)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -696,7 +699,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 24)
+            self.assertEqual(result["total"], 25)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1451,7 +1454,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 24)
+        self.assertEqual(result["total"], 25)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1603,7 +1606,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 24)
+        self.assertEqual(result["total"], 25)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1655,7 +1658,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("final_package_consistent", names)
-        self.assertEqual(result["total"], 24)
+        self.assertEqual(result["total"], 25)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["final_package_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1736,3 +1739,59 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         report["submission_ready"] = True
         problems = validate_final_package_report(report)
         self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+
+class PackageExportIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_package_export_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        self.assertEqual(result["total"], 25)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("package_export_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["package_export_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("total_files=18", check.detail)
+        self.assertIn("copied_files=18", check.detail)
+        pkg = result["readiness"]["package_export"]
+        self.assertEqual(pkg["total_files"], 18)
+        self.assertEqual(pkg["copied_files"], 18)
+        self.assertEqual(pkg["missing"], [])
+        self.assertEqual(pkg["copied_files"], result["readiness"]["submission_inventory"]["present_files"])
+        self.assertEqual(pkg["total_bytes"], result["readiness"]["submission_inventory"]["total_bytes"])
+        self.assertEqual(pkg["blockers"], ["pi_real_capture_pending"])
+        self.assertIs(pkg["submission_ready"], False)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_package_export_accepts_built_export(self):
+        from qa.package_export import build_export
+
+        with tempfile.TemporaryDirectory() as tmp:
+            export = build_export(Path(tmp) / "pkg")
+            self.assertEqual(export["copied_files"], 18)
+            self.assertEqual(validate_package_export(export), [])
+            report = build_package_export_report(ROOT)
+            self.assertEqual(validate_package_export_report(report), [])
+            self.assertEqual(report["copied_files"], 18)
+
+    def test_validate_package_export_detects_submission_ready_tamper(self):
+        from qa.package_export import build_export
+
+        with tempfile.TemporaryDirectory() as tmp:
+            export = build_export(Path(tmp) / "pkg")
+            export["submission_ready"] = True
+            problems = validate_package_export(export)
+            self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+    def test_validate_package_export_report_detects_blocker_mismatch(self):
+        report = build_package_export_report(ROOT)
+        report["blockers"] = []
+        problems = validate_package_export_report(report)
+        self.assertTrue(any("blockers" in x for x in problems), problems)
+
+    def test_validate_package_export_report_detects_inventory_cross_mismatch(self):
+        report = build_package_export_report(ROOT)
+        inv = build_inventory_report(ROOT)
+        self.assertEqual(validate_package_export_report(report, inventory_report=inv), [])
+        report["copied_files"] = 0
+        problems = validate_package_export_report(report, inventory_report=inv)
+        self.assertTrue(any("copied_files" in x for x in problems), problems)
