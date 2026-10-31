@@ -1343,6 +1343,53 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(over["status"], "overdue")
             self.assertTrue((evidence / "transcript.txt").is_file())
 
+    def test_final_package_export_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-export"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["export_copied"], 18)
+            self.assertEqual(summary["export_total"], 18)
+            self.assertEqual(summary["export_missing"], [])
+
+    def test_final_package_export_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-export-cross"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["export_copied"],
+                             summary["inventory_present"])
+            self.assertEqual(summary["export_total"],
+                             summary["inventory_total"])
+            blocked = json.loads(
+                (evidence / "final-package-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(blocked["export_missing"],
+                             blocked["inventory_missing"])
+            self.assertEqual(summary["export_total_bytes"],
+                             blocked["export_total_bytes"])
+
+    def test_final_package_export_bytes_and_tamper_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-export-tamper"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIsInstance(summary["export_total_bytes"], int)
+            self.assertGreater(summary["export_total_bytes"], 0)
+            self.assertEqual(summary["built_export_total_bytes"],
+                             summary["export_total_bytes"])
+            self.assertEqual(summary["export_incomplete_status"], "incomplete")
+            self.assertTrue(summary["export_tamper_detected"])
+
     def test_final_package_evidence_keeps_honesty(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-final-package-honesty"

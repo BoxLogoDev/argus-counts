@@ -4060,6 +4060,9 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                    "INVENTORY_PRESENT: 18",
                    "INVENTORY_TOTAL: 18",
                    "INVENTORY_MISSING: []",
+                   "EXPORT_COPIED: 18",
+                   "EXPORT_TOTAL: 18",
+                   "EXPORT_MISSING: []",
                    "DEADLINE_STATUS: before_deadline",
                    f"REMAINING_SECONDS: {FINAL_PACKAGE_REMAINING}",
                    "FALLBACK_STATUS: pending",
@@ -4092,6 +4095,20 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"inventory_total 기대 18, 실제 {blocked.get('inventory_total')}")
         if blocked.get("inventory_missing") != []:
             problems.append(f"inventory_missing 기대 [], 실제 {blocked.get('inventory_missing')}")
+        if blocked.get("export_copied") != 18:
+            problems.append(f"export_copied 기대 18, 실제 {blocked.get('export_copied')}")
+        if blocked.get("export_total") != 18:
+            problems.append(f"export_total 기대 18, 실제 {blocked.get('export_total')}")
+        if blocked.get("export_missing") != []:
+            problems.append(f"export_missing 기대 [], 실제 {blocked.get('export_missing')}")
+        if not isinstance(blocked.get("export_total_bytes"), int) or blocked.get("export_total_bytes", 0) <= 0:
+            problems.append(f"export_total_bytes 양의 정수 기대, 실제 {blocked.get('export_total_bytes')}")
+        if blocked.get("export_copied") != blocked.get("inventory_present"):
+            problems.append(f"export_copied가 inventory_present와 다르다: {blocked.get('export_copied')} != {blocked.get('inventory_present')}")
+        if blocked.get("export_total") != blocked.get("inventory_total"):
+            problems.append(f"export_total가 inventory_total와 다르다: {blocked.get('export_total')} != {blocked.get('inventory_total')}")
+        if blocked.get("export_missing") != blocked.get("inventory_missing"):
+            problems.append(f"export_missing가 inventory_missing와 다르다: {blocked.get('export_missing')} != {blocked.get('inventory_missing')}")
         if blocked.get("deadline_status") != "before_deadline":
             problems.append(f"deadline_status 기대 'before_deadline', 실제 {blocked.get('deadline_status')}")
         if blocked.get("remaining_seconds") != FINAL_PACKAGE_REMAINING:
@@ -4141,25 +4158,43 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
 
     base_kwargs = dict(inventory_present=18, inventory_total=18,
                        inventory_missing=[],
+                       export_copied=18, export_total=18,
+                       export_missing=[], export_total_bytes=12345,
                        deadline_status="before_deadline",
                        remaining_seconds=FINAL_PACKAGE_REMAINING,
                        fallback_status="pending", fallback_adopted=False,
                        blockers=["pi_real_capture_pending"])
     ready_status = incomplete_status = overdue_status = None
+    export_incomplete_status = None
+    built_export_total_bytes = None
     try:
         ev_blocked = evaluate_final_package(**base_kwargs)
         ev_ready = evaluate_final_package(**{**base_kwargs, "blockers": []})
         ready_status = ev_ready.get("status")
         ev_incomplete = evaluate_final_package(
             **{**base_kwargs, "inventory_present": 17,
-               "inventory_missing": ["README.md"], "blockers": []})
+               "inventory_missing": ["README.md"], "blockers": [],
+               "export_copied": 17, "export_missing": ["README.md"]})
         incomplete_status = ev_incomplete.get("status")
         ev_over = evaluate_final_package(
             **{**base_kwargs, "deadline_status": "overdue",
                "remaining_seconds": 0})
         overdue_status = ev_over.get("status")
+        ev_export_inc = evaluate_final_package(
+            **{**base_kwargs, "export_copied": 17,
+               "export_missing": ["README.md"]})
+        export_incomplete_status = ev_export_inc.get("status")
+        if export_incomplete_status != "incomplete":
+            problems.append(f"evaluate export incomplete 이상: {export_incomplete_status}")
         built = build_final_package(now=FINAL_PACKAGE_NOW,
                                     today=FINAL_PACKAGE_DATE)
+        built_export_total_bytes = built.get("export_total_bytes")
+        if built.get("export_copied") != 18 or built.get("export_total") != 18 or built.get("export_missing") != []:
+            problems.append(f"build export 이상: {built.get('export_copied')}/{built.get('export_total')}/{built.get('export_missing')}")
+        if not isinstance(built_export_total_bytes, int) or built_export_total_bytes <= 0:
+            problems.append(f"build export_total_bytes 이상: {built_export_total_bytes}")
+        if built_export_total_bytes != blocked.get("export_total_bytes"):
+            problems.append(f"build export_total_bytes가 CLI blocked와 다르다: {built_export_total_bytes} != {blocked.get('export_total_bytes')}")
         if ev_blocked.get("status") != "blocked" or built.get("status") != "blocked":
             problems.append(f"evaluate/build blocked 이상: {built.get('status')}")
         if built.get("inventory_present") != 18 or built.get("inventory_total") != 18:
@@ -4170,6 +4205,7 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"evaluate incomplete 이상: {incomplete_status}")
         if overdue_status != "overdue":
             problems.append(f"evaluate overdue 이상: {overdue_status}")
+        # ev_export_inc는 상태 판정 전용 프로브(validate는 export!=inventory를 무효로 보므로 검증 대상에서 제외)
         for report in (ev_blocked, ev_ready, ev_incomplete, ev_over, built):
             v = validate_final_package(report)
             if v:
@@ -4180,6 +4216,7 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
     status_tamper_detected = False
     inventory_tamper_detected = False
     submission_ready_tamper_detected = False
+    export_tamper_detected = False
     try:
         base = evaluate_final_package(**base_kwargs)
         t1 = copy.deepcopy(base); t1["status"] = "ready_for_packaging"
@@ -4188,15 +4225,20 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
         inventory_tamper_detected = any("inventory_present" in p for p in validate_final_package(t2))
         t3 = copy.deepcopy(base); t3["submission_ready"] = True
         submission_ready_tamper_detected = any("submission_ready" in p for p in validate_final_package(t3))
+        t4 = copy.deepcopy(base); t4["export_copied"] = 10
+        export_tamper_detected = any("export_copied" in p for p in validate_final_package(t4))
     except Exception as e:
         problems.append(f"변조 탐지 구동 실패: {type(e).__name__}: {e}")
     tamper_detected = (status_tamper_detected and inventory_tamper_detected
                        and submission_ready_tamper_detected)
     ctx.note(f"최종 묶음 변조 탐지 -> status {status_tamper_detected}, "
              f"inventory {inventory_tamper_detected}, "
-             f"submission_ready {submission_ready_tamper_detected}")
+             f"submission_ready {submission_ready_tamper_detected}, "
+             f"export {export_tamper_detected}")
     if not tamper_detected:
         problems.append("변조 탐지 실패: status/inventory_present/submission_ready 중 하나를 바꿔도 문제를 찾지 못했다")
+    if not export_tamper_detected:
+        problems.append("변조 탐지 실패: export_copied를 바꿔도 문제를 찾지 못했다")
 
     summary = {"feature": "final-package",
                "blocked_status": blocked.get("status"),
@@ -4212,6 +4254,13 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                "overdue_status": over.get("status") or overdue_status,
                "overdue_exit_code": result_over.returncode,
                "invalid_exit_code": result_bad.returncode,
+               "export_copied": blocked.get("export_copied"),
+               "export_total": blocked.get("export_total"),
+               "export_missing": blocked.get("export_missing"),
+               "export_total_bytes": blocked.get("export_total_bytes"),
+               "built_export_total_bytes": built_export_total_bytes,
+               "export_incomplete_status": export_incomplete_status,
+               "export_tamper_detected": export_tamper_detected,
                "tamper_detected": tamper_detected,
                "status_tamper_detected": status_tamper_detected,
                "inventory_tamper_detected": inventory_tamper_detected,
