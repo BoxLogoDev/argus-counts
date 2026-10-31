@@ -1664,6 +1664,8 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertTrue(check.passed, check.detail)
         self.assertIn("status=blocked", check.detail)
         self.assertIn("package_date_target=2026-11-03", check.detail)
+        self.assertIn("export_copied=18", check.detail)
+        self.assertIn("export_total=18", check.detail)
         fp = result["readiness"]["final_package"]
         self.assertEqual(fp["status"], "blocked")
         self.assertEqual(fp["inventory_present"], 18)
@@ -1739,6 +1741,68 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         report["submission_ready"] = True
         problems = validate_final_package_report(report)
         self.assertTrue(any("submission_ready" in x for x in problems), problems)
+
+    def test_validate_final_package_report_accepts_export_cross_check(self):
+        from qa.final_package import build_final_package
+        from qa.submission_inventory import build_inventory
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        inventory = build_inventory(ROOT)
+        self.assertEqual(report["export_copied"], inventory["present_files"])
+        self.assertEqual(report["export_total"], inventory["total_files"])
+        self.assertEqual(report["export_missing"], inventory["missing"])
+        self.assertEqual(report["export_total_bytes"], inventory["total_bytes"])
+        self.assertEqual(
+            validate_final_package_report(report, inventory_report=inventory), [])
+
+    def test_validate_final_package_report_detects_missing_export_key(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        del report["export_total_bytes"]
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("export_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_nulled_export(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["export_total"] = None
+        report["export_copied"] = None
+        report["export_missing"] = None
+        report["export_total_bytes"] = None
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("export_total" in x for x in problems), problems)
+        self.assertTrue(any("export_copied" in x for x in problems), problems)
+        self.assertTrue(any("export_missing" in x for x in problems), problems)
+        self.assertTrue(
+            any("export_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_export_bytes_mismatch(self):
+        from qa.final_package import build_final_package
+        from qa.submission_inventory import build_inventory
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        inventory = build_inventory(ROOT)
+        report["export_total_bytes"] = inventory["total_bytes"] + 1
+        problems = validate_final_package_report(
+            report, inventory_report=inventory)
+        self.assertTrue(
+            any("export_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_export_missing_mismatch(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["export_missing"] = ["README.md"]
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("export_missing" in x for x in problems), problems)
 
 
 class PackageExportIntegrationTests(unittest.TestCase):

@@ -24,7 +24,11 @@ Pi 준비 점검 보고와 어긋나지 않는지의 정합, 파일 입력 폴�
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 제출 마감 점검(qa.deadline) 보고가 전수 점검 블로커와
 어긋나지 않는지의 정합, 제출 패키지 최종 묶음(qa.final_package) 보고가
-제출물 인벤토리·제출 마감·폴백 결정 보고와 어긋나지 않는지의 정합,
+제출물 인벤토리·제출 마감·폴백 결정 보고와 어긋나지 않는지의 정합
+(최종 묶음의 패키지 내보내기 실측 export_copied·export_total·
+export_missing·export_total_bytes를 필수값으로 검사하고 제출물
+인벤토리의 present_files·total_files·missing·total_bytes와
+교차 대조하는 것을 포함한다),
 제출 패키지 내보내기(qa.package_export) 보고가 제출물 인벤토리 보고와
 어긋나지 않는지의 정합,
 데모 자산의 존재·정합을
@@ -3111,6 +3115,10 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
         "inventory_present",
         "inventory_total",
         "inventory_missing",
+        "export_copied",
+        "export_total",
+        "export_missing",
+        "export_total_bytes",
         "deadline_status",
         "remaining_seconds",
         "fallback_status",
@@ -3137,6 +3145,42 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
             problems.append(f"final package: {problem}")
     except Exception as exc:
         problems.append(f"final package: validate_final_package raised: {exc!r}")
+    # export 필드는 None 변조가 qa.final_package의 조건부 검사를 빠져나가지
+    # 못하게 여기서 필수값으로 다시 검사하고, 인벤토리 보고와 교차 대조한다.
+    export_total = report.get("export_total")
+    if isinstance(export_total, bool) or not isinstance(export_total, int):
+        problems.append(
+            f"final package: export_total={export_total!r} is not an int")
+    elif export_total != report["inventory_total"]:
+        problems.append(
+            f"final package: export_total={export_total!r} != "
+            f"inventory_total={report['inventory_total']!r}")
+    export_copied = report.get("export_copied")
+    if isinstance(export_copied, bool) or not isinstance(export_copied, int):
+        problems.append(
+            f"final package: export_copied={export_copied!r} is not an int")
+    elif export_copied != report["inventory_present"]:
+        problems.append(
+            f"final package: export_copied={export_copied!r} != "
+            f"inventory_present={report['inventory_present']!r}")
+    export_missing = report.get("export_missing")
+    if not isinstance(export_missing, (list, tuple)):
+        problems.append(
+            f"final package: export_missing={export_missing!r} is not a list")
+    elif list(export_missing) != list(report["inventory_missing"]):
+        problems.append(
+            f"final package: export_missing {list(export_missing)} != "
+            f"inventory_missing {list(report['inventory_missing'])}")
+    export_bytes = report.get("export_total_bytes")
+    if isinstance(export_bytes, bool) or not isinstance(export_bytes, int) or export_bytes <= 0:
+        problems.append(
+            f"final package: export_total_bytes={export_bytes!r} "
+            "is not a positive int")
+    elif isinstance(inventory_report, dict) and "total_bytes" in inventory_report \
+            and export_bytes != inventory_report["total_bytes"]:
+        problems.append(
+            f"final package: export_total_bytes={export_bytes!r} != "
+            f"submission inventory total_bytes={inventory_report['total_bytes']!r}")
     if isinstance(inventory_report, dict):
         if "total_files" in inventory_report and report["inventory_total"] != inventory_report["total_files"]:
             problems.append(
@@ -3207,6 +3251,8 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         f"package_date_target={FP_PACKAGE_DATE_TARGET} "
         f"inventory_present={report['inventory_present']} "
         f"inventory_total={report['inventory_total']} "
+        f"export_copied={report['export_copied']} "
+        f"export_total={report['export_total']} "
         f"deadline_status={report['deadline_status']} "
         f"fallback_status={report['fallback_status']} "
         f"blockers={report['blockers']}"

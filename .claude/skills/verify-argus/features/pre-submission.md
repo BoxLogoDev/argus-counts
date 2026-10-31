@@ -75,5 +75,5 @@ Preconditions:
 - 블로커는 종료코드에 반영되지 않는다. 종료코드 0은 기계적 점검 25종 통과만을 뜻하므로, 블로커 1건은 텍스트의 `BLOCKERS: 1`와 JSON blockers 목록으로 따로 확인한다.
 - Pi 실촬영은 아직 하지 않은 일이다. SAM 실호출은 전체 세션으로 검증했지만(같은 가상 사진 재사용, 빈별 정확도 아님) 기본 실행은 모의 어댑터 기준이다. 이 기능은 모의 어댑터 기준 기계적 점검만 구동하며, 실호출·실촬영을 수행하거나 수행한 것으로 서술하지 않는다.
 - `pre-deadline`: 마감 점검 정합(deadline_consistent)은 qa.deadline 보고의 마감 상수·블로커·submission_ready false와 남은 시간 산식을 대조하며, 실제로 제출하지 않는다.
-- `pre-final-package`: 최종 묶음 정합(final_package_consistent)은 qa.final_package 보고의 status·인벤토리·마감·폴백 필드를 각 원본 보고와 대조하며, 실제로 제출하지 않는다. blocked는 실패가 아니다.
+- `pre-final-package`: 최종 묶음 정합(final_package_consistent)은 qa.final_package 보고의 status·인벤토리·마감·폴백 필드를 각 원본 보고와 대조하고, export_copied·export_total·export_missing·export_total_bytes를 필수값으로 검사해 None 변조와 인벤토리 total_bytes 불일치도 탐지하며, 실제로 제출하지 않는다. blocked는 실패가 아니다.
 - `pre-package-export`: 패키지 내보내기 정합(package_export_consistent)은 qa.package_export 보고의 복사 수치·missing·합계·블로커를 제출물 인벤토리 보고와 대조하며, 임시 staging으로만 복사하고 실제로 제출하지 않는다.
