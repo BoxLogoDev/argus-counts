@@ -15,6 +15,6 @@ Argus 데모 영상 조립 매니페스트 (총 180초)
 컷 7 [02:10-02:35] capture:console-home.html
   조치 우선순위. 절대 차이 큰 순
 컷 8 [02:35-02:50] capture:api-report.json
-  리포트. QA 17개와 테스트 605개
+  리포트. QA 17개와 테스트 608개
 컷 9 [02:50-03:00] capture:console-home.html
   데모 기준. 불일치 2건과 일치율 66.7%

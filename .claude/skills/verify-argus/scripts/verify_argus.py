@@ -1156,6 +1156,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         pkg_missing = pkg_r.get("missing")
         pkg_total_bytes = pkg_r.get("total_bytes")
         pkg_submission_ready = pkg_r.get("submission_ready")
+        pkg_verify_verified = pkg_r.get("verify_verified")
+        pkg_verify_copied = pkg_r.get("verify_copied_files")
+        pkg_verify_bytes = pkg_r.get("verify_total_bytes")
         if pkg_total != 18:
             problems.append(f"readiness package_export total_files 기대 18, 실제 {pkg_total}")
         if pkg_copied != (_inv_raw.get("present_files")):
@@ -1170,6 +1173,20 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness package_export blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {pkg_rb}")
         if pkg_submission_ready is not False:
             problems.append(f"readiness package_export submission_ready 기대 False, 실제 {pkg_submission_ready}")
+        if pkg_verify_verified is not True:
+            problems.append(f"readiness package_export verify_verified 기대 True, 실제 {pkg_verify_verified}")
+        if isinstance(pkg_verify_copied, bool) or not isinstance(pkg_verify_copied, int):
+            problems.append(f"readiness package_export verify_copied_files 기대 int, 실제 {pkg_verify_copied}")
+        elif pkg_verify_copied != pkg_copied:
+            problems.append(f"readiness package_export verify_copied_files가 copied_files와 다르다: {pkg_verify_copied} != {pkg_copied}")
+        elif pkg_verify_copied != _inv_raw.get("present_files"):
+            problems.append(f"readiness package_export verify_copied_files가 submission_inventory present_files와 다르다: {pkg_verify_copied} != {_inv_raw.get('present_files')}")
+        if isinstance(pkg_verify_bytes, bool) or not isinstance(pkg_verify_bytes, int):
+            problems.append(f"readiness package_export verify_total_bytes 기대 int, 실제 {pkg_verify_bytes}")
+        elif pkg_verify_bytes != pkg_total_bytes:
+            problems.append(f"readiness package_export verify_total_bytes가 total_bytes와 다르다: {pkg_verify_bytes} != {pkg_total_bytes}")
+        elif pkg_verify_bytes != _inv_raw.get("total_bytes"):
+            problems.append(f"readiness package_export verify_total_bytes가 submission_inventory total_bytes와 다르다: {pkg_verify_bytes} != {_inv_raw.get('total_bytes')}")
         if fp_export_missing != pkg_missing:
             problems.append(f"readiness final_package export_missing가 package_export missing와 다르다: {fp_export_missing} != {pkg_missing}")
         if fp_export_total_bytes != pkg_total_bytes:
@@ -1213,6 +1230,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_export_missing, fp_export_total_bytes = None, None
         pkg_total, pkg_copied, pkg_rb = None, None, []
         pkg_missing, pkg_total_bytes, pkg_submission_ready = None, None, None
+        pkg_verify_verified, pkg_verify_copied, pkg_verify_bytes = None, None, None
         demo_fallback_cut = None
         video_fallback_cut = None
     summary = {"feature": "pre-submission",
@@ -1270,6 +1288,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_package_export_missing": pkg_missing,
                "readiness_package_export_total_bytes": pkg_total_bytes,
                "readiness_package_export_submission_ready": pkg_submission_ready,
+               "readiness_package_export_verify_verified": pkg_verify_verified,
+               "readiness_package_export_verify_copied_files": pkg_verify_copied,
+               "readiness_package_export_verify_total_bytes": pkg_verify_bytes,
                "readiness_deadline_status": dl_status,
                "readiness_deadline_blockers": dl_rb,
                "readiness_deadline_kst": dl_kst,
