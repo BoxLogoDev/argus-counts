@@ -80,6 +80,76 @@ class FinalPackageTests(unittest.TestCase):
         self.assertEqual(r["status"], "blocked")
         self.assertEqual(fp.validate_final_package(r), [])
 
+    def test_evaluate_without_export_fields_is_none(self):
+        r = _base()
+        self.assertIsNone(r["export_copied"])
+        self.assertIsNone(r["export_total"])
+        self.assertIsNone(r["export_missing"])
+        self.assertIsNone(r["export_total_bytes"])
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_export_mismatch_is_incomplete(self):
+        r = _base(
+            export_copied=17,
+            export_total=18,
+            export_missing=["README.md"],
+            export_total_bytes=1234,
+            blockers=[],
+        )
+        self.assertEqual(r["status"], "incomplete")
+
+    def test_export_ok_keeps_blocked(self):
+        r = _base(
+            export_copied=18,
+            export_total=18,
+            export_missing=[],
+            export_total_bytes=2136591,
+        )
+        self.assertEqual(r["status"], "blocked")
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_validate_detects_export_tamper(self):
+        r = _base(
+            export_copied=18,
+            export_total=18,
+            export_missing=[],
+            export_total_bytes=2136591,
+        )
+        bad = dict(r, export_copied=10)
+        self.assertTrue(
+            any("export" in p for p in fp.validate_final_package(bad))
+        )
+        bad2 = dict(r, export_total_bytes=0)
+        self.assertTrue(
+            any("export_total_bytes" in p for p in fp.validate_final_package(bad2))
+        )
+
+    def test_build_includes_export_evidence(self):
+        from qa.submission_inventory import build_inventory
+
+        r = fp.build_final_package(
+            now="2026-10-31T12:50:00+09:00", today="2026-10-31"
+        )
+        self.assertEqual(r["export_copied"], 18)
+        self.assertEqual(r["export_total"], 18)
+        self.assertEqual(r["export_missing"], [])
+        self.assertEqual(
+            r["export_total_bytes"], build_inventory()["total_bytes"]
+        )
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_cli_text_includes_export_lines(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = fp.main(
+                ["--now", "2026-10-31T12:50:00+09:00", "--date", "2026-10-31"]
+            )
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("EXPORT_COPIED: 18", out)
+        self.assertIn("EXPORT_TOTAL: 18", out)
+        self.assertIn("EXPORT_MISSING: []", out)
+
     def test_cli_text_blocked_exit_0(self):
         buf = io.StringIO()
         with redirect_stdout(buf):

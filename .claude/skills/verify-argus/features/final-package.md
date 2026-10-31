@@ -1,6 +1,6 @@
 # 제출 패키지 최종 묶음
 
-제출 패키지 최종 묶음은 `qa.final_package`가 제출물 인벤토리·제출 마감·Pi 폴백 결정 세 보고를 모아 패키지 상태를 판정하는지 검증하는 절차다. 이 검증은 실제로 제출하지 않는다: CLI에 기준 시각과 날짜를 명시해 구동하고 프로세스 내 `evaluate_final_package`·`build_final_package`·`validate_final_package`으로만 확인한다. 패키지 준비 상태는 제출 완료를 뜻하지 않으며, Pi 실촬영 검증 전이고 수치는 데모 기준이다. 패키지 날짜 목표는 2026-11-03이다.
+제출 패키지 최종 묶음은 `qa.final_package`가 제출물 인벤토리·제출 마감·Pi 폴백 결정 세 보고와 패키지 내보내기 실측(임시 staging 복사 대조)을 모아 패키지 상태를 판정하는지 검증하는 절차다. 이 검증은 실제로 제출하지 않는다: CLI에 기준 시각과 날짜를 명시해 구동하고 프로세스 내 `evaluate_final_package`·`build_final_package`·`validate_final_package`으로만 확인한다. 패키지 준비 상태는 제출 완료를 뜻하지 않으며, Pi 실촬영 검증 전이고 수치는 데모 기준이다. 패키지 날짜 목표는 2026-11-03이다.
 
 ## Sub-features
 
