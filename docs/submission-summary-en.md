@@ -54,6 +54,7 @@ The single-bin smoke counted 14 boxes in a generated virtual warehouse photo (le
 The live adapter code path was verified against the real API in that smoke test; unit tests also exercise it with a fake transport.
 Argus is currently running on the mock adapter.
 A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).
+A per-bin live run was verified on 2026-10-31 via the connector bridge (six different crops of one virtual photo; not real bin capture).
 Mock results are labelled as mock in the UI and reports.
 Mock results are never claimed as live results.
 
@@ -70,7 +71,7 @@ The report module produces a human-readable text report.
 The same module produces a structured payload.
 Argus uses the Python standard library only.
 The QA harness runs 17 baseline checks with literals fixed in the harness file.
-Unit tests currently number 630.
+Unit tests currently number 639.
 
 ## Demo data
 

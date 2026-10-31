@@ -37,6 +37,19 @@ class AuditTextTests(unittest.TestCase):
         text = "A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).\n"
         self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
 
+    def test_qualified_per_bin_claim_clean(self):
+        text = "빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).\n"
+        self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
+
+    def test_qualified_per_bin_en_claim_clean(self):
+        text = "A per-bin live run was verified on 2026-10-31 via the connector bridge (six different crops of one virtual photo; not real bin capture).\n"
+        self.assertEqual(claims_audit.audit_text("docs/x.md", text), [])
+
+    def test_real_bin_capture_claim_flagged(self):
+        text = "빈별 실호출로 실제 빈 촬영을 검증했다.\n"
+        v = claims_audit.audit_text("docs/x.md", text)
+        self.assertGreaterEqual(len(v), 1)
+
     def test_full_session_live_claim_flagged(self):
         text = "전체 세션 실호출을 완료했습니다.\n"
         v = claims_audit.audit_text("docs/x.md", text)

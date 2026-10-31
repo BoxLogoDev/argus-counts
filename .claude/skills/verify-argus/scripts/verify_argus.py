@@ -213,6 +213,7 @@ DEVPOST_DEMO_MARKERS = ("데모 기준: 빈 6개 중 일치 4건, 불일치 2건
                         "데모 기준: 절대 차이 6개, 순차이 0, 일치율 66.7%",
                         "실제 창고 성과가 아니다")
 DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)",
+                           "빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님)",
                            "가짜 transport", "Secure Vault", "가안",
                            "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더")
 DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
