@@ -56,6 +56,10 @@ validate_final_package으로만 구동한다(실제로 제출하지 않으며,
 프로세스 내 build_export·validate_export으로만 구동한다(제출물 18개를
 임시 staging 디렉터리로 복사·해시 재대조만 하며 실제로 제출하지 않는다.
 내보내기가 온전해도 제출 가능을 뜻하지 않고, Pi 실촬영 검증 전이다).
+재검증 증거는 같은 드라이버가 깨끗한 staging을 새로 만들어 CLI
+--verify-dir(텍스트·--json)와 프로세스 내 verify_export_dir로 다시
+대조한다(읽기 전용·복사본 변조 탐지·매니페스트 없음 종료코드 2·
+인자 충돌 종료코드 2 포함, 실제로 제출하지 않는다).
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -4303,7 +4307,8 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
 
 def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
-    from qa.package_export import MANIFEST_NAME, build_export, validate_export
+    from qa.package_export import (MANIFEST_NAME, build_export,
+                                   validate_export, verify_export_dir)
 
     result = result_j = None
     exported: dict = {}
@@ -4312,6 +4317,16 @@ def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
     tamper_detected = False
     ready_tamper_detected = False
     manifest_ok = False
+    result_verify = result_verify_j = None
+    verify_verified = False
+    verify_exit_code = None
+    verify_text_ok = False
+    verify_readonly = False
+    verify_tamper_detected = False
+    verify_tamper_exit_code = None
+    verify_missing_exit_code = None
+    verify_conflict_exit_code = None
+    verify_inproc_ok = False
     with tempfile.TemporaryDirectory() as tmp:
         staging = Path(tmp) / "pkg-cli"
         result = run_cli(["-m", "qa.package_export", "--out-dir", str(staging)])
@@ -4402,6 +4417,110 @@ def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
         if not tamper_detected:
             problems.append("변조 탐지 실패: 복사본 README.md를 바꿔도 문제를 찾지 못했다")
 
+        # --- verify-dir 재검증 증거 (94회차 하네스 편입) ---
+        def _snapshot(base: Path) -> dict:
+            snap = {}
+            for fp in sorted(base.rglob("*")):
+                if fp.is_file():
+                    data = fp.read_bytes()
+                    snap[str(fp.relative_to(base))] = (len(data), hashlib.sha256(data).hexdigest())
+            return snap
+
+        staging_verify = Path(tmp) / "pkg-verify"
+        built_verify = build_export(staging_verify, ROOT)
+        snap_before = _snapshot(staging_verify)
+        result_verify_j = run_cli(["-m", "qa.package_export", "--verify-dir",
+                                   str(staging_verify), "--json"])
+        verify_exit_code = result_verify_j.returncode
+        ctx.note(f"python3 -m qa.package_export --verify-dir <tmp> --json "
+                 f"-> 종료코드 {result_verify_j.returncode}")
+        if result_verify_j.returncode != 0:
+            problems.append(
+                f"package_export --verify-dir --json 종료코드 기대 0, 실제 {result_verify_j.returncode}: "
+                f"{result_verify_j.stderr[:200]}")
+        try:
+            verify_payload = json.loads(result_verify_j.stdout)
+        except json.JSONDecodeError as e:
+            verify_payload = {}
+            problems.append(f"package_export --verify-dir --json 파싱 실패: {e}")
+        if verify_payload:
+            if verify_payload.get("verified") is not True:
+                problems.append(f"verify-dir verified 기대 True, 실제 {verify_payload.get('verified')}")
+            if verify_payload.get("problems") != []:
+                problems.append(f"verify-dir problems 기대 [], 실제 {verify_payload.get('problems')}")
+            vexp = verify_payload.get("export") or {}
+            if vexp.get("copied_files") != INVENTORY_TOTAL_FILES:
+                problems.append(f"verify-dir export copied_files 기대 {INVENTORY_TOTAL_FILES}, 실제 {vexp.get('copied_files')}")
+            if vexp.get("total_files") != INVENTORY_TOTAL_FILES:
+                problems.append(f"verify-dir export total_files 기대 {INVENTORY_TOTAL_FILES}, 실제 {vexp.get('total_files')}")
+            if vexp.get("submission_ready") is not False:
+                problems.append(f"verify-dir export submission_ready 기대 False, 실제 {vexp.get('submission_ready')}")
+            verify_verified = verify_payload.get("verified") is True and verify_payload.get("problems") == []
+
+        result_verify = run_cli(["-m", "qa.package_export", "--verify-dir",
+                                 str(staging_verify)])
+        ctx.note(f"python3 -m qa.package_export --verify-dir <tmp> -> 종료코드 {result_verify.returncode}")
+        if result_verify.returncode != 0:
+            problems.append(f"package_export --verify-dir 종료코드 기대 0, 실제 {result_verify.returncode}")
+        verify_text_ok = True
+        for needle in ("Argus 제출 패키지 재검증", "VERIFIED: true",
+                       "SUBMISSION_READY: false", "실제로 제출하지 않는다",
+                       "Pi 실촬영 검증 전"):
+            if needle not in result_verify.stdout:
+                verify_text_ok = False
+                problems.append(f"package_export --verify-dir 텍스트에 {needle!r} 없음")
+
+        snap_after = _snapshot(staging_verify)
+        verify_readonly = snap_before == snap_after and bool(snap_before)
+        ctx.note(f"verify-dir 읽기 전용(스냅샷 불변) -> {verify_readonly}")
+        if not verify_readonly:
+            problems.append("verify-dir가 staging 파일을 변경했다(읽기 전용 위반)")
+
+        vexp_inproc, vprobs_inproc = verify_export_dir(staging_verify, ROOT)
+        verify_inproc_ok = (vexp_inproc is not None and vprobs_inproc == []
+                            and vexp_inproc.get("copied_files") == INVENTORY_TOTAL_FILES)
+        ctx.note(f"verify_export_dir(깨끗한 staging) -> 문제 {len(vprobs_inproc)}건")
+        if not verify_inproc_ok:
+            problems.append(f"verify_export_dir 문제: {vprobs_inproc}")
+
+        staging_vt = Path(tmp) / "pkg-verify-tamper"
+        build_export(staging_vt, ROOT)
+        (staging_vt / "README.md").write_bytes(b"tampered")
+        result_vt = run_cli(["-m", "qa.package_export", "--verify-dir",
+                             str(staging_vt), "--json"])
+        verify_tamper_exit_code = result_vt.returncode
+        ctx.note(f"python3 -m qa.package_export --verify-dir <변조 tmp> --json -> 종료코드 {result_vt.returncode}")
+        try:
+            vt_payload = json.loads(result_vt.stdout)
+        except json.JSONDecodeError:
+            vt_payload = {}
+        verify_tamper_detected = (result_vt.returncode == 1
+                                  and vt_payload.get("verified") is False
+                                  and any("README.md" in str(x) for x in vt_payload.get("problems", [])))
+        if not verify_tamper_detected:
+            problems.append("verify-dir 변조 탐지 실패: 복사본 README.md를 바꿔도 verified=false로 잡지 못했다")
+
+        empty_dir = Path(tmp) / "pkg-verify-empty"
+        empty_dir.mkdir()
+        result_vm = run_cli(["-m", "qa.package_export", "--verify-dir",
+                             str(empty_dir), "--json"])
+        verify_missing_exit_code = result_vm.returncode
+        ctx.note(f"python3 -m qa.package_export --verify-dir <빈 tmp> --json -> 종료코드 {result_vm.returncode}")
+        try:
+            vm_payload = json.loads(result_vm.stdout)
+        except json.JSONDecodeError:
+            vm_payload = {}
+        if result_vm.returncode != 2 or vm_payload.get("verified") is not False:
+            problems.append(f"verify-dir 매니페스트 없음 기대 종료코드 2·verified false, 실제 {result_vm.returncode}·{vm_payload.get('verified')}")
+
+        result_vc = run_cli(["-m", "qa.package_export", "--out-dir",
+                             str(Path(tmp) / "pkg-x"), "--verify-dir",
+                             str(staging_verify)])
+        verify_conflict_exit_code = result_vc.returncode
+        ctx.note(f"python3 -m qa.package_export --out-dir+--verify-dir -> 종료코드 {result_vc.returncode}")
+        if result_vc.returncode != 2:
+            problems.append(f"verify-dir 인자 충돌 종료코드 기대 2, 실제 {result_vc.returncode}")
+
         tampered_ready = copy.deepcopy(built)
         tampered_ready["submission_ready"] = True
         ready_tamper_detected = any(
@@ -4422,10 +4541,21 @@ def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
                "tamper_detected": tamper_detected,
                "ready_tamper_detected": ready_tamper_detected,
                "invalid_exit_code": result_bad.returncode,
+               "verify_verified": verify_verified,
+               "verify_exit_code": verify_exit_code,
+               "verify_text_ok": verify_text_ok,
+               "verify_readonly": verify_readonly,
+               "verify_tamper_detected": verify_tamper_detected,
+               "verify_tamper_exit_code": verify_tamper_exit_code,
+               "verify_missing_exit_code": verify_missing_exit_code,
+               "verify_conflict_exit_code": verify_conflict_exit_code,
+               "verify_inproc_ok": verify_inproc_ok,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"package-export.json": result_j.stdout if result_j else "",
-                    "package-export.txt": result.stdout if result else ""})
+                    "package-export.txt": result.stdout if result else "",
+                    "package-export-verify.json": result_verify_j.stdout if result_verify_j else "",
+                    "package-export-verify.txt": result_verify.stdout if result_verify else ""})
     return summary
 
 DRIVERS = {"console-home": drive_console_home,

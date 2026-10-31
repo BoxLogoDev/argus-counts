@@ -1523,6 +1523,53 @@ class HelperRunTests(unittest.TestCase):
                              ["pi_real_capture_pending"])
             self.assertIs(exported["submission_ready"], False)
 
+    def test_package_export_verify_dir_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-package-export-verify"
+            result = self._run_helper("--feature", "package-export",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["verify_verified"])
+            self.assertEqual(summary["verify_exit_code"], 0)
+            self.assertTrue(summary["verify_text_ok"])
+            self.assertTrue(summary["verify_inproc_ok"])
+
+    def test_package_export_verify_dir_tamper_and_missing_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-package-export-verify-tamper"
+            result = self._run_helper("--feature", "package-export",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["verify_tamper_detected"])
+            self.assertEqual(summary["verify_tamper_exit_code"], 1)
+            self.assertEqual(summary["verify_missing_exit_code"], 2)
+            self.assertEqual(summary["verify_conflict_exit_code"], 2)
+
+    def test_package_export_verify_dir_readonly_and_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-package-export-verify-readonly"
+            result = self._run_helper("--feature", "package-export",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["verify_readonly"])
+            payload = json.loads(
+                (evidence / "package-export-verify.json").read_text(
+                    encoding="utf-8"))
+            self.assertIs(payload["verified"], True)
+            self.assertEqual(payload["problems"], [])
+            self.assertEqual(payload["export"]["copied_files"], 18)
+            self.assertIs(payload["export"]["submission_ready"], False)
+            text = (evidence / "package-export-verify.txt").read_text(
+                encoding="utf-8")
+            self.assertIn("VERIFIED: true", text)
+            self.assertIn("SUBMISSION_READY: false", text)
+
     def test_pi_session_full_drives_and_records_blocked_and_passed(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-pi-session-full"
