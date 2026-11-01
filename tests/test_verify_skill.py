@@ -90,6 +90,14 @@ class SkillFileTests(unittest.TestCase):
                        "VERIFY-PHOTO-1"):
             self.assertIn(marker, feature)
 
+    def test_photo_intake_feature_records_file_input_live_run(self):
+        feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
+            encoding="utf-8")
+        for marker in ("파일 입력 경로 실호출은 2026-11-02",
+                       "파일 기반 입력이며 Pi 실촬영 아님",
+                       "스킬 밖에서 통과한 기록"):
+            self.assertIn(marker, feature)
+
     def test_pre_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pre-submission", skill)
@@ -3080,6 +3088,16 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)", text)
             self.assertIn("데모 기준", text)
 
+
+    def test_devpost_submission_evidence_records_file_input_live_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-devpost-file-input"
+            result = self._run_helper("--feature", "devpost-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            text = (evidence / "devpost-submission.md").read_text(
+                encoding="utf-8")
+            self.assertIn("파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님)", text)
 
     def test_devpost_submission_records_fallback_selection(self):
         with tempfile.TemporaryDirectory() as tmp:

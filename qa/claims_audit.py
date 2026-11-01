@@ -19,6 +19,11 @@ README와 docs 문서에서 아직 하지 않은 일을 이미 한 것처럼 현
 서로 다른 잘라내기를 썼으므로, 서로 다른 잘라내기로 범위를 한정한
 빈별 검증 서술도 정직성 표기로 본다. 실제 빈 촬영으로 단정하는
 서술은 여전히 위반이다.
+파일 입력 경로(photo_intake) 실호출은 2026-11-02 커넥터 브리지로
+통과했지만 가상 사진의 서로 다른 잘라내기를 파일로 넣은 것이므로,
+파일 기반 입력이며 Pi 실촬영 아님으로 범위를 한정한 파일 입력
+검증 서술도 정직성 표기로 본다. Pi 실촬영으로 단정하는 서술은
+여전히 위반이다.
 
 실행: 프로젝트 루트에서 `python3 -m qa.claims_audit`
 위반이 없으면 종료코드 0, 있으면 1.
@@ -85,6 +90,8 @@ HONESTY_MARKERS = (
     "빈별 정확도 아님",
     "서로 다른 잘라내기",
     "different crops of one virtual photo",
+    "파일 기반 입력이며 Pi 실촬영 아님",
+    "file-based input, not Pi capture",
     "same virtual photo reused",
     "not a per-bin accuracy",
 )

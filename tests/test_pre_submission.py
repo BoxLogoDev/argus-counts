@@ -105,6 +105,7 @@ def _valid_devpost_text() -> str:
         "## Meta AI 도구 활용",
         "- 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).",
+        "- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).",
         "- 가짜 transport 테스트로만 검증했다.",
         "- API 키를 Secure Vault 경유로 받은 뒤에만 전환한다.",
         "- 테마는 가안이다.",
@@ -136,6 +137,7 @@ def _valid_runbook_text() -> str:
         "# Argus 제출 런북",
         "현재는 모의 어댑터가 동작 중이며 Pi 검증 전이고 SAM 3.1 실호출은 단일 빈 스모크로 검증한 상태다.",
         "- 빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).",
+        "- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).",
         "## 0. 현재 상태",
         "- `pi_real_capture_pending`",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
@@ -185,6 +187,7 @@ def _valid_story_text() -> str:
         "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
         "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).",
+        "- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).",
         "- 모의 결과를 실호출 결과로 주장하지 않는다.",
         "- Pi 실기 카메라 연동은 아직 검증 전이다.",
         "## 기술 깊이",
@@ -221,6 +224,7 @@ def _valid_en_summary_text() -> str:
         "- Pi device camera integration is not yet verified.",
         "- A full-session live run was verified on 2026-10-30 via the connector bridge (same virtual photo reused for all bins; not a per-bin accuracy check).",
         "- A per-bin live run was verified on 2026-10-31 via the connector bridge (six different crops of one virtual photo; not real bin capture).",
+        "- A file-input live run was verified on 2026-11-02 via the connector bridge (six different crops of one virtual photo; file-based input, not Pi capture).",
         "## Technical depth",
         "- The reconciliation engine produces per-bin results.",
         "## Demo data",
@@ -246,6 +250,7 @@ def _valid_demo_script_text() -> str:
         "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
         "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).",
+        "- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).",
         "- 현재는 모의(mock) 어댑터로 동작한다.",
         "- Pi 실기 카메라 연동은 아직 검증 전이다.",
         "## 컷 표",
@@ -274,6 +279,7 @@ def _valid_readme_text() -> str:
         "- SAM 3.1 실호출은 2026-10-30 단일 빈 스모크로 검증했다.",
         "- 전체 세션 실호출은 2026-10-30 커넥터 브리지로 통과했다(같은 가상 사진 재사용, 빈별 정확도 아님).",
         "- 빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).",
+        "- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).",
         "- 가짜 전송(fake transport) 테스트로도 검증했다.",
         "- 모의 결과는 화면에서 '모의'로 구분해 표기한다.",
         "## 실행법 (초안)",
@@ -497,6 +503,40 @@ class PerBinReflectedTests(unittest.TestCase):
         text = _valid_runbook_text().replace("- 빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님).\n", "")
         problems = validate_runbook_text(text)
         self.assertTrue(any("빈별" in p for p in problems), problems)
+
+
+class FileInputReflectedTests(unittest.TestCase):
+    """파일 입력 경로(photo_intake) 실호출 검증(2026-11-02, 파일 기반·Pi 실촬영 아님) 반영 테스트."""
+
+    def test_story_missing_file_input_flagged(self):
+        text = _valid_story_text().replace("- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).\n", "")
+        problems = validate_story_text(text)
+        self.assertTrue(any("파일 입력" in p for p in problems), problems)
+
+    def test_readme_missing_file_input_flagged(self):
+        text = _valid_readme_text().replace("- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).\n", "")
+        problems = validate_readme_text(text)
+        self.assertTrue(any("파일 입력" in p for p in problems), problems)
+
+    def test_devpost_missing_file_input_flagged(self):
+        text = _valid_devpost_text().replace("- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).\n", "")
+        problems = validate_devpost_text(text)
+        self.assertTrue(any("파일 입력" in p for p in problems), problems)
+
+    def test_en_summary_missing_file_input_flagged(self):
+        text = _valid_en_summary_text().replace("- A file-input live run was verified on 2026-11-02 via the connector bridge (six different crops of one virtual photo; file-based input, not Pi capture).\n", "")
+        problems = validate_en_summary_text(text)
+        self.assertTrue(any("file-input" in p for p in problems), problems)
+
+    def test_demo_script_missing_file_input_flagged(self):
+        text = _valid_demo_script_text().replace("- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).\n", "")
+        problems = validate_demo_script_text(text)
+        self.assertTrue(any("파일 입력" in p for p in problems), problems)
+
+    def test_runbook_missing_file_input_flagged(self):
+        text = _valid_runbook_text().replace("- 파일 입력 경로 실호출은 2026-11-02 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 파일 기반 입력이며 Pi 실촬영 아님).\n", "")
+        problems = validate_runbook_text(text)
+        self.assertTrue(any("파일 입력" in p for p in problems), problems)
 
 
 class ReportTests(unittest.TestCase):
