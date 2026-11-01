@@ -2,7 +2,8 @@
 
 11/03 제출 패키지 마감을 앞두고, 제출물 인벤토리(qa.submission_inventory),
 제출 마감(qa.deadline), Pi 폴백 결정(qa.fallback_decision) 세 보고와
-패키지 내보내기(qa.package_export) 실측을 한곳에 모아 패키지 상태를
+패키지 내보내기(qa.package_export) 실측, 데모 영상 선택(qa.video_selection)
+보고를 한곳에 모아 패키지 상태를
 판정한다. 내보내기 실측은 임시 staging 디렉터리에 실제로 복사하고
 복사본을 대조하는 방식으로만 구하며, 임시 staging은 보고 뒤 사라진다.
 상태는 overdue(마감 경과), incomplete(제출물 누락),
@@ -25,6 +26,15 @@ from pathlib import Path
 
 PACKAGE_DATE_TARGET = "2026-11-03"
 
+from qa.video_selection import FALLBACK_VIDEO as _VIDEO_FALLBACK
+from qa.video_selection import PRIMARY_VIDEO as _VIDEO_PRIMARY
+
+_VIDEO_BY_STATUS = {
+    "pending": ("pending_default", _VIDEO_PRIMARY),
+    "fallback_due": ("fallback_due", _VIDEO_FALLBACK),
+    "pi_ready": ("pi_ready", _VIDEO_PRIMARY),
+}
+
 HONESTY = [
     "최종 묶음 점검은 실제로 제출하지 않는다",
     "패키지 준비 상태는 제출 완료를 뜻하지 않는다",
@@ -44,6 +54,9 @@ _REQUIRED_KEYS = (
     "remaining_seconds",
     "fallback_status",
     "fallback_adopted",
+    "selected_video",
+    "selection_reason",
+    "selected_size",
     "blockers",
     "status",
     "submission_ready",
@@ -89,6 +102,9 @@ def evaluate_final_package(
     export_total=None,
     export_missing=None,
     export_total_bytes=None,
+    selected_video=None,
+    selection_reason=None,
+    selected_size=None,
 ) -> dict:
     missing = list(inventory_missing or [])
     blocker_list = list(blockers or [])
@@ -113,6 +129,15 @@ def evaluate_final_package(
         "remaining_seconds": int(remaining_seconds),
         "fallback_status": str(fallback_status),
         "fallback_adopted": bool(fallback_adopted),
+        "selected_video": (
+            str(selected_video) if selected_video is not None else None
+        ),
+        "selection_reason": (
+            str(selection_reason) if selection_reason is not None else None
+        ),
+        "selected_size": (
+            int(selected_size) if selected_size is not None else None
+        ),
         "blockers": blocker_list,
         "status": _package_status(
             inventory_present=int(inventory_present),
@@ -141,7 +166,7 @@ def build_final_package(
     device_confirmed: bool = False,
     which=None,
 ) -> dict:
-    """세 보고와 패키지 내보내기 실측을 재사용해 최종 묶음 보고를 만든다.
+    """세 보고와 패키지 내보내기 실측, 영상 선택 보고를 재사용해 최종 묶음 보고를 만든다.
 
     내보내기 실측은 임시 staging 디렉터리에 실제로 복사하는 방식으로만
     구하며 임시 staging은 보고 뒤 사라진다. 제출·촬영·호출은 하지 않는다.
@@ -149,6 +174,7 @@ def build_final_package(
     from qa.deadline import build_deadline
     from qa.fallback_decision import build_decision
     from qa.package_export import build_export
+    from qa.video_selection import build_selection as build_video_selection
     from qa.pre_submission import BLOCKERS
     from qa.submission_inventory import build_inventory
 
@@ -162,6 +188,13 @@ def build_final_package(
     )
     with tempfile.TemporaryDirectory() as tmp:
         export = build_export(Path(tmp) / "staging", source_root=root)
+    video = build_video_selection(
+        root=root,
+        today=today,
+        pi_probe=pi_probe,
+        device_confirmed=device_confirmed,
+        which=which,
+    )
     return evaluate_final_package(
         inventory_present=inventory["present_files"],
         inventory_total=inventory["total_files"],
@@ -174,6 +207,9 @@ def build_final_package(
         remaining_seconds=deadline["remaining_seconds"],
         fallback_status=decision["status"],
         fallback_adopted=decision["fallback_adopted"],
+        selected_video=video["selected_video"],
+        selection_reason=video["selection_reason"],
+        selected_size=video["selected_size"],
         blockers=[b["id"] for b in BLOCKERS],
     )
 
@@ -240,6 +276,45 @@ def validate_final_package(report: dict) -> list[str]:
     )
     if report["status"] != expected_status:
         problems.append(f"status={report['status']!r} != {expected_status!r}")
+    selected_video = report.get("selected_video")
+    if selected_video is not None:
+        if selected_video not in (_VIDEO_PRIMARY, _VIDEO_FALLBACK):
+            problems.append(
+                f"selected_video={selected_video!r} is not a known video candidate"
+            )
+        selected_size = report.get("selected_size")
+        if (
+            isinstance(selected_size, bool)
+            or not isinstance(selected_size, int)
+            or selected_size <= 0
+        ):
+            problems.append(
+                f"selected_size={selected_size!r} is not a positive int"
+            )
+        expected_video = _VIDEO_BY_STATUS.get(report.get("fallback_status"))
+        if expected_video is not None:
+            exp_reason, exp_video = expected_video
+            if report.get("selection_reason") != exp_reason:
+                problems.append(
+                    f"selection_reason={report.get('selection_reason')!r} != "
+                    f"{exp_reason!r} for fallback_status={report.get('fallback_status')!r}"
+                )
+            if selected_video != exp_video:
+                problems.append(
+                    f"selected_video={selected_video!r} != {exp_video!r} "
+                    f"for fallback_status={report.get('fallback_status')!r}"
+                )
+    else:
+        if report.get("selection_reason") is not None:
+            problems.append(
+                f"selection_reason={report.get('selection_reason')!r} "
+                "is not None while selected_video is None"
+            )
+        if report.get("selected_size") is not None:
+            problems.append(
+                f"selected_size={report.get('selected_size')!r} "
+                "is not None while selected_video is None"
+            )
     joined = " ".join(str(x) for x in (report.get("honesty") or []))
     for marker in (
         "실제로 제출하지 않는다",
@@ -266,6 +341,9 @@ def format_text_report(report: dict) -> str:
         f"REMAINING_SECONDS: {report['remaining_seconds']}",
         f"FALLBACK_STATUS: {report['fallback_status']}",
         f"FALLBACK_ADOPTED: {str(report['fallback_adopted']).lower()}",
+        f"SELECTED_VIDEO: {report.get('selected_video')}",
+        f"SELECTION_REASON: {report.get('selection_reason')}",
+        f"SELECTED_SIZE: {report.get('selected_size')}",
         f"BLOCKERS: {report['blockers']}",
         f"SUBMISSION_READY: {str(report['submission_ready']).lower()}",
     ]

@@ -184,5 +184,89 @@ class FinalPackageTests(unittest.TestCase):
         self.assertIn("invalid input", buf2.getvalue())
 
 
+    def test_evaluate_without_video_fields_is_none(self):
+        r = _base()
+        self.assertIsNone(r["selected_video"])
+        self.assertIsNone(r["selection_reason"])
+        self.assertIsNone(r["selected_size"])
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_video_pending_selects_primary(self):
+        r = _base(
+            selected_video="demo/assets/argus-demo-draft.mp4",
+            selection_reason="pending_default",
+            selected_size=1013039,
+        )
+        self.assertEqual(r["selected_video"], "demo/assets/argus-demo-draft.mp4")
+        self.assertEqual(r["selection_reason"], "pending_default")
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_video_fallback_due_selects_fallback(self):
+        r = _base(
+            fallback_status="fallback_due",
+            fallback_adopted=True,
+            selected_video="demo/assets/argus-demo-fallback-draft.mp4",
+            selection_reason="fallback_due",
+            selected_size=1052046,
+        )
+        self.assertEqual(r["status"], "blocked")
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_validate_detects_video_tamper(self):
+        r = _base(
+            selected_video="demo/assets/argus-demo-draft.mp4",
+            selection_reason="pending_default",
+            selected_size=1013039,
+        )
+        bad = dict(r, selected_video="demo/assets/argus-demo-fallback-draft.mp4")
+        self.assertTrue(
+            any("selected_video" in p for p in fp.validate_final_package(bad))
+        )
+        bad2 = dict(r, selection_reason="fallback_due")
+        self.assertTrue(
+            any("selection_reason" in p for p in fp.validate_final_package(bad2))
+        )
+        bad3 = dict(r, selected_size=0)
+        self.assertTrue(
+            any("selected_size" in p for p in fp.validate_final_package(bad3))
+        )
+        bad4 = dict(r, selected_video=None)
+        self.assertTrue(fp.validate_final_package(bad4))
+
+    def test_build_includes_video_evidence(self):
+        from pathlib import Path
+
+        r = fp.build_final_package(
+            now="2026-11-01T10:50:00+09:00", today="2026-11-01"
+        )
+        self.assertEqual(r["selected_video"], "demo/assets/argus-demo-draft.mp4")
+        self.assertEqual(r["selection_reason"], "pending_default")
+        self.assertEqual(
+            r["selected_size"],
+            Path("demo/assets/argus-demo-draft.mp4").stat().st_size,
+        )
+        self.assertEqual(fp.validate_final_package(r), [])
+        r2 = fp.build_final_package(
+            now="2026-11-01T10:50:00+09:00", today="2026-11-02"
+        )
+        self.assertEqual(r2["fallback_status"], "fallback_due")
+        self.assertEqual(
+            r2["selected_video"], "demo/assets/argus-demo-fallback-draft.mp4"
+        )
+        self.assertEqual(r2["selection_reason"], "fallback_due")
+        self.assertEqual(fp.validate_final_package(r2), [])
+
+    def test_cli_text_includes_video_lines(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = fp.main(
+                ["--now", "2026-11-01T10:50:00+09:00", "--date", "2026-11-01"]
+            )
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("SELECTED_VIDEO: demo/assets/argus-demo-draft.mp4", out)
+        self.assertIn("SELECTION_REASON: pending_default", out)
+        self.assertIn("SELECTED_SIZE: ", out)
+
 if __name__ == "__main__":
     unittest.main()
