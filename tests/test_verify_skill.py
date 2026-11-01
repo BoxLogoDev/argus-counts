@@ -1981,6 +1981,63 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("Pi 실촬영 검증 전", joined)
             self.assertIn("데모 기준", joined)
 
+    def test_submission_inventory_final_package_cross_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-submission-inventory-fp-cross"
+            result = self._run_helper("--feature", "submission-inventory",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_inventory_present"], 18)
+            self.assertEqual(summary["fp_inventory_total"], 18)
+            self.assertEqual(summary["fp_status"], "blocked")
+            self.assertEqual(summary["fp_inventory_present"],
+                             summary["present_files"])
+            self.assertEqual(summary["fp_inventory_total"],
+                             summary["total_files"])
+
+    def test_submission_inventory_final_package_evidence_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-submission-inventory-fp-file"
+            result = self._run_helper("--feature", "submission-inventory",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            fp = json.loads(
+                (evidence / "submission-inventory-final-package.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(fp["status"], "blocked")
+            self.assertEqual(fp["inventory_present"], 18)
+            self.assertEqual(fp["inventory_total"], 18)
+            self.assertEqual(fp["inventory_missing"], [])
+            self.assertEqual(fp["blockers"], ["pi_real_capture_pending"])
+            self.assertIs(fp["submission_ready"], False)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["fp_inventory_present"],
+                             fp["inventory_present"])
+            self.assertEqual(summary["total_bytes"], fp["export_total_bytes"])
+
+    def test_submission_inventory_final_package_cross_keeps_not_ready(self):
+        feature = (SKILL_DIR / "features" / "submission-inventory.md").read_text(
+            encoding="utf-8")
+        for marker in ("submission-inventory-final-package-cross",
+                       "fp_inventory_present", "fp_inventory_total",
+                       "fp_cross_ok", "submission-inventory-final-package.json"):
+            self.assertIn(marker, feature)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-submission-inventory-fp-not-ready"
+            result = self._run_helper("--feature", "submission-inventory",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_status"], "blocked")
+            self.assertIs(summary["submission_ready"], False)
+
     def test_fallback_decision_drives_and_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-fallback-decision"

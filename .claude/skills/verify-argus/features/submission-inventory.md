@@ -10,6 +10,7 @@
 - `inventory-tamper` 변조 탐지: 첫 제출물의 `sha256`을 바꾸면 README.md 해시 문제를, `total_bytes`를 바꾸면 합계 문제를, `submission_ready`를 true로 바꾸고 blockers를 비우면 ready·blocker 문제를 각각 지목함을 확인한다.
 - `inventory-empty-root` 빈 루트 정직 보고: 빈 디렉터리를 루트로 주면 present 0·missing 18로 누락을 숨기지 않으며, 그 인벤토리 자체는 `validate_inventory`에서 모순이 아님을 확인한다.
 - `inventory-write-roundtrip` 쓰기 왕복: `write_inventory`가 임시 디렉터리에 `submission-inventory.json`·`submission-inventory.txt`를 쓰고, 다시 읽은 JSON이 검증을 통과하며 텍스트에 `SUBMISSION_READY: false`와 블로커가 있음을 확인한다.
+- `submission-inventory-final-package-cross` 최종 묶음 교차 증거: 같은 제출물의 `qa.final_package` CLI 보고(--now·--date 고정)를 따로 실행해 `inventory_present`·`inventory_total`·`inventory_missing`가 인벤토리의 `present_files`·`total_files`·`missing`와 각각 같고, `export_total_bytes`가 인벤토리의 `total_bytes`와 같으며, status blocked·blockers [`pi_real_capture_pending`]·`submission_ready` false임을 교차 대조한다. summary에 `fp_inventory_present`·`fp_inventory_total`·`fp_status`·`fp_cross_ok`를 남기고 증거 `submission-inventory-final-package.json`을 남긴다(보고 대조까지만 하며 실제로 제출하지 않고, 교차 통과는 제출 준비 완료를 뜻하지 않는다).
 
 ## How to get to it (user POV)
 
@@ -31,7 +32,8 @@ Preconditions:
 - **프로세스 내 대조 확인.** 헬퍼가 `build_inventory`와 `validate_inventory`로 문제 0건을 확인한다.
 - **변조 탐지 확인.** 헬퍼가 해시·합계·ready/blockers를 각각 변조한 사본을 `validate_inventory`에 넣어 해당 문제를 지목하는지 확인한다.
 - **빈 루트·쓰기 왕복 확인.** 헬퍼가 빈 루트에서 missing 18의 정직 보고를, 임시 디렉터리 `write_inventory` 왕복으로 JSON 검증 통과와 텍스트 표기를 확인한다.
-- **증거 확인.** 종료 후 증거 디렉터리에 `submission-inventory.json`(CLI `--json` stdout 원문)과 `submission-inventory.txt`(CLI 텍스트 stdout 원문)가 남고, `summary.json`의 `feature`가 `submission-inventory`이며 `total_files` 18·`present_files` 18·`submission_ready` false·`tamper_detected` true·`write_roundtrip_ok` true인지 대조한다.
+- **최종 묶음 교차 확인.** 헬퍼가 `qa.final_package`를 고정 기준 시각·날짜로 따로 실행해 인벤토리 필드 3종(present·total·missing)과 내보내기 합계 바이트를 교차 대조하고, `fp_cross_ok`가 true인지 확인한다.
+- **증거 확인.** 종료 후 증거 디렉터리에 `submission-inventory.json`(CLI `--json` stdout 원문)과 `submission-inventory.txt`(CLI 텍스트 stdout 원문)와 `submission-inventory-final-package.json`(최종 묶음 CLI `--json` stdout 원문)이 남고, `summary.json`의 `feature`가 `submission-inventory`이며 `total_files` 18·`present_files` 18·`submission_ready` false·`tamper_detected` true·`write_roundtrip_ok` true·`fp_cross_ok` true·`fp_inventory_present` 18·`fp_inventory_total` 18인지 대조한다.
 
 ## Gotchas
 

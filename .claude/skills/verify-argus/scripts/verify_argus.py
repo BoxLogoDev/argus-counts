@@ -4223,6 +4223,58 @@ def drive_submission_inventory(ctx: Ctx, evidence: Path) -> dict:
     if not write_roundtrip_ok:
         problems.append("write_inventory 왕복 검증이 통과하지 않았다")
 
+    # 최종 묶음 교차 대조: 같은 제출물의 qa.final_package 보고와 대조한다.
+    fp: dict = {}
+    fp_cross_ok = False
+    result_fp = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                         "--date", FINAL_PACKAGE_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {FINAL_PACKAGE_DATE} --json "
+             f"-> 종료코드 {result_fp.returncode}")
+    cross_before = len(problems)
+    if result_fp.returncode != 0:
+        problems.append(
+            f"final_package 교차 종료코드 기대 0, 실제 {result_fp.returncode}: "
+            f"{result_fp.stderr[:200]}")
+    try:
+        fp = json.loads(result_fp.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"final_package 교차 --json 파싱 실패: {e}")
+    if fp:
+        if fp.get("status") != "blocked":
+            problems.append(
+                f"final_package status 기대 'blocked', 실제 {fp.get('status')}")
+        if fp.get("inventory_present") != inventory.get("present_files"):
+            problems.append(
+                f"final_package inventory_present가 인벤토리 present_files와 "
+                f"다르다: {fp.get('inventory_present')} != "
+                f"{inventory.get('present_files')}")
+        if fp.get("inventory_total") != inventory.get("total_files"):
+            problems.append(
+                f"final_package inventory_total가 인벤토리 total_files와 "
+                f"다르다: {fp.get('inventory_total')} != "
+                f"{inventory.get('total_files')}")
+        if fp.get("inventory_missing") != inventory.get("missing"):
+            problems.append(
+                f"final_package inventory_missing가 인벤토리 missing와 "
+                f"다르다: {fp.get('inventory_missing')} != "
+                f"{inventory.get('missing')}")
+        if fp.get("export_total_bytes") != inventory.get("total_bytes"):
+            problems.append(
+                f"final_package export_total_bytes가 인벤토리 total_bytes와 "
+                f"다르다: {fp.get('export_total_bytes')} != "
+                f"{inventory.get('total_bytes')}")
+        if fp.get("blockers") != list(EXPECTED_BLOCKER_IDS):
+            problems.append(f"final_package blockers 이상: {fp.get('blockers')}")
+        if fp.get("submission_ready") is not False:
+            problems.append(
+                f"final_package submission_ready 기대 False, "
+                f"실제 {fp.get('submission_ready')}")
+    fp_cross_ok = bool(fp) and len(problems) == cross_before
+    ctx.note(f"인벤토리↔최종 묶음 교차 대조 -> fp_cross_ok={fp_cross_ok}, "
+             f"fp_inventory_present={fp.get('inventory_present')}, "
+             f"fp_inventory_total={fp.get('inventory_total')}")
+
     summary = {"feature": "submission-inventory",
                "total_files": inventory.get("total_files"),
                "present_files": inventory.get("present_files"),
@@ -4236,10 +4288,15 @@ def drive_submission_inventory(ctx: Ctx, evidence: Path) -> dict:
                "ready_tamper_detected": ready_tamper_detected,
                "empty_missing_count": empty_missing_count,
                "write_roundtrip_ok": write_roundtrip_ok,
+               "fp_inventory_present": fp.get("inventory_present"),
+               "fp_inventory_total": fp.get("inventory_total"),
+               "fp_status": fp.get("status"),
+               "fp_cross_ok": fp_cross_ok,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"submission-inventory.json": result_j.stdout,
-                    "submission-inventory.txt": result.stdout})
+                    "submission-inventory.txt": result.stdout,
+                    "submission-inventory-final-package.json": result_fp.stdout})
     return summary
 
 def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
