@@ -4387,6 +4387,93 @@ def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"due fallback_adopted 기대 True, 실제 {due.get('fallback_adopted')}")
 
+    # 영상 선택·최종 묶음과의 교차 대조 — 결정일(가정 날짜) 기준.
+    # 가정 날짜 구동이며 오늘 실제 전환 확정이 아니다.
+    vs_report: dict = {}
+    fp_report: dict = {}
+    result_vs = run_cli(["-m", "qa.video_selection", "--date",
+                         FALLBACK_DECISION_DATE, "--json"])
+    ctx.note(f"python3 -m qa.video_selection --date {FALLBACK_DECISION_DATE} "
+             f"--json -> 종료코드 {result_vs.returncode} "
+             "(폴백 결정 due와 같은 결정일, 가정 날짜 구동)")
+    if result_vs.returncode != 0:
+        problems.append(
+            f"video_selection due --json 종료코드 기대 0, 실제 "
+            f"{result_vs.returncode}: {result_vs.stderr[:200]}")
+    try:
+        vs_report = json.loads(result_vs.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"video_selection due --json 파싱 실패: {e}")
+    result_fp = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                         "--date", FALLBACK_DECISION_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {FALLBACK_DECISION_DATE} --json "
+             f"-> 종료코드 {result_fp.returncode} "
+             "(폴백 결정 due와 같은 결정일, 가정 날짜 구동)")
+    if result_fp.returncode != 0:
+        problems.append(
+            f"final_package due --json 종료코드 기대 0, 실제 "
+            f"{result_fp.returncode}: {result_fp.stderr[:200]}")
+    try:
+        fp_report = json.loads(result_fp.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"final_package due --json 파싱 실패: {e}")
+    fp_cross_ok = False
+    if vs_report and fp_report and due:
+        cross_before = len(problems)
+        if vs_report.get("fallback_status") != due.get("status"):
+            problems.append(
+                f"video_selection fallback_status가 fallback_decision due와 "
+                f"다르다: {vs_report.get('fallback_status')} != {due.get('status')}")
+        if vs_report.get("fallback_adopted") is not True:
+            problems.append(
+                f"video_selection fallback_adopted 기대 True, 실제 "
+                f"{vs_report.get('fallback_adopted')}")
+        if vs_report.get("selected_video") != FALLBACK_DECISION_RENDER:
+            problems.append(
+                f"video_selection selected_video 기대 {FALLBACK_DECISION_RENDER}, "
+                f"실제 {vs_report.get('selected_video')}")
+        if vs_report.get("selection_reason") != "fallback_due":
+            problems.append(
+                f"video_selection selection_reason 기대 fallback_due, 실제 "
+                f"{vs_report.get('selection_reason')}")
+        if vs_report.get("submission_ready") is not False:
+            problems.append(
+                f"video_selection submission_ready 기대 False, 실제 "
+                f"{vs_report.get('submission_ready')}")
+        try:
+            fallback_size = (ROOT / FALLBACK_DECISION_RENDER).stat().st_size
+        except OSError:
+            fallback_size = None
+        if fallback_size is not None \
+                and vs_report.get("selected_size") != fallback_size:
+            problems.append(
+                f"video_selection selected_size가 폴백 렌더 실측과 다르다: "
+                f"{vs_report.get('selected_size')} != {fallback_size}")
+        if fp_report.get("status") != "blocked":
+            problems.append(
+                f"final_package status 기대 'blocked', 실제 {fp_report.get('status')}")
+        for key in ("fallback_status", "selected_video", "selection_reason",
+                    "selected_size"):
+            if fp_report.get(key) != vs_report.get(key):
+                problems.append(
+                    f"final_package {key}가 video_selection과 다르다: "
+                    f"{fp_report.get(key)} != {vs_report.get(key)}")
+        if fp_report.get("fallback_adopted") is not True:
+            problems.append(
+                f"final_package fallback_adopted 기대 True, 실제 "
+                f"{fp_report.get('fallback_adopted')}")
+        if fp_report.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(
+                f"final_package blockers 이상: {fp_report.get('blockers')}")
+        if fp_report.get("submission_ready") is not False:
+            problems.append(
+                f"final_package submission_ready 기대 False, 실제 "
+                f"{fp_report.get('submission_ready')}")
+        fp_cross_ok = len(problems) == cross_before
+    ctx.note(f"폴백 결정↔영상 선택·최종 묶음 교차 대조 -> fp_cross_ok={fp_cross_ok} "
+             "(가정 날짜 구동이며 오늘 실제 전환 확정이 아니다)")
+
     result_bad = run_cli(["-m", "qa.fallback_decision", "--date",
                           "2026-13-40", "--json"])
     ctx.note(f"python3 -m qa.fallback_decision --date 2026-13-40 --json "
@@ -4482,10 +4569,19 @@ def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
                "adopted_tamper_detected": adopted_tamper_detected,
                "real_capture_tamper_detected": real_capture_tamper_detected,
                "invalid_date_exit_code": result_bad.returncode,
+               "vs_selected_video": vs_report.get("selected_video"),
+               "vs_selection_reason": vs_report.get("selection_reason"),
+               "vs_selected_size": vs_report.get("selected_size"),
+               "fp_fallback_status": fp_report.get("fallback_status"),
+               "fp_selected_video": fp_report.get("selected_video"),
+               "fp_selected_size": fp_report.get("selected_size"),
+               "fp_cross_ok": fp_cross_ok,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"fallback-decision-pending.json": result_j.stdout,
-                    "fallback-decision-due.json": result_due.stdout})
+                    "fallback-decision-due.json": result_due.stdout,
+                    "fallback-decision-video-selection.json": result_vs.stdout,
+                    "fallback-decision-final-package.json": result_fp.stdout})
     return summary
 
 def drive_deadline(ctx: Ctx, evidence: Path) -> dict:

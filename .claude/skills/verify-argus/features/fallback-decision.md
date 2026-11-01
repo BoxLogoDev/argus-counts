@@ -9,6 +9,7 @@ Pi 폴백 결정은 `qa.fallback_decision`이 결정일 2026-11-02를 기준으�
 - `fallback-decision-evaluate` 프로세스 내 판정식: `evaluate_decision`이 결정일 전 미준비에서 pending, 결정일 당일 미준비에서 fallback_due, Pi 준비 완료에서는 어느 날짜든 pi_ready·fallback_adopted false를 내고, 세 보고 모두 `validate_decision`에서 문제 0건임을 확인한다. 구동 함수는 `drive_fallback_decision`다.
 - `fallback-decision-build-probe` 프로세스 내 준비 대조: `build_decision`이 없는 probe(2026-10-30)에서는 pending·pi_blockers [`pi_device_arrival_not_confirmed`, `pi_camera_command_missing`]를, 준비된 probe와 장치 확인(2026-11-02)에서는 pi_ready·pi_blockers 빈 목록을 냄을 확인한다.
 - `fallback-decision-tamper` 변조 탐지: pending 보고의 fallback_adopted를 true로 바꾸면 fallback_adopted 문제를, due 보고의 is_pi_real_capture를 true로 바꾸면 is_pi_real_capture 문제를, status를 바꾸면 status 문제를 `validate_decision`이 각각 지목함을 확인한다.
+- `fallback-decision-selection-package-cross` 결정일 교차 대조: 결정일 2026-11-02(가정 날짜) 기준으로 `qa.video_selection` 보고의 fallback_status·fallback_adopted·selected_video(폴백 렌더)·selection_reason·selected_size(폴백 렌더 실측)와 `qa.final_package` 보고의 status blocked·fallback_status·selected_video·selection_reason·selected_size·blockers [`pi_real_capture_pending`]·submission_ready false가 폴백 결정 due 보고와 어긋나지 않음을 확인하고, 증거 `fallback-decision-video-selection.json`·`fallback-decision-final-package.json`과 summary의 `fp_cross_ok`를 남긴다. 가정 날짜 구동이며 오늘 실제 전환 확정이 아니고, 교차 대조가 맞아도 제출 준비 완료를 뜻하지 않는다.
 - `fallback-decision-invalid-date` 잘못된 날짜 차단: `python3 -m qa.fallback_decision --date 2026-13-40 --json`이 종료코드 2로 거부됨을 확인한다.
 
 ## How to get to it (user POV)
@@ -29,8 +30,9 @@ Preconditions:
 - **기본 실행.** Run `python3 .claude/skills/verify-argus/scripts/verify_argus.py --feature fallback-decision --evidence-dir /tmp/argus-verify-evidence/<run-id>`. 헬퍼는 CLI 서브프로세스와 프로세스 내 `evaluate_decision`·`build_decision`·`validate_decision`만으로 `drive_fallback_decision`을 실행한다.
 - **CLI pending·due 확인.** 헬퍼가 `qa.fallback_decision` CLI를 `--date 2026-10-30` 텍스트·JSON과 `--date 2026-11-02 --json`으로 실행해 종료코드 0, pending/fallback_due 판정, 블로커 2건 순서, fallback 자산·렌더 경로, honesty 표기를 확인한다.
 - **프로세스 내 판정 확인.** 헬퍼가 `evaluate_decision` 3상태와 `build_decision`의 missing/ready probe 대조, `validate_decision` 문제 0건을 확인한다.
+- **결정일 교차 확인.** 헬퍼가 결정일(2026-11-02, 가정 날짜) 기준으로 `qa.video_selection --date 2026-11-02 --json`과 `qa.final_package --date 2026-11-02 --json`을 실행해 영상 선택·최종 묶음 보고가 폴백 결정 due 보고와 일치하는지 대조한다. 이것은 가정 날짜 구동이며 오늘 실제 전환 확정이 아니다.
 - **변조·잘못된 날짜 확인.** 헬퍼가 fallback_adopted·is_pi_real_capture·status 변조 탐지와 잘못된 날짜 종료코드 2를 확인한다.
-- **증거 확인.** 종료 후 증거 디렉터리에 `fallback-decision-pending.json`(CLI pending `--json` stdout 원문)과 `fallback-decision-due.json`(CLI due `--json` stdout 원문)가 남고, `summary.json`의 `feature`가 `fallback-decision`이며 `pending_status` pending·`due_status` fallback_due·`pi_ready_status` pi_ready·`tamper_detected` true·`invalid_date_exit_code` 2인지 대조한다.
+- **증거 확인.** 종료 후 증거 디렉터리에 `fallback-decision-pending.json`(CLI pending `--json` stdout 원문)과 `fallback-decision-due.json`(CLI due `--json` stdout 원문)가 남고, `summary.json`의 `feature`가 `fallback-decision`이며 `pending_status` pending·`due_status` fallback_due·`pi_ready_status` pi_ready·`tamper_detected` true·`invalid_date_exit_code` 2·`fp_cross_ok` true인지 대조한다. `fallback-decision-video-selection.json`(결정일 영상 선택 보고 원문)과 `fallback-decision-final-package.json`(결정일 최종 묶음 보고 원문)도 함께 남는다.
 
 ## Gotchas
 

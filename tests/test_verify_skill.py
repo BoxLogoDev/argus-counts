@@ -279,7 +279,12 @@ class SkillFileTests(unittest.TestCase):
         for marker in ("qa.fallback_decision", "evaluate_decision",
                        "build_decision", "validate_decision",
                        "drive_fallback_decision", "fallback-decision-pending.json",
-                       "fallback-decision-due.json", "2026-11-02",
+                       "fallback-decision-due.json",
+                       "fallback-decision-video-selection.json",
+                       "fallback-decision-final-package.json",
+                       "qa.video_selection", "qa.final_package",
+                       "fallback-decision-selection-package-cross",
+                       "fp_cross_ok", "2026-11-02",
                        "pending", "fallback_due", "pi_ready",
                        "pi_device_arrival_not_confirmed",
                        "pi_camera_command_missing", "Pi 실촬영이 아닙니다",
@@ -2086,6 +2091,61 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("결정일 전에는 폴백을 확정하지 않는다", joined)
             self.assertEqual(pending["decision_date"], "2026-11-02")
             self.assertIs(pending["fallback_adopted"], False)
+
+    def test_fallback_decision_cross_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-fallback-decision-cross"
+            result = self._run_helper("--feature", "fallback-decision",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["vs_selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            self.assertEqual(summary["vs_selection_reason"], "fallback_due")
+            self.assertEqual(summary["fp_fallback_status"], "fallback_due")
+            self.assertEqual(summary["fp_selected_video"],
+                             summary["vs_selected_video"])
+            self.assertEqual(summary["fp_selected_size"],
+                             summary["vs_selected_size"])
+
+    def test_fallback_decision_cross_evidence_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-fallback-decision-cross-files"
+            result = self._run_helper("--feature", "fallback-decision",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            vs = json.loads(
+                (evidence / "fallback-decision-video-selection.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(vs["fallback_status"], "fallback_due")
+            self.assertEqual(vs["selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            fp = json.loads(
+                (evidence / "fallback-decision-final-package.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(fp["status"], "blocked")
+            self.assertEqual(fp["fallback_status"], "fallback_due")
+            self.assertEqual(fp["selected_video"], vs["selected_video"])
+            self.assertEqual(fp["blockers"], ["pi_real_capture_pending"])
+
+    def test_fallback_decision_cross_keeps_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-fallback-decision-cross-notready"
+            result = self._run_helper("--feature", "fallback-decision",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for name in ("fallback-decision-video-selection.json",
+                         "fallback-decision-final-package.json"):
+                report = json.loads((evidence / name).read_text(
+                    encoding="utf-8"))
+                self.assertIs(report["submission_ready"], False)
+                self.assertIs(report["fallback_adopted"], True)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["due_status"], "fallback_due")
 
     def test_deadline_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
