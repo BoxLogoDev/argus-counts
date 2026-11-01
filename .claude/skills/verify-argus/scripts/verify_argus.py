@@ -5465,6 +5465,74 @@ def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
         if not ready_tamper_detected:
             problems.append("변조 탐지 실패: submission_ready를 True로 바꿔도 문제를 찾지 못했다")
 
+    # 최종 묶음 교차 대조: 같은 제출물의 qa.final_package 보고와 대조한다.
+    fp: dict = {}
+    fp_cross_ok = False
+    result_fp = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                         "--date", FINAL_PACKAGE_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {FINAL_PACKAGE_DATE} --json "
+             f"-> 종료코드 {result_fp.returncode}")
+    cross_before = len(problems)
+    if result_fp.returncode != 0:
+        problems.append(
+            f"final_package 교차 종료코드 기대 0, 실제 {result_fp.returncode}: "
+            f"{result_fp.stderr[:200]}")
+    try:
+        fp = json.loads(result_fp.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"final_package 교차 --json 파싱 실패: {e}")
+    if fp:
+        if fp.get("status") != "blocked":
+            problems.append(
+                f"final_package status 기대 'blocked', 실제 {fp.get('status')}")
+        if fp.get("export_copied") != exported.get("copied_files"):
+            problems.append(
+                f"final_package export_copied가 내보내기 copied_files와 "
+                f"다르다: {fp.get('export_copied')} != "
+                f"{exported.get('copied_files')}")
+        if fp.get("export_total") != exported.get("total_files"):
+            problems.append(
+                f"final_package export_total가 내보내기 total_files와 "
+                f"다르다: {fp.get('export_total')} != "
+                f"{exported.get('total_files')}")
+        if fp.get("export_missing") != exported.get("missing"):
+            problems.append(
+                f"final_package export_missing가 내보내기 missing와 "
+                f"다르다: {fp.get('export_missing')} != "
+                f"{exported.get('missing')}")
+        fp_bytes = fp.get("export_total_bytes")
+        if not isinstance(fp_bytes, int) or fp_bytes <= 0 \
+                or fp_bytes != total_bytes:
+            problems.append(
+                f"final_package export_total_bytes가 내보내기 total_bytes와 "
+                f"다르다: {fp_bytes} != {total_bytes}")
+        if fp.get("export_verify_verified") is not True:
+            problems.append(
+                f"final_package export_verify_verified 기대 True, "
+                f"실제 {fp.get('export_verify_verified')}")
+        if fp.get("export_verify_copied_files") != fp.get("export_copied"):
+            problems.append(
+                f"final_package export_verify_copied_files가 export_copied와 "
+                f"다르다: {fp.get('export_verify_copied_files')} != "
+                f"{fp.get('export_copied')}")
+        if fp.get("export_verify_total_bytes") != fp.get("export_total_bytes"):
+            problems.append(
+                f"final_package export_verify_total_bytes가 "
+                f"export_total_bytes와 다르다: "
+                f"{fp.get('export_verify_total_bytes')} != "
+                f"{fp.get('export_total_bytes')}")
+        if fp.get("blockers") != list(EXPECTED_BLOCKER_IDS):
+            problems.append(f"final_package blockers 이상: {fp.get('blockers')}")
+        if fp.get("submission_ready") is not False:
+            problems.append(
+                f"final_package submission_ready 기대 False, "
+                f"실제 {fp.get('submission_ready')}")
+    fp_cross_ok = bool(fp) and len(problems) == cross_before
+    ctx.note(f"내보내기↔최종 묶음 교차 대조 -> fp_cross_ok={fp_cross_ok}, "
+             f"fp_export_copied={fp.get('export_copied')}, "
+             f"fp_export_total={fp.get('export_total')}")
+
     summary = {"feature": "package-export",
                "total_files": exported.get("total_files"),
                "copied_files": exported.get("copied_files"),
@@ -5485,12 +5553,19 @@ def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
                "verify_missing_exit_code": verify_missing_exit_code,
                "verify_conflict_exit_code": verify_conflict_exit_code,
                "verify_inproc_ok": verify_inproc_ok,
+               "fp_status": fp.get("status"),
+               "fp_export_copied": fp.get("export_copied"),
+               "fp_export_total": fp.get("export_total"),
+               "fp_export_missing": fp.get("export_missing"),
+               "fp_export_total_bytes": fp.get("export_total_bytes"),
+               "fp_cross_ok": fp_cross_ok,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"package-export.json": result_j.stdout if result_j else "",
                     "package-export.txt": result.stdout if result else "",
                     "package-export-verify.json": result_verify_j.stdout if result_verify_j else "",
-                    "package-export-verify.txt": result_verify.stdout if result_verify else ""})
+                    "package-export-verify.txt": result_verify.stdout if result_verify else "",
+                    "package-export-final-package.json": result_fp.stdout})
     return summary
 
 def drive_sam_live_evidence(ctx: Ctx, evidence: Path) -> dict:

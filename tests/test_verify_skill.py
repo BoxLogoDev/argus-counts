@@ -2670,6 +2670,66 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("VERIFIED: true", text)
             self.assertIn("SUBMISSION_READY: false", text)
 
+    def test_package_export_final_package_cross_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-package-export-fp-cross"
+            result = self._run_helper("--feature", "package-export",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_export_copied"], 18)
+            self.assertEqual(summary["fp_export_total"], 18)
+            self.assertEqual(summary["fp_export_missing"], [])
+            self.assertEqual(summary["fp_status"], "blocked")
+            self.assertEqual(summary["fp_export_copied"],
+                             summary["copied_files"])
+            self.assertEqual(summary["fp_export_total"],
+                             summary["total_files"])
+
+    def test_package_export_final_package_evidence_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-package-export-fp-file"
+            result = self._run_helper("--feature", "package-export",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            fp = json.loads(
+                (evidence / "package-export-final-package.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(fp["status"], "blocked")
+            self.assertEqual(fp["export_copied"], 18)
+            self.assertEqual(fp["export_total"], 18)
+            self.assertEqual(fp["export_missing"], [])
+            self.assertIs(fp["export_verify_verified"], True)
+            self.assertEqual(fp["blockers"], ["pi_real_capture_pending"])
+            self.assertIs(fp["submission_ready"], False)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["fp_export_copied"], fp["export_copied"])
+            self.assertEqual(summary["total_bytes"], fp["export_total_bytes"])
+            self.assertEqual(summary["fp_export_total_bytes"],
+                             fp["export_total_bytes"])
+
+    def test_package_export_final_package_cross_keeps_not_ready(self):
+        feature = (SKILL_DIR / "features" / "package-export.md").read_text(
+            encoding="utf-8")
+        for marker in ("package-export-final-package-cross",
+                       "fp_export_copied", "fp_export_total",
+                       "fp_cross_ok", "package-export-final-package.json"):
+            self.assertIn(marker, feature)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-package-export-fp-not-ready"
+            result = self._run_helper("--feature", "package-export",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_status"], "blocked")
+            self.assertIs(summary["submission_ready"], False)
+
     def test_pi_session_full_drives_and_records_blocked_and_passed(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-pi-session-full"
