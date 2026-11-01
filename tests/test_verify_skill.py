@@ -2367,6 +2367,43 @@ class HelperRunTests(unittest.TestCase):
             self.assertIs(summary["readiness_sam_live_evidence_submission_ready"], False)
             self.assertFalse(summary["submission_ready"])
 
+
+    def test_pre_submission_records_sam_session_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-sse"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["readiness_sam_session_evidence_valid"], True)
+            self.assertEqual(summary["readiness_sam_session_evidence_source"], "sam")
+            self.assertEqual(
+                summary["readiness_sam_session_evidence_distinct_image_count"], 6)
+
+    def test_pre_submission_sam_session_evidence_session_and_tamper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-sse2"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_sam_session_evidence_session_id"],
+                             "PRE-SUBMISSION-SAM-SESSION-EVIDENCE")
+            self.assertIs(summary["readiness_sam_session_evidence_tamper_detected"], True)
+
+    def test_pre_submission_sam_session_evidence_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-sse3"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["readiness_sam_session_evidence_submission_ready"], False)
+            self.assertFalse(summary["submission_ready"])
+
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = self._run_helper("--feature", "nope", evidence=Path(tmp))

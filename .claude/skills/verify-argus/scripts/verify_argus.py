@@ -846,7 +846,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 28/28 mechanical passed", "BLOCKERS: 1",
+    for needle in ("PRE_SUBMISSION: 29/29 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -861,10 +861,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 28:
-            problems.append(f"passed 기대 28, 실제 {report.get('passed')}")
-        if report.get("total") != 28:
-            problems.append(f"total 기대 28, 실제 {report.get('total')}")
+        if report.get("passed") != 29:
+            problems.append(f"passed 기대 29, 실제 {report.get('passed')}")
+        if report.get("total") != 29:
+            problems.append(f"total 기대 29, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -877,8 +877,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 28:
-            problems.append(f"checks 기대 28, 실제 {len(checks)}")
+        if len(checks) != 29:
+            problems.append(f"checks 기대 29, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
@@ -890,6 +890,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 sam_per_bin_consistent 없음")
         if "sam_live_evidence_consistent" not in check_names:
             problems.append("checks에 sam_live_evidence_consistent 없음")
+        if "sam_session_evidence_consistent" not in check_names:
+            problems.append("checks에 sam_session_evidence_consistent 없음")
         if "pi_smoke_consistent" not in check_names:
             problems.append("checks에 pi_smoke_consistent 없음")
         if "pi_session_consistent" not in check_names:
@@ -1074,6 +1076,28 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness sam_live_evidence submission_ready 기대 False, 실제 {sle_ready}")
         if _sle_summary.get("matched") != 1 or _sle_summary.get("mismatched") != 5 or _sle_summary.get("abs_diff_total") != 30 or _sle_summary.get("net_diff") != -28:
             problems.append(f"readiness sam_live_evidence summary 기대 matched1/mismatched5/abs30/net-28, 실제 {_sle_summary}")
+        sse_r = readiness.get("sam_session_evidence") or {}
+        sse_valid = sse_r.get("valid")
+        sse_source = sse_r.get("source")
+        sse_distinct = sse_r.get("distinct_image_count")
+        sse_session = sse_r.get("session_id")
+        sse_tamper = sse_r.get("tamper_detected")
+        sse_ready = sse_r.get("submission_ready")
+        _sse_summary = sse_r.get("summary") or {}
+        if sse_valid is not True:
+            problems.append(f"readiness sam_session_evidence valid 기대 True, 실제 {sse_valid}")
+        if sse_source != "sam":
+            problems.append(f"readiness sam_session_evidence source 기대 sam, 실제 {sse_source}")
+        if sse_distinct != 6:
+            problems.append(f"readiness sam_session_evidence distinct 기대 6, 실제 {sse_distinct}")
+        if sse_session != "PRE-SUBMISSION-SAM-SESSION-EVIDENCE":
+            problems.append(f"readiness sam_session_evidence session 기대 PRE-SUBMISSION-SAM-SESSION-EVIDENCE, 실제 {sse_session}")
+        if sse_tamper is not True:
+            problems.append(f"readiness sam_session_evidence tamper_detected 기대 True, 실제 {sse_tamper}")
+        if sse_ready is not False:
+            problems.append(f"readiness sam_session_evidence submission_ready 기대 False, 실제 {sse_ready}")
+        if _sse_summary.get("matched") != 1 or _sse_summary.get("mismatched") != 5 or _sse_summary.get("abs_diff_total") != 30 or _sse_summary.get("net_diff") != -28:
+            problems.append(f"readiness sam_session_evidence summary 기대 matched1/mismatched5/abs30/net-28, 실제 {_sse_summary}")
         pi_smoke_r = readiness.get("pi_smoke") or {}
         pi_smoke_status = pi_smoke_r.get("status")
         pi_smoke_rb = [b["id"] for b in pi_smoke_r.get("blockers", [])]
@@ -1363,6 +1387,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         perbin_ready, perbin_session_id = None, None
         sle_valid, sle_source, sle_distinct = None, None, None
         sle_session, sle_tamper, sle_ready = None, None, None
+        sse_valid, sse_source, sse_distinct = None, None, None
+        sse_session, sse_tamper, sse_ready = None, None, None
         pi_smoke_status, pi_smoke_rb = None, []
         pi_session_status, pi_session_rb = None, []
         devpost_sc, devpost_rb = None, []
@@ -1416,6 +1442,12 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_sam_live_evidence_session_id": sle_session,
                "readiness_sam_live_evidence_tamper_detected": sle_tamper,
                "readiness_sam_live_evidence_submission_ready": sle_ready,
+               "readiness_sam_session_evidence_valid": sse_valid,
+               "readiness_sam_session_evidence_source": sse_source,
+               "readiness_sam_session_evidence_distinct_image_count": sse_distinct,
+               "readiness_sam_session_evidence_session_id": sse_session,
+               "readiness_sam_session_evidence_tamper_detected": sse_tamper,
+               "readiness_sam_session_evidence_submission_ready": sse_ready,
                "readiness_pi_smoke_status": pi_smoke_status,
                "readiness_pi_smoke_blockers": pi_smoke_rb,
                "readiness_pi_session_status": pi_session_status,
