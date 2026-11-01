@@ -1977,6 +1977,69 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["export_incomplete_status"], "incomplete")
             self.assertTrue(summary["export_tamper_detected"])
 
+    def test_final_package_video_selection_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-video"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["selected_video"],
+                             "demo/assets/argus-demo-draft.mp4")
+            self.assertEqual(summary["selection_reason"], "pending_default")
+            self.assertIsInstance(summary["selected_size"], int)
+            self.assertGreater(summary["selected_size"], 0)
+            blocked = json.loads(
+                (evidence / "final-package-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(summary["selected_video"],
+                             blocked["selected_video"])
+            self.assertEqual(summary["selected_size"],
+                             blocked["selected_size"])
+
+    def test_final_package_video_selection_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-video-cross"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["due_fallback_status"], "fallback_due")
+            self.assertEqual(summary["due_selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            self.assertEqual(summary["due_selection_reason"], "fallback_due")
+            self.assertGreater(summary["due_selected_size"], 0)
+            self.assertEqual(summary["built_selected_video"],
+                             summary["selected_video"])
+            self.assertEqual(summary["built_selected_size"],
+                             summary["selected_size"])
+            self.assertEqual(summary["built_due_selected_video"],
+                             summary["due_selected_video"])
+            self.assertEqual(summary["built_due_selected_size"],
+                             summary["due_selected_size"])
+
+    def test_final_package_video_selection_tamper_evidence(self):
+        feature = (SKILL_DIR / "features" / "final-package.md").read_text(
+            encoding="utf-8")
+        for marker in ("final-package-video-selection-evidence",
+                       "selected_video", "selection_reason", "selected_size",
+                       "video_tamper_detected", "pending_default",
+                       "fallback_due"):
+            self.assertIn(marker, feature)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-video-tamper"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["video_tamper_detected"])
+            self.assertTrue(summary["selected_video_tamper_detected"])
+            self.assertTrue(summary["selection_reason_tamper_detected"])
+            self.assertTrue(summary["selected_size_tamper_detected"])
+
     def test_final_package_evidence_keeps_honesty(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-final-package-honesty"

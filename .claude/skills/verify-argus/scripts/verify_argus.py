@@ -280,6 +280,9 @@ FINAL_PACKAGE_NOW = "2026-10-31T04:50:00+09:00"
 FINAL_PACKAGE_DATE = "2026-10-31"
 FINAL_PACKAGE_REMAINING = 454200
 FINAL_PACKAGE_TARGET = "2026-11-03"
+FINAL_PACKAGE_DUE_DATE = "2026-11-02"
+FINAL_PACKAGE_PRIMARY_VIDEO = "demo/assets/argus-demo-draft.mp4"
+FINAL_PACKAGE_FALLBACK_VIDEO = "demo/assets/argus-demo-fallback-draft.mp4"
 FALLBACK_RENDER_CUT_INDEX = 3
 FALLBACK_RENDER_DECISION_DATE = "2026-11-02"
 
@@ -4518,6 +4521,25 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
     from qa.final_package import (build_final_package,
                                    evaluate_final_package,
                                    validate_final_package)
+    try:
+        primary_size = (ROOT / FINAL_PACKAGE_PRIMARY_VIDEO).stat().st_size
+    except OSError:
+        primary_size = None
+    try:
+        fallback_size = (ROOT / FINAL_PACKAGE_FALLBACK_VIDEO).stat().st_size
+    except OSError:
+        fallback_size = None
+    if not isinstance(primary_size, int) or primary_size <= 0:
+        problems.append(f"기본 영상 파일 크기 이상: {primary_size}")
+    if not isinstance(fallback_size, int) or fallback_size <= 0:
+        problems.append(f"폴백 영상 파일 크기 이상: {fallback_size}")
+    due: dict = {}
+    built_selected_video = built_selected_size = None
+    built_due_selected_video = built_due_selected_size = None
+    video_tamper_detected = False
+    selected_video_tamper_detected = False
+    selection_reason_tamper_detected = False
+    selected_size_tamper_detected = False
 
     result = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
                       "--date", FINAL_PACKAGE_DATE])
@@ -4539,11 +4561,15 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                    f"REMAINING_SECONDS: {FINAL_PACKAGE_REMAINING}",
                    "FALLBACK_STATUS: pending",
                    "FALLBACK_ADOPTED: false",
+                   f"SELECTED_VIDEO: {FINAL_PACKAGE_PRIMARY_VIDEO}",
+                   "SELECTION_REASON: pending_default",
                    "BLOCKERS: ['pi_real_capture_pending']",
                    "SUBMISSION_READY: false",
                    "실제로 제출하지 않는다"):
         if needle not in result.stdout:
             problems.append(f"final_package 텍스트에 {needle!r} 없음")
+    if primary_size is not None and f"SELECTED_SIZE: {primary_size}" not in result.stdout:
+        problems.append("final_package 텍스트에 SELECTED_SIZE(기본 영상 실측 크기) 없음")
 
     result_j = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
                         "--date", FINAL_PACKAGE_DATE, "--json"])
@@ -4591,6 +4617,14 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"fallback_status 기대 'pending', 실제 {blocked.get('fallback_status')}")
         if blocked.get("fallback_adopted") is not False:
             problems.append(f"fallback_adopted 기대 False, 실제 {blocked.get('fallback_adopted')}")
+        if blocked.get("selected_video") != FINAL_PACKAGE_PRIMARY_VIDEO:
+            problems.append(f"selected_video 기대 {FINAL_PACKAGE_PRIMARY_VIDEO}, 실제 {blocked.get('selected_video')}")
+        if blocked.get("selection_reason") != "pending_default":
+            problems.append(f"selection_reason 기대 'pending_default', 실제 {blocked.get('selection_reason')}")
+        if not isinstance(blocked.get("selected_size"), int) or isinstance(blocked.get("selected_size"), bool) or blocked.get("selected_size", 0) <= 0:
+            problems.append(f"selected_size 양의 정수 기대, 실제 {blocked.get('selected_size')}")
+        elif primary_size is not None and blocked.get("selected_size") != primary_size:
+            problems.append(f"selected_size가 기본 영상 실측 크기와 다르다: {blocked.get('selected_size')} != {primary_size}")
         if blocked.get("blockers") != ["pi_real_capture_pending"]:
             problems.append(f"blockers 이상: {blocked.get('blockers')}")
         if blocked.get("submission_ready") is not False:
@@ -4601,6 +4635,34 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                        "Pi 실촬영 검증 전"):
             if marker not in joined:
                 problems.append(f"honesty에 {marker!r} 없음")
+
+    result_due = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                          "--date", FINAL_PACKAGE_DUE_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {FINAL_PACKAGE_DUE_DATE} --json "
+             f"-> 종료코드 {result_due.returncode} (가정 날짜 구동)")
+    if result_due.returncode != 0:
+        problems.append(
+            f"final_package due --json 종료코드 기대 0, 실제 {result_due.returncode}")
+    try:
+        due = json.loads(result_due.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"due --json 파싱 실패: {e}")
+    if due:
+        if due.get("status") != "blocked":
+            problems.append(f"due status 기대 'blocked', 실제 {due.get('status')}")
+        if due.get("fallback_status") != "fallback_due":
+            problems.append(f"due fallback_status 기대 'fallback_due', 실제 {due.get('fallback_status')}")
+        if due.get("fallback_adopted") is not True:
+            problems.append(f"due fallback_adopted 기대 True, 실제 {due.get('fallback_adopted')}")
+        if due.get("selected_video") != FINAL_PACKAGE_FALLBACK_VIDEO:
+            problems.append(f"due selected_video 기대 {FINAL_PACKAGE_FALLBACK_VIDEO}, 실제 {due.get('selected_video')}")
+        if due.get("selection_reason") != "fallback_due":
+            problems.append(f"due selection_reason 기대 'fallback_due', 실제 {due.get('selection_reason')}")
+        if fallback_size is not None and due.get("selected_size") != fallback_size:
+            problems.append(f"due selected_size가 폴백 영상 실측 크기와 다르다: {due.get('selected_size')} != {fallback_size}")
+        if due.get("submission_ready") is not False:
+            problems.append(f"due submission_ready 기대 False, 실제 {due.get('submission_ready')}")
 
     result_over = run_cli(["-m", "qa.final_package", "--now",
                            DEADLINE_OVERDUE_NOW, "--date", FINAL_PACKAGE_DATE,
@@ -4635,6 +4697,9 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                        deadline_status="before_deadline",
                        remaining_seconds=FINAL_PACKAGE_REMAINING,
                        fallback_status="pending", fallback_adopted=False,
+                       selected_video=FINAL_PACKAGE_PRIMARY_VIDEO,
+                       selection_reason="pending_default",
+                       selected_size=12345,
                        blockers=["pi_real_capture_pending"])
     ready_status = incomplete_status = overdue_status = None
     export_incomplete_status = None
@@ -4671,6 +4736,29 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"evaluate/build blocked 이상: {built.get('status')}")
         if built.get("inventory_present") != 18 or built.get("inventory_total") != 18:
             problems.append(f"build inventory 이상: {built.get('inventory_present')}/{built.get('inventory_total')}")
+        if ev_blocked.get("selected_video") != FINAL_PACKAGE_PRIMARY_VIDEO or ev_blocked.get("selection_reason") != "pending_default" or ev_blocked.get("selected_size") != 12345:
+            problems.append(f"evaluate selected 이상: {ev_blocked.get('selected_video')}/{ev_blocked.get('selection_reason')}/{ev_blocked.get('selected_size')}")
+        ev_fallback = evaluate_final_package(
+            **{**base_kwargs, "fallback_status": "fallback_due",
+               "fallback_adopted": True,
+               "selected_video": FINAL_PACKAGE_FALLBACK_VIDEO,
+               "selection_reason": "fallback_due"})
+        if ev_fallback.get("status") != "blocked" or ev_fallback.get("selected_video") != FINAL_PACKAGE_FALLBACK_VIDEO:
+            problems.append(f"evaluate fallback_due selected 이상: {ev_fallback.get('status')}/{ev_fallback.get('selected_video')}")
+        built_selected_video = built.get("selected_video")
+        built_selected_size = built.get("selected_size")
+        if built_selected_video != FINAL_PACKAGE_PRIMARY_VIDEO or built.get("selection_reason") != "pending_default":
+            problems.append(f"build selected 이상: {built_selected_video}/{built.get('selection_reason')}")
+        if built_selected_size != blocked.get("selected_size"):
+            problems.append(f"build selected_size가 CLI blocked와 다르다: {built_selected_size} != {blocked.get('selected_size')}")
+        built_due = build_final_package(now=FINAL_PACKAGE_NOW,
+                                        today=FINAL_PACKAGE_DUE_DATE)
+        built_due_selected_video = built_due.get("selected_video")
+        built_due_selected_size = built_due.get("selected_size")
+        if built_due.get("fallback_status") != "fallback_due" or built_due_selected_video != FINAL_PACKAGE_FALLBACK_VIDEO or built_due.get("selection_reason") != "fallback_due":
+            problems.append(f"build due selected 이상: {built_due.get('fallback_status')}/{built_due_selected_video}/{built_due.get('selection_reason')}")
+        if built_due_selected_size != due.get("selected_size"):
+            problems.append(f"build due selected_size가 CLI due와 다르다: {built_due_selected_size} != {due.get('selected_size')}")
         if ready_status != "ready_for_packaging":
             problems.append(f"evaluate ready 이상: {ready_status}")
         if incomplete_status != "incomplete":
@@ -4678,7 +4766,7 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
         if overdue_status != "overdue":
             problems.append(f"evaluate overdue 이상: {overdue_status}")
         # ev_export_inc는 상태 판정 전용 프로브(validate는 export!=inventory를 무효로 보므로 검증 대상에서 제외)
-        for report in (ev_blocked, ev_ready, ev_incomplete, ev_over, built):
+        for report in (ev_blocked, ev_ready, ev_incomplete, ev_over, ev_fallback, built):
             v = validate_final_package(report)
             if v:
                 problems.append(f"validate_final_package 정상 보고 문제: {v}")
@@ -4699,14 +4787,32 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
         submission_ready_tamper_detected = any("submission_ready" in p for p in validate_final_package(t3))
         t4 = copy.deepcopy(base); t4["export_copied"] = 10
         export_tamper_detected = any("export_copied" in p for p in validate_final_package(t4))
+        t5 = copy.deepcopy(base); t5["selected_video"] = FINAL_PACKAGE_FALLBACK_VIDEO
+        selected_video_tamper_detected = any("selected_video" in p for p in validate_final_package(t5))
+        t6 = copy.deepcopy(base); t6["selection_reason"] = "fallback_due"
+        selection_reason_tamper_detected = any("selection_reason" in p for p in validate_final_package(t6))
+        t7 = copy.deepcopy(base); t7["selected_size"] = 0
+        selected_size_tamper_detected = any("selected_size" in p for p in validate_final_package(t7))
+        t8 = copy.deepcopy(base); t8["selected_video"] = None
+        none_tamper_detected = any(("selection_reason" in p or "selected_size" in p) for p in validate_final_package(t8))
+        if not none_tamper_detected:
+            problems.append("변조 탐지 실패: selected_video를 None으로 바꿔도 문제를 찾지 못했다")
     except Exception as e:
         problems.append(f"변조 탐지 구동 실패: {type(e).__name__}: {e}")
     tamper_detected = (status_tamper_detected and inventory_tamper_detected
                        and submission_ready_tamper_detected)
+    video_tamper_detected = (selected_video_tamper_detected
+                             and selection_reason_tamper_detected
+                             and selected_size_tamper_detected)
     ctx.note(f"최종 묶음 변조 탐지 -> status {status_tamper_detected}, "
              f"inventory {inventory_tamper_detected}, "
              f"submission_ready {submission_ready_tamper_detected}, "
-             f"export {export_tamper_detected}")
+             f"export {export_tamper_detected}, "
+             f"selected_video {selected_video_tamper_detected}, "
+             f"selection_reason {selection_reason_tamper_detected}, "
+             f"selected_size {selected_size_tamper_detected}")
+    if not video_tamper_detected:
+        problems.append("변조 탐지 실패: selected_video/selection_reason/selected_size 중 하나를 바꿔도 문제를 찾지 못했다")
     if not tamper_detected:
         problems.append("변조 탐지 실패: status/inventory_present/submission_ready 중 하나를 바꿔도 문제를 찾지 못했다")
     if not export_tamper_detected:
@@ -4737,6 +4843,21 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                "status_tamper_detected": status_tamper_detected,
                "inventory_tamper_detected": inventory_tamper_detected,
                "submission_ready_tamper_detected": submission_ready_tamper_detected,
+               "selected_video": blocked.get("selected_video"),
+               "selection_reason": blocked.get("selection_reason"),
+               "selected_size": blocked.get("selected_size"),
+               "due_selected_video": due.get("selected_video"),
+               "due_selection_reason": due.get("selection_reason"),
+               "due_selected_size": due.get("selected_size"),
+               "due_fallback_status": due.get("fallback_status"),
+               "built_selected_video": built_selected_video,
+               "built_selected_size": built_selected_size,
+               "built_due_selected_video": built_due_selected_video,
+               "built_due_selected_size": built_due_selected_size,
+               "video_tamper_detected": video_tamper_detected,
+               "selected_video_tamper_detected": selected_video_tamper_detected,
+               "selection_reason_tamper_detected": selection_reason_tamper_detected,
+               "selected_size_tamper_detected": selected_size_tamper_detected,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"final-package-blocked.json": result_j.stdout,
