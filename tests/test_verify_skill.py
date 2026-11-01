@@ -2994,6 +2994,43 @@ class HelperRunTests(unittest.TestCase):
             self.assertIn("데모 기준", text)
 
 
+    def test_devpost_submission_records_fallback_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-devpost-fallback"
+            result = self._run_helper("--feature", "devpost-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fallback_selected"])
+            self.assertEqual(summary["selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            self.assertIn("fallback_due", summary["fallback_markers"])
+
+    def test_devpost_submission_fallback_evidence_keeps_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-devpost-fallback-honesty"
+            result = self._run_helper("--feature", "devpost-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads(
+                (evidence / "devpost-submission.json").read_text(
+                    encoding="utf-8"))
+            self.assertTrue(payload["fallback_selected"])
+            self.assertEqual(payload["selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            self.assertFalse(payload["submission_ready"])
+            text = (evidence / "devpost-submission.md").read_text(
+                encoding="utf-8")
+            self.assertIn("파일 입력 폴백은 Pi 실촬영이 아니며 검증 전", text)
+
+    def test_devpost_fallback_grounded_in_feature_doc(self):
+        feature = (SKILL_DIR / "features" / "devpost-submission.md").read_text(
+            encoding="utf-8")
+        for marker in ("devpost-fallback-selected", "fallback_selected",
+                       "selected_video", "argus-demo-fallback-draft.mp4"):
+            self.assertIn(marker, feature)
+
     def test_file_fallback_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("file-fallback", skill)

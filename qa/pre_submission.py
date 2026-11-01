@@ -236,6 +236,16 @@ DEVPOST_HONESTY_MARKERS = (
     "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더",
 )
 
+DEVPOST_FALLBACK_MARKERS = (
+    "fallback_due",
+    "2026-11-02",
+    "demo/assets/argus-demo-fallback-draft.mp4",
+    "폴백 렌더의 컷 3은 파일 입력 폴백 데이터",
+    "파일 입력 폴백은 Pi 실촬영이 아니며 검증 전",
+)
+
+DEVPOST_SELECTED_VIDEO = "demo/assets/argus-demo-fallback-draft.mp4"
+
 DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
 
 DEVPOST_DEADLINE_ET = "2026-11-04 21:00 ET"
@@ -2554,6 +2564,9 @@ def validate_devpost_text(text, blockers=None) -> list[str]:
     for needle in DEVPOST_HONESTY_MARKERS:
         if needle not in text:
             problems.append(f"devpost: missing honesty marker {needle!r}")
+    for needle in DEVPOST_FALLBACK_MARKERS:
+        if needle not in text:
+            problems.append(f"devpost: missing fallback marker {needle!r}")
     for needle in (DEVPOST_REPO_URL, DEVPOST_DEADLINE_ET, DEVPOST_DEADLINE_KST):
         if needle not in text:
             problems.append(f"devpost: missing {needle!r}")
@@ -2570,11 +2583,21 @@ def validate_devpost_report(report, blockers=None) -> list[str]:
     problems: list[str] = []
     if not isinstance(report, dict):
         return [f"devpost report is not a dict: {report!r}"]
-    required = ("section_count", "blockers", "submission_ready", "claims_audit_clean")
+    required = ("section_count", "blockers", "submission_ready", "claims_audit_clean",
+                "fallback_selected", "selected_video")
     missing = [key for key in required if key not in report]
     if missing:
         problems.append(f"devpost: missing required keys: {missing}")
         return problems
+    if report["fallback_selected"] is not True:
+        problems.append(
+            f"devpost: fallback_selected={report['fallback_selected']!r} is not True"
+        )
+    if report["selected_video"] != DEVPOST_SELECTED_VIDEO:
+        problems.append(
+            f"devpost: selected_video={report['selected_video']!r} != "
+            f"{DEVPOST_SELECTED_VIDEO!r}"
+        )
     if report["section_count"] != len(DEVPOST_SECTIONS):
         problems.append(
             f"devpost: section_count={report['section_count']!r} != {len(DEVPOST_SECTIONS)}"
@@ -2606,17 +2629,24 @@ def build_devpost_report(root, blockers=None) -> dict:
             "blockers": [],
             "submission_ready": False,
             "claims_audit_clean": False,
+            "fallback_selected": False,
+            "selected_video": None,
         }
     found = []
     for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
         pos = text.find(blocker_id)
         if pos >= 0:
             found.append((pos, blocker_id))
+    fallback_selected = all(
+        needle in text for needle in DEVPOST_FALLBACK_MARKERS)
     return {
         "section_count": sum(1 for s in DEVPOST_SECTIONS if s in text),
         "blockers": [bid for _, bid in sorted(found)],
         "submission_ready": "SUBMISSION_READY: true" in text,
         "claims_audit_clean": audit_text(DEVPOST_REL, text) == [],
+        "fallback_selected": fallback_selected,
+        "selected_video": (
+            DEVPOST_SELECTED_VIDEO if fallback_selected else None),
     }
 
 
@@ -2636,7 +2666,9 @@ def _check_devpost(root):
     detail = (
         f"section_count={report['section_count']} "
         f"blockers={report['blockers']} "
-        f"submission_ready={report['submission_ready']}"
+        f"submission_ready={report['submission_ready']} "
+        f"fallback_selected={report['fallback_selected']} "
+        f"selected_video={report['selected_video']}"
     )
     return PreSubmissionCheck(name, True, detail), report
 

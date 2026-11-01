@@ -65,6 +65,20 @@ class DevpostSubmissionTests(unittest.TestCase):
         self.assertIn("180초", text)
         self.assertIn("컷 3은 Pi 실촬영 교체 예정인 플레이스홀더", text)
 
+    def test_fallback_selected_video_recorded(self):
+        text = _text()
+        self.assertIn("fallback_due", text)
+        self.assertIn("2026-11-02", text)
+        self.assertIn("demo/assets/argus-demo-fallback-draft.mp4", text)
+        self.assertIn("제출 후보 영상은 폴백 렌더", text)
+
+    def test_fallback_is_not_pi_capture(self):
+        text = _text()
+        self.assertIn("폴백 렌더의 컷 3은 파일 입력 폴백 데이터", text)
+        self.assertIn("파일 입력 폴백은 Pi 실촬영이 아니며 검증 전", text)
+        self.assertIn("기본 렌더의 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더", text)
+        self.assertIn("도착하지 않으면 폴백 렌더를 제출 후보로 유지한다", text)
+
     def test_blockers_ready_and_deadline(self):
         text = _text()
         self.assertIn("pi_real_capture_pending", text)

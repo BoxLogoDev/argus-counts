@@ -250,6 +250,11 @@ DEVPOST_HONESTY_MARKERS = ("모의 어댑터가 동작 중이지만 SAM 3.1 실�
                            "빈별 실호출은 2026-10-31 커넥터 브리지로 통과했다(가상 사진의 서로 다른 잘라내기 6장, 실제 빈 촬영 아님)",
                            "가짜 transport", "Secure Vault", "가안",
                            "컷 3은 Pi 실촬영 교체 예정인 플레이스홀더")
+DEVPOST_FALLBACK_MARKERS = ("fallback_due", "2026-11-02",
+                            "demo/assets/argus-demo-fallback-draft.mp4",
+                            "폴백 렌더의 컷 3은 파일 입력 폴백 데이터",
+                            "파일 입력 폴백은 Pi 실촬영이 아니며 검증 전")
+DEVPOST_SELECTED_VIDEO = "demo/assets/argus-demo-fallback-draft.mp4"
 DEVPOST_REPO_URL = "https://github.com/BoxLogoDev/argus-counts"
 DEVPOST_DEADLINE_ET = "2026-11-04 21:00 ET"
 DEVPOST_DEADLINE_KST = "2026-11-05 11:00 KST"
@@ -1135,6 +1140,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         devpost_r = readiness.get("devpost") or {}
         devpost_sc = devpost_r.get("section_count")
         devpost_rb = devpost_r.get("blockers")
+        devpost_fb = devpost_r.get("fallback_selected")
+        devpost_sv = devpost_r.get("selected_video")
         if devpost_sc != 11:
             problems.append(f"readiness devpost section_count 기대 11, 실제 {devpost_sc}")
         if devpost_rb != list(EXPECTED_BLOCKER_IDS):
@@ -1145,6 +1152,12 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                 f"readiness devpost submission_ready 기대 False, 실제 {devpost_r.get('submission_ready')}")
         if devpost_r.get("claims_audit_clean") is not True:
             problems.append("readiness devpost claims_audit_clean 기대 True")
+        if devpost_r.get("fallback_selected") is not True:
+            problems.append(
+                f"readiness devpost fallback_selected 기대 True, 실제 {devpost_r.get('fallback_selected')}")
+        if devpost_r.get("selected_video") != FALLBACK_DECISION_RENDER:
+            problems.append(
+                f"readiness devpost selected_video 기대 {FALLBACK_DECISION_RENDER}, 실제 {devpost_r.get('selected_video')}")
         runbook_r = readiness.get("runbook") or {}
         runbook_sc = runbook_r.get("section_count")
         runbook_rb = runbook_r.get("blockers")
@@ -1450,6 +1463,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         pi_smoke_status, pi_smoke_rb = None, []
         pi_session_status, pi_session_rb = None, []
         devpost_sc, devpost_rb = None, []
+        devpost_fb, devpost_sv = None, None
         runbook_sc, runbook_rb, runbook_fc = None, [], None
         story_sc, story_rb = None, []
         en_sc, en_rb = None, []
@@ -1517,6 +1531,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_pi_session_blockers": pi_session_rb,
                "readiness_devpost_section_count": devpost_sc,
                "readiness_devpost_blockers": devpost_rb,
+               "readiness_devpost_fallback_selected": devpost_fb,
+               "readiness_devpost_selected_video": devpost_sv,
                "readiness_runbook_section_count": runbook_sc,
                "readiness_runbook_blockers": runbook_rb,
                "readiness_runbook_final_command_count": runbook_fc,
@@ -2438,6 +2454,9 @@ def validate_devpost_text(text: str) -> list[str]:
     for needle in DEVPOST_HONESTY_MARKERS:
         if needle not in text:
             problems.append(f"문안 정직성 표기 {needle!r} 없음")
+    for needle in DEVPOST_FALLBACK_MARKERS:
+        if needle not in text:
+            problems.append(f"문안 폴백 표기 {needle!r} 없음")
     for needle in (DEVPOST_REPO_URL, DEVPOST_DEADLINE_ET, DEVPOST_DEADLINE_KST):
         if needle not in text:
             problems.append(f"문안에 {needle!r} 없음")
@@ -2494,10 +2513,18 @@ def drive_devpost_submission(ctx: Ctx, evidence: Path) -> dict:
 
         claims_audit_clean = audit_text(DEVPOST_REL, text) == []
     ctx.note(f"문안 주장 감사 깨끗함 -> {claims_audit_clean}")
+    fallback_selected = bool(text) and all(
+        needle in text for needle in DEVPOST_FALLBACK_MARKERS)
+    if text and not fallback_selected:
+        problems.append("문안 폴백 채택 표기가 온전하지 않다")
     extracted = {"sections": list(DEVPOST_SECTIONS),
                  "blockers": list(EXPECTED_BLOCKER_IDS),
                  "submission_ready": False,
                  "demo_markers": list(DEVPOST_DEMO_MARKERS),
+                 "fallback_markers": list(DEVPOST_FALLBACK_MARKERS),
+                 "fallback_selected": fallback_selected,
+                 "selected_video": (
+                     DEVPOST_SELECTED_VIDEO if fallback_selected else None),
                  "deadline_et": DEVPOST_DEADLINE_ET,
                  "deadline_kst": DEVPOST_DEADLINE_KST,
                  "repo_url": DEVPOST_REPO_URL}
@@ -2507,6 +2534,10 @@ def drive_devpost_submission(ctx: Ctx, evidence: Path) -> dict:
                "blockers": list(EXPECTED_BLOCKER_IDS),
                "submission_ready": False,
                "demo_markers": list(DEVPOST_DEMO_MARKERS),
+               "fallback_markers": list(DEVPOST_FALLBACK_MARKERS),
+               "fallback_selected": fallback_selected,
+               "selected_video": (
+                   DEVPOST_SELECTED_VIDEO if fallback_selected else None),
                "deadline_et": DEVPOST_DEADLINE_ET,
                "deadline_kst": DEVPOST_DEADLINE_KST,
                "repo_url": DEVPOST_REPO_URL,

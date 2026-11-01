@@ -9,6 +9,7 @@
 - `devpost-honesty` 정직성 표기: 모의 어댑터가 동작 중이지만 SAM 3.1 실호출은 전체 세션으로 검증했다(같은 가상 사진 재사용, 빈별 정확도 아님)는 표기, 가짜 transport 표기, 키는 Secure Vault 경유로만 받는다는 표기, 테마 가안 표기, 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더라는 표기가 있음을 확인한다.
 - `devpost-blockers-not-ready` 블로커와 미준비: 블로커 `pi_real_capture_pending`이 있고 `SUBMISSION_READY: false`가 현재 정답으로 남아 있음을 확인한다. `qa.pre_submission --json` 실시간 대조에서도 블로커 id 목록과 `submission_ready` false가 같아야 하며, 공개 저장소 주소와 마감 2026-11-05 11:00 KST가 적혀 있음을 확인한다. `qa.claims_audit`의 `audit_text` 주장 감사 결과도 비어 있어야 한다.
 - `devpost-tamper-detection` 변조 탐지: 메모리 사본에서 `SUBMISSION_READY: false`를 true로 바꾼 텍스트를 `validate_devpost_text`로 다시 검증하면 문제가 잡혀야 한다. 원본 파일은 바꾸지 않는다.
+- `devpost-fallback-selected` 폴백 채택 표기: 결정일 2026-11-02 판정 `fallback_due`와 제출 후보 영상 `demo/assets/argus-demo-fallback-draft.mp4`가 적혀 있고, 폴백 렌더의 컷 3은 파일 입력 폴백 데이터이며 파일 입력 폴백은 Pi 실촬영이 아니며 검증 전 대체 경로라는 표기가 있음을 확인한다. 구동 summary와 증거에는 `fallback_selected`와 `selected_video`를 기록하고, 전수 점검 readiness의 devpost 보고도 같은 선택을 대조한다.
 
 ## How to get to it (user POV)
 
@@ -32,6 +33,7 @@ Preconditions:
 - **블로커와 마감 확인.** 헬퍼가 `pi_real_capture_pending`와 `SUBMISSION_READY: false`와 공개 저장소 주소와 마감 2026-11-05 11:00 KST를 대조하고 `audit_text` 주장 감사가 비었는지를 확인한다.
 - **변조 탐지 확인.** 헬퍼가 메모리 사본에서 false를 true로 바꾼 텍스트를 `validate_devpost_text`로 다시 검증해 변조가 탐지되는지 확인한다. 원본은 수정하지 않는다.
 - **실시간 대조 확인.** 헬퍼가 `python3 -m qa.pre_submission --json`을 서브프로세스로 실행해 블로커 id 목록이 문안과 같고 `submission_ready`가 false인지 대조한다.
+- **폴백 채택 확인.** 헬퍼가 문안의 폴백 마커 5종이 전부 있는지를 확인해 `fallback_selected`를 판정하고, 선택 영상이 폴백 렌더 경로와 같은지를 summary와 증거 `devpost-submission.json`에 기록한다. 폴백 채택은 Pi 실촬영 검증 완료가 아니며 제출 준비 완료도 아니다.
 - **증거 확인.** 종료 후 증거 디렉터리에 `devpost-submission.json`과 `devpost-submission.md`가 남고 `summary.json`의 `feature`가 `devpost-submission`이며 `section_count`와 `claims_audit_clean`과 `tamper_detected`와 `pre_submission_blockers`를 확인한다.
 
 ## Gotchas

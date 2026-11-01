@@ -115,6 +115,8 @@ def _valid_devpost_text() -> str:
         "- 기간 안에 새로 작성했다.",
         "## 데모 영상",
         "- 컷 3은 Pi 실촬영 교체 예정인 플레이스홀더이다.",
+        "- 제출 후보 영상은 폴백 렌더(demo/assets/argus-demo-fallback-draft.mp4)이며, 선택 사유는 fallback_due이고 결정일은 2026-11-02이다.",
+        "- 폴백 렌더의 컷 3은 파일 입력 폴백 데이터로 보여 준다. 파일 입력 폴백은 Pi 실촬영이 아니며 검증 전 대체 경로이다.",
         "## 현재 블로커와 제출 상태",
         "- `pi_real_capture_pending`",
         "- 현재 정답은 `SUBMISSION_READY: false` 다.",
@@ -1274,6 +1276,33 @@ class DevpostIntegrationTests(unittest.TestCase):
         report2["blockers"] = ["sam_real_call_pending", "pi_real_capture_pending"]
         problems2 = validate_devpost_report(report2)
         self.assertTrue(any("blockers" in p for p in problems2), problems2)
+
+    def test_validate_devpost_text_detects_missing_fallback_marker(self):
+        text = _valid_devpost_text().replace("fallback_due이고", "pending이고", 1)
+        problems = validate_devpost_text(text)
+        self.assertTrue(any("fallback marker" in p for p in problems), problems)
+
+    def test_devpost_report_records_fallback_selection(self):
+        report = build_devpost_report(ROOT)
+        self.assertTrue(report["fallback_selected"])
+        self.assertEqual(
+            report["selected_video"],
+            "demo/assets/argus-demo-fallback-draft.mp4")
+        self.assertEqual(validate_devpost_report(report), [])
+        report["selected_video"] = "demo/assets/argus-demo-draft.mp4"
+        problems = validate_devpost_report(report)
+        self.assertTrue(any("selected_video" in p for p in problems), problems)
+
+    def test_real_root_devpost_readiness_records_fallback_selection(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        devpost = result["readiness"]["devpost"]
+        self.assertTrue(devpost["fallback_selected"])
+        self.assertEqual(
+            devpost["selected_video"],
+            "demo/assets/argus-demo-fallback-draft.mp4")
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertIn("fallback_selected=True",
+                      by_name["devpost_consistent"].detail)
 
     def test_minimal_root_tampered_devpost_fails_check(self):
         with tempfile.TemporaryDirectory() as tmp:
