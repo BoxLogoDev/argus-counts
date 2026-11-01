@@ -41,7 +41,12 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 인벤토리의 present_files·total_files·missing·total_bytes와
 교차 대조하고, 영상 선택 selected_video·selection_reason·
 selected_size를 필수값으로 검사하고 데모 영상 선택 보고의
-selected_video·selection_reason·selected_size와 교차 대조하는 것을 포함한다),
+selected_video·selection_reason·selected_size와 교차 대조하고,
+패키지 내보내기 재검증 export_verify_verified·
+export_verify_copied_files·export_verify_total_bytes를
+필수값으로 검사하고 패키지 내보내기 보고의 재검증 결과
+verify_verified·verify_copied_files·verify_total_bytes와
+copied_files·total_bytes와 교차 대조하는 것을 포함한다),
 제출 패키지 내보내기(qa.package_export) 보고가 제출물 인벤토리 보고와
 어긋나지 않는지의 정합(같은 staging을 매니페스트만으로 다시 대조하는
 재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
@@ -3769,8 +3774,8 @@ def _check_deadline(deadline_now=None):
     return PreSubmissionCheck(name, True, detail), report
 
 
-def validate_final_package_report(report, blockers=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None) -> list[str]:
-    """최종 묶음 보고가 내부적으로, 그리고 인벤토리·마감·폴백 결정·영상 선택 보고와 맞는지 검사한다."""
+def validate_final_package_report(report, blockers=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None, package_export_report=None) -> list[str]:
+    """최종 묶음 보고가 내부적으로, 그리고 인벤토리·마감·폴백 결정·영상 선택·패키지 내보내기 보고와 맞는지 검사한다."""
     if blockers is None:
         blockers = BLOCKERS
     problems: list[str] = []
@@ -3784,6 +3789,9 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
         "export_total",
         "export_missing",
         "export_total_bytes",
+        "export_verify_verified",
+        "export_verify_copied_files",
+        "export_verify_total_bytes",
         "deadline_status",
         "remaining_seconds",
         "fallback_status",
@@ -3849,6 +3857,51 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
         problems.append(
             f"final package: export_total_bytes={export_bytes!r} != "
             f"submission inventory total_bytes={inventory_report['total_bytes']!r}")
+    # 재검증 필드는 None 변조가 qa.final_package의 조건부 검사를 빠져나가지
+    # 못하게 여기서 필수값으로 다시 검사하고, 패키지 내보내기 보고의
+    # 재검증 결과와 교차 대조한다.
+    verify_verified = report.get("export_verify_verified")
+    if verify_verified is not True:
+        problems.append(
+            f"final package: export_verify_verified={verify_verified!r} is not True")
+    verify_copied = report.get("export_verify_copied_files")
+    if isinstance(verify_copied, bool) or not isinstance(verify_copied, int):
+        problems.append(
+            f"final package: export_verify_copied_files={verify_copied!r} is not an int")
+    elif verify_copied != report.get("export_copied"):
+        problems.append(
+            f"final package: export_verify_copied_files={verify_copied!r} != "
+            f"export_copied={report.get('export_copied')!r}")
+    verify_bytes = report.get("export_verify_total_bytes")
+    if isinstance(verify_bytes, bool) or not isinstance(verify_bytes, int) or verify_bytes <= 0:
+        problems.append(
+            f"final package: export_verify_total_bytes={verify_bytes!r} "
+            "is not a positive int")
+    elif verify_bytes != report.get("export_total_bytes"):
+        problems.append(
+            f"final package: export_verify_total_bytes={verify_bytes!r} != "
+            f"export_total_bytes={report.get('export_total_bytes')!r}")
+    if isinstance(package_export_report, dict):
+        if "verify_verified" in package_export_report and verify_verified != package_export_report["verify_verified"]:
+            problems.append(
+                f"final package: export_verify_verified={verify_verified!r} != "
+                f"package export verify_verified={package_export_report['verify_verified']!r}")
+        if "verify_copied_files" in package_export_report and verify_copied != package_export_report["verify_copied_files"]:
+            problems.append(
+                f"final package: export_verify_copied_files={verify_copied!r} != "
+                f"package export verify_copied_files={package_export_report['verify_copied_files']!r}")
+        if "verify_total_bytes" in package_export_report and verify_bytes != package_export_report["verify_total_bytes"]:
+            problems.append(
+                f"final package: export_verify_total_bytes={verify_bytes!r} != "
+                f"package export verify_total_bytes={package_export_report['verify_total_bytes']!r}")
+        if "copied_files" in package_export_report and verify_copied != package_export_report["copied_files"]:
+            problems.append(
+                f"final package: export_verify_copied_files={verify_copied!r} != "
+                f"package export copied_files={package_export_report['copied_files']!r}")
+        if "total_bytes" in package_export_report and verify_bytes != package_export_report["total_bytes"]:
+            problems.append(
+                f"final package: export_verify_total_bytes={verify_bytes!r} != "
+                f"package export total_bytes={package_export_report['total_bytes']!r}")
     # 영상 선택 필드는 None 변조가 qa.final_package의 조건부 검사를 빠져나가지
     # 못하게 여기서 필수값으로 다시 검사하고, 영상 선택 보고와 교차 대조한다.
     selected_video = report.get("selected_video")
@@ -3940,7 +3993,7 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
     return problems
 
 
-def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confirmed=False, pi_which=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None):
+def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confirmed=False, pi_which=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None, package_export_report=None):
     name = "final_package_consistent"
     try:
         report = _build_fp(
@@ -3959,6 +4012,7 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         deadline_report=deadline_report,
         decision_report=decision_report,
         video_selection_report=video_selection_report,
+        package_export_report=package_export_report,
     )
     if problems:
         return PreSubmissionCheck(name, False, "; ".join(problems)), report
@@ -3969,6 +4023,9 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         f"inventory_total={report['inventory_total']} "
         f"export_copied={report['export_copied']} "
         f"export_total={report['export_total']} "
+        f"export_verify_verified={report.get('export_verify_verified')} "
+        f"export_verify_copied_files={report.get('export_verify_copied_files')} "
+        f"export_verify_total_bytes={report.get('export_verify_total_bytes')} "
         f"deadline_status={report['deadline_status']} "
         f"fallback_status={report['fallback_status']} "
         f"selected_video={report.get('selected_video')} "
@@ -4306,6 +4363,11 @@ def run_pre_submission_checks(
     deadline_check, deadline_report = _check_deadline(deadline_now=deadline_now)
     checks.append(deadline_check)
 
+    # 패키지 내보내기 보고를 먼저 계산해 최종 묶음 검사의 재검증
+    # 교차 대조에 넘긴다. checks 목록의 순서는 기존을 유지한다.
+    pkg_check, pkg_report = _check_package_export(
+        root, inventory_report=inventory_report)
+
     fp_check, fp_report = _check_final_package(
         root,
         deadline_now=deadline_now,
@@ -4316,11 +4378,9 @@ def run_pre_submission_checks(
         deadline_report=deadline_report,
         decision_report=decision_report,
         video_selection_report=vs_report,
+        package_export_report=pkg_report,
     )
     checks.append(fp_check)
-
-    pkg_check, pkg_report = _check_package_export(
-        root, inventory_report=inventory_report)
     checks.append(pkg_check)
 
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]

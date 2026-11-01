@@ -2029,6 +2029,15 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertEqual(fp["selected_size"], vs["selected_size"])
         self.assertIn("selected_video=demo/assets/argus-demo-draft.mp4", check.detail)
         self.assertIn("selection_reason=pending_default", check.detail)
+        self.assertIn("export_verify_verified=True", check.detail)
+        self.assertIn("export_verify_copied_files=18", check.detail)
+        pkg = result["readiness"]["package_export"]
+        self.assertIs(fp["export_verify_verified"], True)
+        self.assertEqual(fp["export_verify_copied_files"], fp["export_copied"])
+        self.assertEqual(fp["export_verify_total_bytes"], fp["export_total_bytes"])
+        self.assertEqual(fp["export_verify_verified"], pkg["verify_verified"])
+        self.assertEqual(fp["export_verify_copied_files"], pkg["verify_copied_files"])
+        self.assertEqual(fp["export_verify_total_bytes"], pkg["verify_total_bytes"])
         self.assertEqual(fp["status"], "blocked")
         self.assertEqual(fp["inventory_present"], 18)
         self.assertEqual(fp["inventory_total"], 18)
@@ -2223,6 +2232,88 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         report["export_missing"] = ["README.md"]
         problems = validate_final_package_report(report)
         self.assertTrue(any("export_missing" in x for x in problems), problems)
+
+    def test_validate_final_package_report_accepts_export_verify_cross_check(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        pkg = build_package_export_report(ROOT)
+        self.assertIs(report["export_verify_verified"], True)
+        self.assertEqual(report["export_verify_copied_files"], 18)
+        self.assertEqual(
+            report["export_verify_copied_files"], report["export_copied"])
+        self.assertEqual(
+            report["export_verify_total_bytes"], report["export_total_bytes"])
+        self.assertEqual(
+            validate_final_package_report(
+                report, package_export_report=pkg), [])
+
+    def test_validate_final_package_report_detects_missing_export_verify_key(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        del report["export_verify_verified"]
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("export_verify_verified" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_nulled_export_verify(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["export_verify_verified"] = None
+        report["export_verify_copied_files"] = None
+        report["export_verify_total_bytes"] = None
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("export_verify_verified" in x for x in problems), problems)
+        self.assertTrue(
+            any("export_verify_copied_files" in x for x in problems), problems)
+        self.assertTrue(
+            any("export_verify_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_export_verify_mismatch(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["export_verify_verified"] = False
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("export_verify_verified" in x for x in problems), problems)
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["export_verify_copied_files"] = 17
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("export_verify_copied_files" in x for x in problems), problems)
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["export_verify_total_bytes"] = report["export_total_bytes"] + 1
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("export_verify_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_export_verify_vs_package_export_mismatch(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        pkg = build_package_export_report(ROOT)
+        pkg["verify_copied_files"] = 17
+        problems = validate_final_package_report(
+            report, package_export_report=pkg)
+        self.assertTrue(
+            any("export_verify_copied_files" in x for x in problems), problems)
+        pkg = build_package_export_report(ROOT)
+        pkg["verify_total_bytes"] = pkg["total_bytes"] + 1
+        problems = validate_final_package_report(
+            report, package_export_report=pkg)
+        self.assertTrue(
+            any("export_verify_total_bytes" in x for x in problems), problems)
 
 
 class PackageExportIntegrationTests(unittest.TestCase):

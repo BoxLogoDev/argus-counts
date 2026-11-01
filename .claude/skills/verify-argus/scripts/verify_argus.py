@@ -1288,6 +1288,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_export_total = fp_r.get("export_total")
         fp_export_missing = fp_r.get("export_missing")
         fp_export_total_bytes = fp_r.get("export_total_bytes")
+        fp_export_verify_verified = fp_r.get("export_verify_verified")
+        fp_export_verify_copied = fp_r.get("export_verify_copied_files")
+        fp_export_verify_bytes = fp_r.get("export_verify_total_bytes")
         fp_selected_video = fp_r.get("selected_video")
         fp_selection_reason = fp_r.get("selection_reason")
         fp_selected_size = fp_r.get("selected_size")
@@ -1326,6 +1329,16 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness final_package export_total_bytes 기대 양의 int, 실제 {fp_export_total_bytes}")
         if fp_export_total_bytes != _inv_raw.get("total_bytes"):
             problems.append(f"readiness final_package export_total_bytes가 submission_inventory total_bytes와 다르다: {fp_export_total_bytes} != {_inv_raw.get('total_bytes')}")
+        if fp_export_verify_verified is not True:
+            problems.append(f"readiness final_package export_verify_verified 기대 True, 실제 {fp_export_verify_verified}")
+        if fp_export_verify_copied != 18:
+            problems.append(f"readiness final_package export_verify_copied_files 기대 18, 실제 {fp_export_verify_copied}")
+        if fp_export_verify_copied != fp_export_copied:
+            problems.append(f"readiness final_package export_verify_copied_files가 export_copied와 다르다: {fp_export_verify_copied} != {fp_export_copied}")
+        if not isinstance(fp_export_verify_bytes, int) or isinstance(fp_export_verify_bytes, bool) or fp_export_verify_bytes <= 0:
+            problems.append(f"readiness final_package export_verify_total_bytes 기대 양의 int, 실제 {fp_export_verify_bytes}")
+        if fp_export_verify_bytes != fp_export_total_bytes:
+            problems.append(f"readiness final_package export_verify_total_bytes가 export_total_bytes와 다르다: {fp_export_verify_bytes} != {fp_export_total_bytes}")
         if fp_selected_video not in ("demo/assets/argus-demo-draft.mp4", "demo/assets/argus-demo-fallback-draft.mp4"):
             problems.append(f"readiness final_package selected_video 기대 두 후보 중 하나, 실제 {fp_selected_video}")
         if fp_selected_video != vs_selected:
@@ -1380,6 +1393,16 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness final_package export_missing가 package_export missing와 다르다: {fp_export_missing} != {pkg_missing}")
         if fp_export_total_bytes != pkg_total_bytes:
             problems.append(f"readiness final_package export_total_bytes가 package_export total_bytes와 다르다: {fp_export_total_bytes} != {pkg_total_bytes}")
+        if fp_export_verify_verified != pkg_verify_verified:
+            problems.append(f"readiness final_package export_verify_verified가 package_export verify_verified와 다르다: {fp_export_verify_verified} != {pkg_verify_verified}")
+        if fp_export_verify_copied != pkg_verify_copied:
+            problems.append(f"readiness final_package export_verify_copied_files가 package_export verify_copied_files와 다르다: {fp_export_verify_copied} != {pkg_verify_copied}")
+        if fp_export_verify_copied != pkg_copied:
+            problems.append(f"readiness final_package export_verify_copied_files가 package_export copied_files와 다르다: {fp_export_verify_copied} != {pkg_copied}")
+        if fp_export_verify_bytes != pkg_verify_bytes:
+            problems.append(f"readiness final_package export_verify_total_bytes가 package_export verify_total_bytes와 다르다: {fp_export_verify_bytes} != {pkg_verify_bytes}")
+        if fp_export_verify_bytes != pkg_total_bytes:
+            problems.append(f"readiness final_package export_verify_total_bytes가 package_export total_bytes와 다르다: {fp_export_verify_bytes} != {pkg_total_bytes}")
         inv_r = readiness.get("submission_inventory") or {}
         inv_total = inv_r.get("total_files")
         inv_present = inv_r.get("present_files")
@@ -1427,6 +1450,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_submission_ready = None
         fp_export_copied, fp_export_total = None, None
         fp_export_missing, fp_export_total_bytes = None, None
+        fp_export_verify_verified, fp_export_verify_copied = None, None
+        fp_export_verify_bytes = None
         fp_selected_video, fp_selection_reason, fp_selected_size = None, None, None
         pkg_total, pkg_copied, pkg_rb = None, None, []
         pkg_missing, pkg_total_bytes, pkg_submission_ready = None, None, None
@@ -1504,6 +1529,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_final_package_export_total": fp_export_total,
                "readiness_final_package_export_missing": fp_export_missing,
                "readiness_final_package_export_total_bytes": fp_export_total_bytes,
+               "readiness_final_package_export_verify_verified": fp_export_verify_verified,
+               "readiness_final_package_export_verify_copied_files": fp_export_verify_copied,
+               "readiness_final_package_export_verify_total_bytes": fp_export_verify_bytes,
                "readiness_final_package_selected_video": fp_selected_video,
                "readiness_final_package_selection_reason": fp_selection_reason,
                "readiness_final_package_selected_size": fp_selected_size,

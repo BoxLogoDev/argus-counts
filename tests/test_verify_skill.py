@@ -723,6 +723,64 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["readiness_final_package_selected_size"],
                              summary["readiness_video_selection_selected_size"])
 
+    def test_pre_submission_final_package_export_verify_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-export-verify"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(
+                summary["readiness_final_package_export_verify_verified"], True)
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_copied_files"], 18)
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_copied_files"],
+                payload["readiness"]["final_package"]["export_verify_copied_files"])
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_total_bytes"],
+                payload["readiness"]["final_package"]["export_verify_total_bytes"])
+
+    def test_pre_submission_final_package_export_verify_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-export-verify-cross"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_verified"],
+                summary["readiness_package_export_verify_verified"])
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_copied_files"],
+                summary["readiness_package_export_verify_copied_files"])
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_copied_files"],
+                summary["readiness_package_export_copied_files"])
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_total_bytes"],
+                summary["readiness_package_export_verify_total_bytes"])
+            self.assertEqual(
+                summary["readiness_final_package_export_verify_total_bytes"],
+                summary["readiness_package_export_total_bytes"])
+
+    def test_pre_submission_final_package_export_verify_not_ready_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-export-verify-notready"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(
+                summary["readiness_final_package_export_verify_verified"], True)
+            self.assertFalse(summary["readiness_final_package_submission_ready"])
+            self.assertFalse(summary["submission_ready"])
+
     def test_pre_submission_final_package_selected_not_ready_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-pre-fp-selected-notready"
