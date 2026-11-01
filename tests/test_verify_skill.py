@@ -1878,6 +1878,63 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(all(summary["tamper_parts"].values()))
             self.assertEqual(summary["invalid_exit_code"], 2)
 
+    def test_video_selection_final_package_cross_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-selection-fp"
+            result = self._run_helper("--feature", "video-selection",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_pending_selected_video"],
+                             "demo/assets/argus-demo-draft.mp4")
+            self.assertEqual(summary["fp_due_selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+            self.assertEqual(summary["fp_pending_selected_size"],
+                             summary["pending_primary_size"])
+            self.assertEqual(summary["fp_due_selected_size"],
+                             summary["pending_fallback_size"])
+
+    def test_video_selection_final_package_evidence_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-selection-fp-files"
+            result = self._run_helper("--feature", "video-selection",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            fp_pending = json.loads(
+                (evidence / "video-selection-final-package-pending.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(fp_pending["status"], "blocked")
+            self.assertEqual(fp_pending["fallback_status"], "pending")
+            self.assertEqual(fp_pending["selected_video"],
+                             "demo/assets/argus-demo-draft.mp4")
+            self.assertEqual(fp_pending["blockers"],
+                             ["pi_real_capture_pending"])
+            fp_due = json.loads(
+                (evidence / "video-selection-final-package-due.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(fp_due["fallback_status"], "fallback_due")
+            self.assertEqual(fp_due["selected_video"],
+                             "demo/assets/argus-demo-fallback-draft.mp4")
+
+    def test_video_selection_final_package_cross_keeps_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-selection-fp-notready"
+            result = self._run_helper("--feature", "video-selection",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for name, adopted in (
+                    ("video-selection-final-package-pending.json", False),
+                    ("video-selection-final-package-due.json", True)):
+                fp = json.loads((evidence / name).read_text(encoding="utf-8"))
+                self.assertIs(fp["submission_ready"], False)
+                self.assertIs(fp["fallback_adopted"], adopted)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["submission_ready"], False)
+            self.assertTrue(summary["fp_cross_ok"])
+
     def test_submission_inventory_drives_and_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-submission-inventory"

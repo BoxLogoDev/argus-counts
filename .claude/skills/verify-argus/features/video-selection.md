@@ -9,6 +9,7 @@
 - `video-selection-pi-ready` Pi 준비 시 기본 영상: pi_ready이면 기본 영상을 고르고 폴백을 채택하지 않음을 확인한다. Pi 준비 완료만으로 기본 영상이 실촬영본이 되지는 않는다.
 - `video-selection-missing-tamper` 누락·변조 탐지: 고른 영상의 크기가 없거나 0이면 문제를 내고, `selected_video`·`submission_ready`·`fallback_status`·honesty 변조를 `validate_selection`이 탐지함을 확인한다.
 - `video-selection-cli-invalid` CLI 잘못된 날짜 차단: 잘못된 날짜는 종료코드 2이며 유효한 선택으로 처리하지 않음을 확인한다.
+- `video-selection-final-package-cross` 최종 묶음 교차 대조: 같은 날짜(pending 2026-11-01·due 2026-11-02)로 `qa.final_package`를 따로 실행해 `fallback_status`·`selected_video`·`selection_reason`·`selected_size`가 영상 선택 보고와 각각 같고, 최종 묶음도 `status` blocked·블로커 `pi_real_capture_pending`·`SUBMISSION_READY: false`를 유지함을 확인한다. 증거로 `video-selection-final-package-pending.json`·`video-selection-final-package-due.json`을 남기고 summary에 `fp_cross_ok`를 기록한다. 교차 대조는 보고 대조일 뿐 실제 제출이나 제출 준비 완료를 뜻하지 않는다.
 
 ## How to get to it (user POV)
 
@@ -31,7 +32,8 @@ Preconditions:
 - **fallback_due 확인.** 헬퍼가 `--date 2026-11-02 --json` 가정 날짜 구동으로 fallback_due·폴백 렌더 선택·`fallback_adopted` true를 확인한다.
 - **pi_ready·build 확인.** 헬퍼가 `evaluate_selection`의 pi_ready 판정과 `build_selection`의 missing probe(pending)·ready probe(pi_ready, 실제 파일 크기 0 초과)를 대조한다.
 - **누락·변조 확인.** 헬퍼가 고른 영상 크기 없음 탐지와 `selected_video`·`submission_ready`·`fallback_status`·honesty 변조 탐지를 확인하고, 잘못된 날짜 CLI 종료코드 2를 확인한다.
-- **증거 확인.** 종료 후 증거 디렉터리에 `video-selection-pending.json`(pending CLI `--json` stdout 원문)과 `video-selection-due.json`(due CLI `--json` stdout 원문)이 남고, `summary.json`의 `feature`가 `video-selection`이며 `pending_status`가 pending, `due_status`가 fallback_due, `tamper_detected`와 `missing_detected`가 true, `invalid_exit_code`가 2인지 대조한다.
+- **최종 묶음 교차 확인.** 헬퍼가 같은 날짜로 `qa.final_package --now 2026-10-31T04:50:00+09:00 --date <날짜> --json`을 따로 실행해 pending·due 두 날짜 모두에서 선택 필드 4종이 영상 선택 보고와 일치하는지 대조하고, 최종 묶음의 blocked·블로커·`submission_ready` false를 확인한다.
+- **증거 확인.** 종료 후 증거 디렉터리에 `video-selection-pending.json`(pending CLI `--json` stdout 원문)과 `video-selection-due.json`(due CLI `--json` stdout 원문), `video-selection-final-package-pending.json`·`video-selection-final-package-due.json`(최종 묶음 CLI `--json` stdout 원문)이 남고, `summary.json`의 `feature`가 `video-selection`이며 `pending_status`가 pending, `due_status`가 fallback_due, `tamper_detected`와 `missing_detected`가 true, `invalid_exit_code`가 2, `fp_cross_ok`가 true인지 대조한다.
 
 ## Gotchas
 

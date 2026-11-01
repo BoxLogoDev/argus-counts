@@ -5725,6 +5725,81 @@ def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
         if due.get("selection_reason") != "fallback_due":
             problems.append(f"due reason 기대 fallback_due, 실제 {due.get('selection_reason')}")
 
+    # 최종 묶음(qa.final_package)과의 교차 대조 — 같은 날짜 기준
+    fp_pending: dict = {}
+    fp_due: dict = {}
+    fp_cross_ok = False
+    result_fp = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                         "--date", VIDEO_SELECTION_PENDING_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {VIDEO_SELECTION_PENDING_DATE} --json "
+             f"-> 종료코드 {result_fp.returncode} (영상 선택 pending과 같은 날짜)")
+    if result_fp.returncode != 0:
+        problems.append(
+            f"final_package pending --json 종료코드 기대 0, 실제 {result_fp.returncode}")
+    try:
+        fp_pending = json.loads(result_fp.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"final_package pending --json 파싱 실패: {e}")
+    result_fp_due = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
+                             "--date", VIDEO_SELECTION_DUE_DATE, "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
+             f"--date {VIDEO_SELECTION_DUE_DATE} --json "
+             f"-> 종료코드 {result_fp_due.returncode} (영상 선택 due와 같은 날짜)")
+    if result_fp_due.returncode != 0:
+        problems.append(
+            f"final_package due --json 종료코드 기대 0, 실제 {result_fp_due.returncode}")
+    try:
+        fp_due = json.loads(result_fp_due.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"final_package due --json 파싱 실패: {e}")
+    if fp_pending and pending:
+        cross_before = len(problems)
+        if fp_pending.get("status") != "blocked":
+            problems.append(
+                f"final_package pending status 기대 'blocked', 실제 {fp_pending.get('status')}")
+        for key in ("fallback_status", "selected_video", "selection_reason",
+                    "selected_size"):
+            if fp_pending.get(key) != pending.get(key):
+                problems.append(
+                    f"final_package pending {key}가 video_selection pending과 다르다: "
+                    f"{fp_pending.get(key)} != {pending.get(key)}")
+        if fp_pending.get("fallback_adopted") is not False:
+            problems.append(
+                f"final_package pending fallback_adopted 기대 False, 실제 {fp_pending.get('fallback_adopted')}")
+        if fp_pending.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(f"final_package pending blockers 이상: {fp_pending.get('blockers')}")
+        if fp_pending.get("submission_ready") is not False:
+            problems.append(
+                f"final_package pending submission_ready 기대 False, 실제 {fp_pending.get('submission_ready')}")
+        fp_pending_ok = len(problems) == cross_before
+    else:
+        fp_pending_ok = False
+    if fp_due and due:
+        cross_before = len(problems)
+        if fp_due.get("status") != "blocked":
+            problems.append(
+                f"final_package due status 기대 'blocked', 실제 {fp_due.get('status')}")
+        for key in ("fallback_status", "selected_video", "selection_reason",
+                    "selected_size"):
+            if fp_due.get(key) != due.get(key):
+                problems.append(
+                    f"final_package due {key}가 video_selection due와 다르다: "
+                    f"{fp_due.get(key)} != {due.get(key)}")
+        if fp_due.get("fallback_adopted") is not True:
+            problems.append(
+                f"final_package due fallback_adopted 기대 True, 실제 {fp_due.get('fallback_adopted')}")
+        if fp_due.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(f"final_package due blockers 이상: {fp_due.get('blockers')}")
+        if fp_due.get("submission_ready") is not False:
+            problems.append(
+                f"final_package due submission_ready 기대 False, 실제 {fp_due.get('submission_ready')}")
+        fp_due_ok = len(problems) == cross_before
+    else:
+        fp_due_ok = False
+    fp_cross_ok = bool(fp_pending_ok and fp_due_ok)
+    ctx.note(f"영상 선택↔최종 묶음 교차 대조 -> fp_cross_ok={fp_cross_ok}")
+
     result_bad = run_cli(["-m", "qa.video_selection", "--date", "not-a-date"])
     ctx.note(f"python3 -m qa.video_selection --date not-a-date -> 종료코드 {result_bad.returncode}")
     if result_bad.returncode != 2:
@@ -5826,10 +5901,17 @@ def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
                "invalid_exit_code": result_bad.returncode,
                "pending_exit_code": result.returncode,
                "due_exit_code": result_due.returncode,
+               "fp_pending_selected_video": fp_pending.get("selected_video"),
+               "fp_pending_selected_size": fp_pending.get("selected_size"),
+               "fp_due_selected_video": fp_due.get("selected_video"),
+               "fp_due_selected_size": fp_due.get("selected_size"),
+               "fp_cross_ok": fp_cross_ok,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"video-selection-pending.json": result_j.stdout,
-                    "video-selection-due.json": result_due.stdout})
+                    "video-selection-due.json": result_due.stdout,
+                    "video-selection-final-package-pending.json": result_fp.stdout,
+                    "video-selection-final-package-due.json": result_fp_due.stdout})
     return summary
 
 DRIVERS = {"console-home": drive_console_home,
