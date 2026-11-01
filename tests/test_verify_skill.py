@@ -1416,6 +1416,47 @@ class HelperRunTests(unittest.TestCase):
             self.assertNotIn("SUBMISSION_READY: true", text)
             self.assertIn("Secure Vault", text)
 
+    def test_submission_runbook_records_fallback_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-runbook-fallback"
+            result = self._run_helper("--feature", "submission-runbook",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fallback_branch_present"])
+            self.assertEqual(summary["fallback_decision_date"], "2026-11-02")
+            payload = json.loads(
+                (evidence / "submission-runbook.json").read_text(
+                    encoding="utf-8"))
+            self.assertTrue(payload["fallback_branch_present"])
+            self.assertIn("python3 -m qa.fallback_decision",
+                          payload["fallback_markers"])
+            self.assertIn("demo/assets/argus-demo-fallback-draft.mp4",
+                          payload["fallback_markers"])
+
+    def test_submission_runbook_fallback_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("fallback_branch_present", skill)
+        feature = (SKILL_DIR / "features" / "submission-runbook.md").read_text(
+            encoding="utf-8")
+        for marker in ("runbook-fallback-branch", "fallback_branch_present",
+                       "2026-11-02", "fallback_markers"):
+            self.assertIn(marker, feature)
+
+    def test_pre_submission_records_runbook_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-runbook-fallback"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(
+                summary["readiness_runbook_fallback_branch_present"])
+
     def test_console_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("console-readiness", skill)

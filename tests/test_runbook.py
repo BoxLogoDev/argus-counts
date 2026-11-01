@@ -58,6 +58,17 @@ class RunbookTests(unittest.TestCase):
         self.assertIn("python3 -m demo.render_video", text)
         self.assertIn("verify_argus.py --doctor", text)
 
+    def test_fallback_branch_present(self):
+        text = _text()
+        for marker in ("2026-11-02", "python3 -m qa.fallback_decision",
+                       "python3 -m qa.video_selection",
+                       "demo/assets/argus-demo-fallback-draft.mp4",
+                       "파일 입력 폴백은 Pi 실촬영이 아니며"):
+            self.assertIn(marker, text)
+        section4 = text.split("## 4. Pi 촬영", 1)[1].split("## 5.", 1)[0]
+        self.assertIn("2026-11-02", section4)
+        self.assertIn("fallback_due", section4)
+
     def test_deadline_both_timezones(self):
         text = _text()
         self.assertIn("2026-11-04 21:00", text)

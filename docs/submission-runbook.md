@@ -56,6 +56,12 @@
 - 그다음 `python3 -m terminal.pi_session --out-dir` 명령으로 세션을 남긴다.
 - 데모 컷 3은 그 뒤에 교체한다.
 - Pi 실촬영 검증 전인 동안은 데모 컷 3 교체를 예정으로만 적는다.
+- 폴백 결정일은 2026-11-02다.
+- Pi가 결정일까지 도착하지 않으면 먼저 `python3 -m qa.fallback_decision` 판정을 확인한다.
+- 판정이 fallback_due이면 파일 입력 폴백 자산을 컷 3 후보로 채택할 수 있고, 제출 후보는 `python3 -m qa.video_selection` 으로 확인한다.
+- 폴백 제출 후보 파일은 `demo/assets/argus-demo-fallback-draft.mp4` 다.
+- 파일 입력 폴백은 Pi 실촬영이 아니며 Pi 미도착 상태의 대체 경로일 뿐이다.
+- 폴백을 채택해도 `pi_real_capture_pending` 블로커와 `SUBMISSION_READY: false` 는 그대로 둔다.
 - 촬영 순서가 어긋나면 이전 단계부터 다시 확인한다.
 - 새 촬영본을 확인하기 전에는 기존 컷을 최종본이라고 적지 않는다.
 

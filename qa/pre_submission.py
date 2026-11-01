@@ -265,6 +265,14 @@ RUNBOOK_FINAL_COMMANDS = (
     "python3 -m demo.render_video",
 )
 
+RUNBOOK_FALLBACK_MARKERS = (
+    "2026-11-02",
+    "python3 -m qa.fallback_decision",
+    "python3 -m qa.video_selection",
+    "demo/assets/argus-demo-fallback-draft.mp4",
+    "파일 입력 폴백은 Pi 실촬영이 아니며",
+)
+
 RUNBOOK_CREDIT_AT = "2026-10-29 09:30"
 
 RUNBOOK_DEADLINE_ET = "2026-11-04 21:00 ET"
@@ -2675,6 +2683,9 @@ def validate_runbook_text(text, blockers=None) -> list[str]:
     for command in RUNBOOK_FINAL_COMMANDS:
         if command not in text:
             problems.append(f"runbook: missing final command {command!r}")
+    for needle in RUNBOOK_FALLBACK_MARKERS:
+        if needle not in text:
+            problems.append(f"runbook: missing fallback marker {needle!r}")
     for needle in (RUNBOOK_DEADLINE_ET, RUNBOOK_DEADLINE_KST, RUNBOOK_REPO):
         if needle not in text:
             problems.append(f"runbook: missing {needle!r}")
@@ -2697,6 +2708,7 @@ def validate_runbook_report(report, blockers=None) -> list[str]:
         "submission_ready",
         "claims_audit_clean",
         "final_command_count",
+        "fallback_branch_present",
     )
     missing = [key for key in required if key not in report]
     if missing:
@@ -2722,6 +2734,11 @@ def validate_runbook_report(report, blockers=None) -> list[str]:
             f"runbook: final_command_count={report['final_command_count']!r} "
             f"!= {len(RUNBOOK_FINAL_COMMANDS)}"
         )
+    if report["fallback_branch_present"] is not True:
+        problems.append(
+            f"runbook: fallback_branch_present={report['fallback_branch_present']!r} "
+            "is not True"
+        )
     return problems
 
 
@@ -2739,6 +2756,7 @@ def build_runbook_report(root, blockers=None) -> dict:
             "submission_ready": False,
             "claims_audit_clean": False,
             "final_command_count": 0,
+            "fallback_branch_present": False,
         }
     found = []
     for blocker_id in EXPECTED_PRE_SUBMISSION_BLOCKER_IDS:
@@ -2751,6 +2769,9 @@ def build_runbook_report(root, blockers=None) -> dict:
         "submission_ready": "SUBMISSION_READY: true" in text,
         "claims_audit_clean": audit_text(RUNBOOK_REL, text) == [],
         "final_command_count": sum(1 for c in RUNBOOK_FINAL_COMMANDS if c in text),
+        "fallback_branch_present": all(
+            marker in text for marker in RUNBOOK_FALLBACK_MARKERS
+        ),
     }
 
 

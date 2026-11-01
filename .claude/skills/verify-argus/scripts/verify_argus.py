@@ -232,6 +232,11 @@ RUNBOOK_FINAL_COMMANDS = ("python3 -m unittest discover -s tests",
                           "python3 -m demo.render_video")
 RUNBOOK_CREDIT_AT = "2026-10-29 09:30"
 RUNBOOK_DEADLINE_KST = "2026-11-05 11:00"
+RUNBOOK_FALLBACK_MARKERS = ("2026-11-02",
+                            "python3 -m qa.fallback_decision",
+                            "python3 -m qa.video_selection",
+                            "demo/assets/argus-demo-fallback-draft.mp4",
+                            "파일 입력 폴백은 Pi 실촬영이 아니며")
 DEVPOST_REL = "docs/devpost-submission.md"
 DEVPOST_SECTIONS = ("## 프로젝트 이름", "## 한 줄 소개", "## 소개",
                     "## 동작 방식", "## Meta AI 도구 활용", "## 기술 구성",
@@ -1156,6 +1161,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("readiness runbook claims_audit_clean 기대 True")
         if runbook_fc != 8:
             problems.append(f"readiness runbook final_command_count 기대 8, 실제 {runbook_fc}")
+        runbook_fb = runbook_r.get("fallback_branch_present")
+        if runbook_fb is not True:
+            problems.append(
+                f"readiness runbook fallback_branch_present 기대 True, 실제 {runbook_fb}")
         story_r = readiness.get("story") or {}
         story_sc = story_r.get("section_count")
         story_rb = story_r.get("blockers")
@@ -1511,6 +1520,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_runbook_section_count": runbook_sc,
                "readiness_runbook_blockers": runbook_rb,
                "readiness_runbook_final_command_count": runbook_fc,
+               "readiness_runbook_fallback_branch_present": runbook_fb,
                "readiness_story_section_count": story_sc,
                "readiness_story_blockers": story_rb,
                "readiness_en_summary_section_count": en_sc,
@@ -2155,6 +2165,9 @@ def validate_runbook_text(text: str) -> list[str]:
     for command in RUNBOOK_FINAL_COMMANDS:
         if command not in text:
             problems.append(f"런북 최종 점검 명령 {command!r} 없음")
+    for needle in RUNBOOK_FALLBACK_MARKERS:
+        if needle not in text:
+            problems.append(f"런북 폴백 분기 표기 {needle!r} 없음")
     for needle in ("2026-11-04 21:00", RUNBOOK_DEADLINE_KST,
                    "BoxLogoDev/argus-counts"):
         if needle not in text:
@@ -2366,12 +2379,17 @@ def drive_submission_runbook(ctx: Ctx, evidence: Path) -> dict:
 
         claims_audit_clean = audit_text(RUNBOOK_REL, text) == []
     ctx.note(f"런북 주장 감사 깨끗함 -> {claims_audit_clean}")
+    fallback_branch_present = bool(text) and all(
+        marker in text for marker in RUNBOOK_FALLBACK_MARKERS)
+    ctx.note(f"런북 폴백 분기 존재 -> {fallback_branch_present}")
     extracted = {"sections": list(RUNBOOK_SECTIONS),
                  "blockers": list(EXPECTED_BLOCKER_IDS),
                  "submission_ready": False,
                  "credit_check_at": RUNBOOK_CREDIT_AT,
                  "deadline_kst": RUNBOOK_DEADLINE_KST,
-                 "final_check_commands": list(RUNBOOK_FINAL_COMMANDS)}
+                 "final_check_commands": list(RUNBOOK_FINAL_COMMANDS),
+                 "fallback_markers": list(RUNBOOK_FALLBACK_MARKERS),
+                 "fallback_branch_present": fallback_branch_present}
     summary = {"feature": "submission-runbook",
                "sections": list(RUNBOOK_SECTIONS),
                "section_count": len(RUNBOOK_SECTIONS),
@@ -2380,6 +2398,8 @@ def drive_submission_runbook(ctx: Ctx, evidence: Path) -> dict:
                "credit_check_at": RUNBOOK_CREDIT_AT,
                "deadline_kst": RUNBOOK_DEADLINE_KST,
                "final_check_command_count": len(RUNBOOK_FINAL_COMMANDS),
+               "fallback_branch_present": fallback_branch_present,
+               "fallback_decision_date": "2026-11-02",
                "claims_audit_clean": claims_audit_clean,
                "tamper_detected": tamper_detected,
                "pre_submission_blockers": pre_blockers,

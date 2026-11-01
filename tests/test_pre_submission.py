@@ -144,6 +144,10 @@ def _valid_runbook_text() -> str:
         "- `READY_FOR_LIVE_CALL: true` 가 된 뒤에만 첫 호출을 시작한다.",
         "## 4. Pi 촬영",
         "- Pi 실촬영 검증 전인 동안은 교체를 예정으로만 적는다.",
+        "- 폴백 결정일은 2026-11-02다.",
+        "- 판정은 `python3 -m qa.fallback_decision` 으로 확인하고 제출 후보는 `python3 -m qa.video_selection` 으로 확인한다.",
+        "- 폴백 제출 후보 파일은 `demo/assets/argus-demo-fallback-draft.mp4` 다.",
+        "- 파일 입력 폴백은 Pi 실촬영이 아니며 Pi 미도착 상태의 대체 경로일 뿐이다.",
         "## 5. 최종 점검",
         "- `python3 -m unittest discover -s tests`",
         "- `python3 -m qa`",
@@ -1298,6 +1302,7 @@ class RunbookIntegrationTests(unittest.TestCase):
         self.assertFalse(runbook["submission_ready"])
         self.assertTrue(runbook["claims_audit_clean"])
         self.assertEqual(runbook["final_command_count"], 8)
+        self.assertTrue(runbook["fallback_branch_present"])
         self.assertFalse(result["submission_ready"])
 
     def test_validate_runbook_text_accepts_valid_and_detects_tamper(self):
@@ -1311,6 +1316,21 @@ class RunbookIntegrationTests(unittest.TestCase):
         text = _valid_runbook_text().replace("## 3. SAM 전환", "## 3. 전환", 1)
         problems = validate_runbook_text(text)
         self.assertTrue(any("section" in p for p in problems), problems)
+
+    def test_validate_runbook_text_detects_missing_fallback_marker(self):
+        text = _valid_runbook_text().replace(
+            "python3 -m qa.fallback_decision", "python3 -m qa.fallback", 1)
+        problems = validate_runbook_text(text)
+        self.assertTrue(any("fallback marker" in p for p in problems), problems)
+
+    def test_runbook_report_fallback_branch_flag(self):
+        report = build_runbook_report(ROOT)
+        self.assertTrue(report["fallback_branch_present"])
+        self.assertEqual(validate_runbook_report(report), [])
+        report["fallback_branch_present"] = False
+        problems = validate_runbook_report(report)
+        self.assertTrue(
+            any("fallback_branch_present" in p for p in problems), problems)
 
     def test_validate_runbook_report_detects_contradictions(self):
         report = build_runbook_report(ROOT)

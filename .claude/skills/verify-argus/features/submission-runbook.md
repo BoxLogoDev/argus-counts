@@ -9,6 +9,7 @@
 - `runbook-credit-key-steps` 크레딧과 키 단계: 크레딧 확인 예정 시각 `2026-10-29 09:30`와 `--credit-confirmed`, 키 수령 경로 `Secure Vault`, 환경변수 이름 `SAM_API_BASE_URL`와 `SAM_API_KEY`가 있는지만 확인한다. 값은 읽지도 쓰지도 않는다.
 - `runbook-final-commands` 최종 점검 명령: `RUNBOOK_FINAL_COMMANDS` 최종 점검 명령 8종이 모두 있고 정직성 표기 모의와 검증 전과 단일 빈 스모크가 남아 있으며 마감 한국 시간 `2026-11-05 11:00`이 적혀 있음을 확인한다. `qa.claims_audit`의 `audit_text` 주장 감사 결과도 비어 있어야 한다.
 - `runbook-tamper-detection` 변조 탐지: 메모리 사본에서 `SUBMISSION_READY: false`를 true로 바꾼 텍스트를 다시 검증하면 문제가 잡혀야 한다. 원본 파일은 바꾸지 않는다.
+- `runbook-fallback-branch` 폴백 결정 분기: 4절에 폴백 결정일 `2026-11-02`와 `python3 -m qa.fallback_decision`·`python3 -m qa.video_selection` 명령, 폴백 렌더 `demo/assets/argus-demo-fallback-draft.mp4`, 파일 입력 폴백은 Pi 실촬영이 아니며 Pi 미도착 상태의 대체 경로라는 표기가 있어야 한다. 폴백을 채택해도 블로커와 `SUBMISSION_READY: false`는 그대로이며, 구동은 summary의 `fallback_branch_present`와 증거 `fallback_markers`로 남긴다.
 
 ## How to get to it (user POV)
 
@@ -31,6 +32,7 @@ Preconditions:
 - **크레딧과 키 단계 확인.** 헬퍼가 2026-10-29 09:30와 `--credit-confirmed`와 Secure Vault와 `SAM_API_BASE_URL`와 `SAM_API_KEY` 이름이 있는지를 확인한다.
 - **최종 점검과 마감 확인.** 헬퍼가 `RUNBOOK_FINAL_COMMANDS` 8종과 정직성 표기 모의와 검증 전과 단일 빈 스모크와 마감 2026-11-05 11:00을 대조하고 `audit_text` 주장 감사가 비었는지를 확인한다.
 - **변조 탐지 확인.** 헬퍼가 메모리 사본에서 false를 true로 바꾼 텍스트를 `validate_runbook_text`로 다시 검증해 변조가 탐지되는지 확인한다. 원본은 수정하지 않는다.
+- **폴백 분기 확인.** 헬퍼가 `RUNBOOK_FALLBACK_MARKERS` 5종(결정일 2026-11-02·fallback_decision·video_selection·폴백 렌더 경로·파일 입력 폴백 정직성 표기)이 4절에 있는지를 대조하고 summary에 `fallback_branch_present`와 `fallback_decision_date`를, 증거 `submission-runbook.json`에 `fallback_markers`를 남긴다. 오늘(결정일 전) 판정은 pending이며 이 확인이 폴백 채택 확정을 뜻하지 않는다.
 - **실시간 대조 확인.** 헬퍼가 `python3 -m qa.pre_submission --json`을 서브프로세스로 실행해 블로커 id 목록이 런북과 같고 `submission_ready`가 false인지 대조한다.
 - **증거 확인.** 종료 후 증거 디렉터리에 `submission-runbook.json`과 `submission-runbook.md`가 남고 `summary.json`의 `feature`가 `submission-runbook`이며 `section_count`와 `final_check_command_count`와 `claims_audit_clean`과 `tamper_detected`와 `pre_submission_blockers`를 확인한다.
 
