@@ -113,6 +113,71 @@ class RunPhotoIntakeTests(unittest.TestCase):
             run_photo_intake({})
 
 
+class _RecordingCounter:
+    """주입용 가짜 카운터. 받은 image_ref를 그대로 기록한다."""
+
+    source = "sam"
+
+    def __init__(self, counts: dict[str, int]) -> None:
+        self._counts = dict(counts)
+        self.calls: list[tuple[str, str | None]] = []
+
+    def count(self, bin_id: str, image_ref: str | None = None):
+        from terminal.models import CountResult
+
+        self.calls.append((bin_id, image_ref))
+        return CountResult(
+            bin_id=bin_id, counted_qty=self._counts[bin_id], source=self.source
+        )
+
+
+class RunPhotoIntakeLivePathTests(unittest.TestCase):
+    def test_counter_receives_full_file_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            captures = _full_captures(Path(tmp))
+            counter = _RecordingCounter(
+                {bin_id: 1 for bin_id in captures}
+            )
+            run_photo_intake(captures, session_id="PHOTO-LIVE-1", counter=counter)
+            self.assertEqual(len(counter.calls), 6)
+            for bin_id, image_ref in counter.calls:
+                self.assertEqual(image_ref, str(captures[bin_id]))
+                self.assertTrue(Path(image_ref).is_file())
+
+    def test_injected_counter_source_and_counts_propagate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            captures = _full_captures(Path(tmp))
+            counts = {bin_id: 99 for bin_id in captures}
+            counter = _RecordingCounter(counts)
+            report = run_photo_intake(
+                captures, session_id="PHOTO-LIVE-2", counter=counter
+            )
+            self.assertEqual(report["source"], "sam")
+            self.assertEqual(report["capture_source"], "file")
+            self.assertTrue(
+                all(b["counted_qty"] == 99 for b in report["bins"])
+            )
+            # 리포트의 photo.image_ref는 종전대로 파일명을 유지한다.
+            by_bin = {b["bin_id"]: b for b in report["bins"]}
+            self.assertEqual(
+                by_bin["A-01-02"]["photo"]["image_ref"], "A-01-02.jpg"
+            )
+
+    def test_counter_error_propagates_without_mock_fallback(self):
+        class _FailingCounter:
+            source = "sam"
+
+            def count(self, bin_id: str, image_ref: str | None = None):
+                raise RuntimeError("live call failed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            captures = _full_captures(Path(tmp))
+            with self.assertRaises(RuntimeError):
+                run_photo_intake(
+                    captures, session_id="PHOTO-LIVE-3", counter=_FailingCounter()
+                )
+
+
 class PhotoIntakeCliTests(unittest.TestCase):
     def test_cli_writes_json_out(self):
         with tempfile.TemporaryDirectory() as tmp:

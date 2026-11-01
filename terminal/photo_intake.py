@@ -55,6 +55,7 @@ def run_photo_intake(
     captures: dict[str, str | Path],
     session_id: str | None = None,
     counted_qty: dict[str, int] | None = None,
+    counter=None,
 ) -> dict:
     if not captures:
         raise ValueError("captures must not be empty")
@@ -65,14 +66,18 @@ def run_photo_intake(
         bin_id: load_capture(bin_id, captures[bin_id])
         for bin_id in sorted_bin_ids
     }
-    counter = build_counter(
-        counted_qty if counted_qty is not None else DEMO_COUNTED_QTY
-    )
+    if counter is None:
+        counter = build_counter(
+            counted_qty if counted_qty is not None else DEMO_COUNTED_QTY
+        )
     session = CountSession(session_id=session_id, bin_ids=sorted_bin_ids)
     session.begin()
     for bin_id in sorted_bin_ids:
-        record = records[bin_id]
-        session.record(counter.count(bin_id, image_ref=record.image_ref))
+        # 카운터에는 파일명이 아니라 실제 파일 경로를 넘긴다. 어댑터
+        # (sam_adapter._image_url)는 참조가 실존 파일일 때만 바이트를
+        # 읽어 전송하므로, 파일명만 넘기면 실호출에서 이미지가 닿지
+        # 않는다. 리포트의 photo.image_ref는 종전대로 파일명을 쓴다.
+        session.record(counter.count(bin_id, image_ref=str(captures[bin_id])))
     session.mark_reconciled()
     report = reconcile(session_id, demo_ledger(), session.results)
     bins = []
