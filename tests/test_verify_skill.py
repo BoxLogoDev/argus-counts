@@ -232,7 +232,8 @@ class SkillFileTests(unittest.TestCase):
         for marker in ("qa.video_selection", "evaluate_selection",
                        "build_selection", "validate_selection",
                        "drive_video_selection", "video-selection-pending.json",
-                       "video-selection-due.json", "2026-11-02",
+                       "video-selection-due.json", "video-selection-default.json",
+                       "video-selection-default-kst", "today_kst", "2026-11-02",
                        "pending", "fallback_due", "pi_ready",
                        "pending_default", "SELECTED_VIDEO",
                        "SUBMISSION_READY: false", "Pi 실촬영이 아닙니다",
@@ -279,7 +280,8 @@ class SkillFileTests(unittest.TestCase):
         for marker in ("qa.fallback_decision", "evaluate_decision",
                        "build_decision", "validate_decision",
                        "drive_fallback_decision", "fallback-decision-pending.json",
-                       "fallback-decision-due.json",
+                       "fallback-decision-due.json", "fallback-decision-default.json",
+                       "fallback-decision-default-kst", "today_kst",
                        "fallback-decision-video-selection.json",
                        "fallback-decision-final-package.json",
                        "qa.video_selection", "qa.final_package",
@@ -1882,6 +1884,29 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue((evidence / "video-selection-due.json").is_file())
             self.assertTrue((evidence / "transcript.txt").is_file())
 
+    def test_video_selection_default_date_is_kst(self):
+        import datetime as _dt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-video-selection-default"
+            result = self._run_helper("--feature", "video-selection",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["all_ok"])
+            self.assertIs(summary["default_date_is_kst"], True)
+            kst_today = _dt.datetime.now(
+                _dt.timezone(_dt.timedelta(hours=9))).date().isoformat()
+            self.assertEqual(summary["default_date"], kst_today)
+            default = json.loads(
+                (evidence / "video-selection-default.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(default["date"], kst_today)
+            self.assertEqual(default["fallback_status"], summary["default_status"])
+            self.assertEqual(default["selected_video"], summary["default_selected"])
+
     def test_video_selection_evidence_keeps_due_and_sizes(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-video-selection-due"
@@ -2116,6 +2141,30 @@ class HelperRunTests(unittest.TestCase):
                 encoding="utf-8"))
             self.assertEqual(due["status"], "fallback_due")
             self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_fallback_decision_default_date_is_kst(self):
+        import datetime as _dt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-fallback-decision-default"
+            result = self._run_helper("--feature", "fallback-decision",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["all_ok"])
+            self.assertIs(summary["default_date_is_kst"], True)
+            kst_today = _dt.datetime.now(
+                _dt.timezone(_dt.timedelta(hours=9))).date().isoformat()
+            self.assertEqual(summary["default_date"], kst_today)
+            default = json.loads(
+                (evidence / "fallback-decision-default.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(default["date"], kst_today)
+            self.assertEqual(default["status"], summary["default_status"])
+            self.assertEqual(
+                default["fallback_adopted"], summary["default_fallback_adopted"])
 
     def test_fallback_decision_evidence_keeps_honesty(self):
         with tempfile.TemporaryDirectory() as tmp:

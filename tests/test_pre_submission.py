@@ -2047,8 +2047,8 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertEqual(fp["selected_video"], vs["selected_video"])
         self.assertEqual(fp["selection_reason"], vs["selection_reason"])
         self.assertEqual(fp["selected_size"], vs["selected_size"])
-        self.assertIn("selected_video=demo/assets/argus-demo-draft.mp4", check.detail)
-        self.assertIn("selection_reason=pending_default", check.detail)
+        self.assertIn(f"selected_video={vs['selected_video']}", check.detail)
+        self.assertIn(f"selection_reason={vs['selection_reason']}", check.detail)
         self.assertIn("export_verify_verified=True", check.detail)
         self.assertIn("export_verify_copied_files=18", check.detail)
         pkg = result["readiness"]["package_export"]
@@ -2063,8 +2063,9 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertEqual(fp["inventory_total"], 18)
         self.assertEqual(fp["inventory_missing"], [])
         self.assertEqual(fp["deadline_status"], "before_deadline")
-        self.assertEqual(fp["fallback_status"], "pending")
-        self.assertIs(fp["fallback_adopted"], False)
+        decision = result["readiness"]["fallback_decision"]
+        self.assertEqual(fp["fallback_status"], decision["status"])
+        self.assertEqual(fp["fallback_adopted"], decision["fallback_adopted"])
         self.assertEqual(fp["blockers"], ["pi_real_capture_pending"])
         self.assertIs(fp["submission_ready"], False)
         self.assertFalse(result["submission_ready"])

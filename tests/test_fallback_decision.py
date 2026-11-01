@@ -1,3 +1,4 @@
+import datetime
 import json
 import subprocess
 import sys
@@ -11,9 +12,11 @@ from qa.fallback_decision import (
     DECISION_DATE,
     FALLBACK_ASSET,
     FALLBACK_RENDER,
+    KST,
     build_decision,
     evaluate_decision,
     format_text_report,
+    today_kst,
     validate_decision,
 )
 
@@ -82,6 +85,22 @@ class FallbackDecisionTests(unittest.TestCase):
         self.assertIn("DECISION_DATE: 2026-11-02", text)
         self.assertIn("FALLBACK_ADOPTED: true", text)
         self.assertIn("Pi 실촬영이 아닙니다", text)
+
+    def test_kst_constant_is_plus_nine(self):
+        self.assertEqual(KST, datetime.timezone(datetime.timedelta(hours=9)))
+
+    def test_today_kst_matches_independent_kst_computation(self):
+        expected = datetime.datetime.now(
+            datetime.timezone(datetime.timedelta(hours=9))).date().isoformat()
+        self.assertEqual(today_kst(), expected)
+
+    def test_build_decision_default_date_is_kst_today(self):
+        report = build_decision(pi_probe=MISSING_PROBE)
+        self.assertEqual(report["date"], today_kst())
+        expected = evaluate_decision(today_kst(), False, BLOCKERS)
+        self.assertEqual(report["status"], expected["status"])
+        self.assertEqual(report["fallback_adopted"], expected["fallback_adopted"])
+        self.assertEqual(validate_decision(report), [])
 
     def test_cli_json_blocked_environment(self):
         out = subprocess.run(

@@ -8,6 +8,8 @@ MP4를 제출 후보로 골라야 하는지를 기계적으로 정한다. 판정
 실제로 존재하는지와 크기까지 대조한다.
 
 이 하네스는 실제로 제출하지 않고 영상을 새로 만들지도 않는다.
+기본 날짜(--date를 주지 않았을 때의 오늘)는 qa.fallback_decision의
+today_kst()를 재사용해 한국 시간(KST) 기준으로 잡는다.
 선택은 제출 준비 완료를 뜻하지 않으며, 폴백 영상은 Pi 실촬영이
 아니다. Pi 준비 완료만으로 기본 영상이 실촬영본이 되지도 않는다 —
 Pi가 준비되면 컷 3 실촬영 교체와 재렌더가 별도로 필요하다.
@@ -23,7 +25,7 @@ import json
 import sys
 from pathlib import Path
 
-from qa.fallback_decision import DECISION_DATE, build_decision, evaluate_decision
+from qa.fallback_decision import DECISION_DATE, build_decision, evaluate_decision, today_kst
 
 PRIMARY_VIDEO = "demo/assets/argus-demo-draft.mp4"
 FALLBACK_VIDEO = "demo/assets/argus-demo-fallback-draft.mp4"
@@ -114,7 +116,7 @@ def build_selection(root=None, today=None, pi_probe=None,
         root = Path(__file__).resolve().parents[1]
     root = Path(root)
     if today is None:
-        today = datetime.date.today().isoformat()
+        today = today_kst()
     decision = build_decision(today=today, pi_probe=pi_probe,
                               device_confirmed=device_confirmed, which=which)
     return evaluate_selection(

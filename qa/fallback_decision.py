@@ -8,6 +8,8 @@
 이 하네스는 실제 촬영을 하지 않고, Pi 준비 상태는 qa.pi_readiness를
 재사용해 존재 탐지만으로 확인한다. 폴백 채택은 Pi 실촬영 검증 완료를
 뜻하지 않으며, 폴백 자산은 Pi 실촬영이 아니다.
+기본 날짜(--date를 주지 않았을 때의 오늘)는 시스템 로컬 날짜가 아니라
+한국 시간(KST) 기준 날짜다 — 결정일과 제출 마감은 전부 KST 기준이다.
 
 실행: 프로젝트 루트에서 `python3 -m qa.fallback_decision [--date YYYY-MM-DD] [--device-confirmed] [--json]`
 종료코드는 보고가 유효하면 0, validate 문제가 있으면 2다.
@@ -19,6 +21,8 @@ import json
 import sys
 
 from qa.pi_readiness import check_readiness
+
+KST = datetime.timezone(datetime.timedelta(hours=9))
 
 DECISION_DATE = "2026-11-02"
 FALLBACK_ASSET = "demo/assets/fallback.json"
@@ -49,6 +53,11 @@ def _parse_date(value: str) -> datetime.date:
     return datetime.date.fromisoformat(value)
 
 
+def today_kst() -> str:
+    """오늘 날짜를 한국 시간(KST) 기준 ISO 문자열로 반환한다."""
+    return datetime.datetime.now(KST).date().isoformat()
+
+
 def evaluate_decision(today: str, pi_ready: bool, pi_blockers=None) -> dict:
     _parse_date(today)
     blockers = list(pi_blockers or [])
@@ -77,7 +86,7 @@ def evaluate_decision(today: str, pi_ready: bool, pi_blockers=None) -> dict:
 
 def build_decision(today=None, pi_probe=None, device_confirmed: bool = False, which=None) -> dict:
     if today is None:
-        today = datetime.date.today().isoformat()
+        today = today_kst()
     readiness = check_readiness(probe=pi_probe, device_confirmed=device_confirmed, which=which)
     blocker_ids = [b["id"] for b in readiness["blockers"]]
     return evaluate_decision(today, bool(readiness["ready_for_real_capture"]), blocker_ids)

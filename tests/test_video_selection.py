@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from qa.fallback_decision import today_kst
 from qa.video_selection import (
     DECISION_DATE,
     FALLBACK_VIDEO,
@@ -108,6 +109,24 @@ class VideoSelectionTests(unittest.TestCase):
         self.assertEqual(report["fallback_status"], "fallback_due")
         self.assertEqual(report["selected_video"], FALLBACK_VIDEO)
         self.assertIs(report["submission_ready"], False)
+
+    def test_build_selection_default_date_is_kst_today(self):
+        report = build_selection(pi_probe=MISSING_PROBE)
+        self.assertEqual(report["date"], today_kst())
+        expected = evaluate_selection(
+            today_kst(), False, BLOCKERS,
+            report["primary_size"], report["fallback_size"])
+        self.assertEqual(report["fallback_status"], expected["fallback_status"])
+        self.assertEqual(report["selected_video"], expected["selected_video"])
+        self.assertEqual(validate_selection(report), [])
+
+    def test_cli_default_date_is_kst_today(self):
+        proc = subprocess.run(
+            [sys.executable, "-m", "qa.video_selection", "--json"],
+            cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        report = json.loads(proc.stdout)
+        self.assertEqual(report["date"], today_kst())
 
     def test_cli_invalid_date_exit_2(self):
         proc = subprocess.run(

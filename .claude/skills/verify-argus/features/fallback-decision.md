@@ -10,6 +10,7 @@ Pi 폴백 결정은 `qa.fallback_decision`이 결정일 2026-11-02를 기준으�
 - `fallback-decision-build-probe` 프로세스 내 준비 대조: `build_decision`이 없는 probe(2026-10-30)에서는 pending·pi_blockers [`pi_device_arrival_not_confirmed`, `pi_camera_command_missing`]를, 준비된 probe와 장치 확인(2026-11-02)에서는 pi_ready·pi_blockers 빈 목록을 냄을 확인한다.
 - `fallback-decision-tamper` 변조 탐지: pending 보고의 fallback_adopted를 true로 바꾸면 fallback_adopted 문제를, due 보고의 is_pi_real_capture를 true로 바꾸면 is_pi_real_capture 문제를, status를 바꾸면 status 문제를 `validate_decision`이 각각 지목함을 확인한다.
 - `fallback-decision-selection-package-cross` 결정일 교차 대조: 결정일 2026-11-02(가정 날짜) 기준으로 `qa.video_selection` 보고의 fallback_status·fallback_adopted·selected_video(폴백 렌더)·selection_reason·selected_size(폴백 렌더 실측)와 `qa.final_package` 보고의 status blocked·fallback_status·selected_video·selection_reason·selected_size·blockers [`pi_real_capture_pending`]·submission_ready false가 폴백 결정 due 보고와 어긋나지 않음을 확인하고, 증거 `fallback-decision-video-selection.json`·`fallback-decision-final-package.json`과 summary의 `fp_cross_ok`를 남긴다. 가정 날짜 구동이며 오늘 실제 전환 확정이 아니고, 교차 대조가 맞아도 제출 준비 완료를 뜻하지 않는다.
+- `fallback-decision-default-kst` 기본 날짜 KST 대조: `--date` 없는 기본 실행(`python3 -m qa.fallback_decision --json`)의 date가 `today_kst()`(한국 시간 오늘)와 같고, 보고가 `validate_decision`을 통과하며 status·fallback_adopted가 같은 날짜의 `evaluate_decision` 판정과 일치함을 확인한다. 증거 `fallback-decision-default.json`과 summary의 `default_date`·`default_status`·`default_date_is_kst`를 남긴다. 시스템 로컬 날짜(UTC)를 쓰면 KST 결정일 00:00~09:00 구간에 pending으로 잘못 판정되므로 이를 잡아내는 대조다.
 - `fallback-decision-invalid-date` 잘못된 날짜 차단: `python3 -m qa.fallback_decision --date 2026-13-40 --json`이 종료코드 2로 거부됨을 확인한다.
 
 ## How to get to it (user POV)
@@ -32,11 +33,12 @@ Preconditions:
 - **프로세스 내 판정 확인.** 헬퍼가 `evaluate_decision` 3상태와 `build_decision`의 missing/ready probe 대조, `validate_decision` 문제 0건을 확인한다.
 - **결정일 교차 확인.** 헬퍼가 결정일(2026-11-02, 가정 날짜) 기준으로 `qa.video_selection --date 2026-11-02 --json`과 `qa.final_package --date 2026-11-02 --json`을 실행해 영상 선택·최종 묶음 보고가 폴백 결정 due 보고와 일치하는지 대조한다. 이것은 가정 날짜 구동이며 오늘 실제 전환 확정이 아니다.
 - **변조·잘못된 날짜 확인.** 헬퍼가 fallback_adopted·is_pi_real_capture·status 변조 탐지와 잘못된 날짜 종료코드 2를 확인한다.
-- **증거 확인.** 종료 후 증거 디렉터리에 `fallback-decision-pending.json`(CLI pending `--json` stdout 원문)과 `fallback-decision-due.json`(CLI due `--json` stdout 원문)가 남고, `summary.json`의 `feature`가 `fallback-decision`이며 `pending_status` pending·`due_status` fallback_due·`pi_ready_status` pi_ready·`tamper_detected` true·`invalid_date_exit_code` 2·`fp_cross_ok` true인지 대조한다. `fallback-decision-video-selection.json`(결정일 영상 선택 보고 원문)과 `fallback-decision-final-package.json`(결정일 최종 묶음 보고 원문)도 함께 남는다.
+- **기본 날짜 확인.** 헬퍼가 `--date` 없는 기본 실행도 `--json`으로 구동해 date가 KST 오늘(`today_kst()`)과 같은지, `validate_decision` 문제 0건인지, 판정이 같은 날짜의 판정식과 일치하는지 대조한다.
+- **증거 확인.** 종료 후 증거 디렉터리에 `fallback-decision-pending.json`(CLI pending `--json` stdout 원문)과 `fallback-decision-due.json`(CLI due `--json` stdout 원문), `fallback-decision-default.json`(기본 실행 `--json` stdout 원문)이 남고, `summary.json`의 `feature`가 `fallback-decision`이며 `pending_status` pending·`due_status` fallback_due·`default_date_is_kst` true·`pi_ready_status` pi_ready·`tamper_detected` true·`invalid_date_exit_code` 2·`fp_cross_ok` true인지 대조한다. `fallback-decision-video-selection.json`(결정일 영상 선택 보고 원문)과 `fallback-decision-final-package.json`(결정일 최종 묶음 보고 원문)도 함께 남는다.
 
 ## Gotchas
 
-- 결정일 전에는 폴백을 확정하지 않는다. 2026-10-30 판정은 pending이며, fallback_due는 2026-11-02 가정 날짜를 넣었을 때만 나오는 판정식 확인이다.
+- 결정일 전에는 폴백을 확정하지 않는다. 2026-10-30 판정은 pending이다. 기본 날짜는 KST 기준이라 결정일(2026-11-02) 당일 KST 00:00부터는 기본 실행도 실제로 fallback_due를 낸다 — 결정일 전에 `--date 2026-11-02`로 넣은 fallback_due는 가정 날짜 구동이며 실제 전환 확정으로 서술하지 않는다. 어느 경우도 폴백 채택은 Pi 실촬영 검증 완료가 아니다.
 - 파일 입력 폴백은 Pi 실촬영이 아닙니다. 폴백 채택을 Pi 실촬영 검증 완료로 서술하면 실패다.
 - Pi가 준비되면 날짜와 무관하게 pi_ready이며 폴백을 채택하지 않는다. pi_ready인데 pi_blockers가 남아 있으면 모순이다.
 - is_pi_real_capture는 어떤 보고에서도 항상 false여야 한다. true로 바뀌면 변조로 지목돼야 한다.

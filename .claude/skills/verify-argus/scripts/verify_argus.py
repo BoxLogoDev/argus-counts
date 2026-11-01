@@ -4322,7 +4322,7 @@ def drive_submission_inventory(ctx: Ctx, evidence: Path) -> dict:
 def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
     from qa.fallback_decision import (build_decision, evaluate_decision,
-                                      validate_decision)
+                                      today_kst, validate_decision)
 
     result = run_cli(["-m", "qa.fallback_decision", "--date",
                       FALLBACK_DECISION_PENDING_DATE])
@@ -4406,6 +4406,44 @@ def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
         if due.get("fallback_adopted") is not True:
             problems.append(
                 f"due fallback_adopted 기대 True, 실제 {due.get('fallback_adopted')}")
+
+    # 기본 날짜 구동 — --date 없는 기본 실행이 KST 오늘을 쓰는지 확인한다.
+    # 시스템 로컬 날짜(UTC VM에서는 하루 전)를 쓰면 KST 결정일
+    # 00:00~09:00 구간에 pending으로 잘못 판정되므로 이를 증거로 남긴다.
+    result_default = run_cli(["-m", "qa.fallback_decision", "--json"])
+    ctx.note(f"python3 -m qa.fallback_decision --json (기본 날짜) "
+             f"-> 종료코드 {result_default.returncode}")
+    if result_default.returncode != 0:
+        problems.append(
+            f"fallback_decision 기본 --json 종료코드 기대 0, 실제 "
+            f"{result_default.returncode}: {result_default.stderr[:200]}")
+    default_rep: dict = {}
+    try:
+        default_rep = json.loads(result_default.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"기본 --json 파싱 실패: {e}")
+    kst_today = today_kst()
+    default_date_is_kst = bool(default_rep) and default_rep.get("date") == kst_today
+    ctx.note(f"폴백 결정 기본 날짜 -> date={default_rep.get('date')} "
+             f"kst_today={kst_today} status={default_rep.get('status')}")
+    if default_rep:
+        if not default_date_is_kst:
+            problems.append(
+                f"기본 날짜 기대 KST 오늘 {kst_today}, 실제 {default_rep.get('date')}")
+        v_default = validate_decision(default_rep)
+        if v_default:
+            problems.append(f"기본 보고 validate 문제: {v_default}")
+        expected_default = evaluate_decision(
+            str(default_rep.get("date")), bool(default_rep.get("pi_ready")),
+            list(default_rep.get("pi_blockers") or []))
+        if default_rep.get("status") != expected_default["status"]:
+            problems.append(
+                f"기본 status 기대 {expected_default['status']}, "
+                f"실제 {default_rep.get('status')}")
+        if default_rep.get("fallback_adopted") != expected_default["fallback_adopted"]:
+            problems.append(
+                f"기본 fallback_adopted 기대 {expected_default['fallback_adopted']}, "
+                f"실제 {default_rep.get('fallback_adopted')}")
 
     # 영상 선택·최종 묶음과의 교차 대조 — 결정일(가정 날짜) 기준.
     # 가정 날짜 구동이며 오늘 실제 전환 확정이 아니다.
@@ -4580,6 +4618,10 @@ def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
     summary = {"feature": "fallback-decision",
                "pending_status": pending.get("status"),
                "pending_blockers": pending_blockers,
+               "default_date": default_rep.get("date"),
+               "default_status": default_rep.get("status"),
+               "default_fallback_adopted": default_rep.get("fallback_adopted"),
+               "default_date_is_kst": default_date_is_kst,
                "default_exit_code": result.returncode,
                "due_status": due.get("status"),
                "due_fallback_adopted": due.get("fallback_adopted"),
@@ -4600,6 +4642,7 @@ def drive_fallback_decision(ctx: Ctx, evidence: Path) -> dict:
     write_evidence(evidence, ctx.lines, summary,
                    {"fallback-decision-pending.json": result_j.stdout,
                     "fallback-decision-due.json": result_due.stdout,
+                    "fallback-decision-default.json": result_default.stdout,
                     "fallback-decision-video-selection.json": result_vs.stdout,
                     "fallback-decision-final-package.json": result_fp.stdout})
     return summary
@@ -5956,6 +5999,7 @@ def drive_sam_session_evidence(ctx: Ctx, evidence: Path) -> dict:
 
 def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
+    from qa.fallback_decision import today_kst
     from qa.video_selection import (FALLBACK_VIDEO, PRIMARY_VIDEO,
                                     build_selection, evaluate_selection,
                                     validate_selection)
@@ -6025,6 +6069,40 @@ def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"due fallback_adopted 기대 True, 실제 {due.get('fallback_adopted')}")
         if due.get("selection_reason") != "fallback_due":
             problems.append(f"due reason 기대 fallback_due, 실제 {due.get('selection_reason')}")
+
+    # 기본 날짜 구동 — --date 없는 기본 실행이 KST 오늘을 쓰는지 확인한다.
+    result_default_vs = run_cli(["-m", "qa.video_selection", "--json"])
+    ctx.note(f"python3 -m qa.video_selection --json (기본 날짜) "
+             f"-> 종료코드 {result_default_vs.returncode}")
+    if result_default_vs.returncode != 0:
+        problems.append(f"video_selection 기본 --json 종료코드 기대 0, 실제 {result_default_vs.returncode}")
+    default_vs: dict = {}
+    try:
+        default_vs = json.loads(result_default_vs.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"video_selection 기본 --json 파싱 실패: {e}")
+    kst_today_vs = today_kst()
+    default_vs_date_is_kst = bool(default_vs) and default_vs.get("date") == kst_today_vs
+    ctx.note(f"영상 선택 기본 날짜 -> date={default_vs.get('date')} "
+             f"kst_today={kst_today_vs} status={default_vs.get('fallback_status')} "
+             f"selected={default_vs.get('selected_video')}")
+    if default_vs:
+        if not default_vs_date_is_kst:
+            problems.append(
+                f"영상 선택 기본 날짜 기대 KST 오늘 {kst_today_vs}, 실제 {default_vs.get('date')}")
+        v_default_vs = validate_selection(default_vs)
+        if v_default_vs:
+            problems.append(f"영상 선택 기본 보고 validate 문제: {v_default_vs}")
+        expected_vs = evaluate_selection(
+            str(default_vs.get("date")), bool(default_vs.get("pi_ready")),
+            list(default_vs.get("pi_blockers") or []),
+            primary_size=default_vs.get("primary_size"),
+            fallback_size=default_vs.get("fallback_size"))
+        for key in ("fallback_status", "fallback_adopted", "selected_video",
+                    "selection_reason", "selected_size"):
+            if default_vs.get(key) != expected_vs.get(key):
+                problems.append(
+                    f"영상 선택 기본 {key} 기대 {expected_vs.get(key)}, 실제 {default_vs.get(key)}")
 
     # 최종 묶음(qa.final_package)과의 교차 대조 — 같은 날짜 기준
     fp_pending: dict = {}
@@ -6187,6 +6265,10 @@ def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
     summary = {"feature": "video-selection",
                "pending_status": pending.get("fallback_status"),
                "due_status": due.get("fallback_status"),
+               "default_date": default_vs.get("date"),
+               "default_status": default_vs.get("fallback_status"),
+               "default_selected": default_vs.get("selected_video"),
+               "default_date_is_kst": default_vs_date_is_kst,
                "ready_status": ev_ready.get("fallback_status"),
                "pending_selected": pending.get("selected_video"),
                "due_selected": due.get("selected_video"),
@@ -6211,6 +6293,7 @@ def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
     write_evidence(evidence, ctx.lines, summary,
                    {"video-selection-pending.json": result_j.stdout,
                     "video-selection-due.json": result_due.stdout,
+                    "video-selection-default.json": result_default_vs.stdout,
                     "video-selection-final-package-pending.json": result_fp.stdout,
                     "video-selection-final-package-due.json": result_fp_due.stdout})
     return summary
