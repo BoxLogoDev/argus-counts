@@ -35,11 +35,13 @@ Pi 준비 점검 보고와 어긋나지 않는지의 정합, 데모 영상 제�
 Pi 실촬영으로 주장되지 않고 전수 점검 블로커와 어긋나지 않는지의
 정합, 제출 마감 점검(qa.deadline) 보고가 전수 점검 블로커와
 어긋나지 않는지의 정합, 제출 패키지 최종 묶음(qa.final_package) 보고가
-제출물 인벤토리·제출 마감·폴백 결정 보고와 어긋나지 않는지의 정합
+제출물 인벤토리·제출 마감·폴백 결정·데모 영상 선택 보고와 어긋나지 않는지의 정합
 (최종 묶음의 패키지 내보내기 실측 export_copied·export_total·
 export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 인벤토리의 present_files·total_files·missing·total_bytes와
-교차 대조하는 것을 포함한다),
+교차 대조하고, 영상 선택 selected_video·selection_reason·
+selected_size를 필수값으로 검사하고 데모 영상 선택 보고의
+selected_video·selection_reason·selected_size와 교차 대조하는 것을 포함한다),
 제출 패키지 내보내기(qa.package_export) 보고가 제출물 인벤토리 보고와
 어긋나지 않는지의 정합(같은 staging을 매니페스트만으로 다시 대조하는
 재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
@@ -58,7 +60,7 @@ export_missing·export_total_bytes를 필수값으로 검사하고 제출물
 영상 선택 정합은 폴백 결정·Pi 준비 점검 보고와 선택 파일 크기만 대조하며 실제로 제출하지 않는다. 선택은 제출 준비 완료를 뜻하지 않고 폴백 영상은 Pi 실촬영이 아니다.
 마감 정합은 남은 시간 계산·상태 판정만 대조하며 실제로 제출하지 않는다.
 마감 전이어도 제출 준비 완료를 뜻하지 않는다.
-최종 묶음 정합은 세 보고를 모아 만든 묶음 보고를 대조만 하며 실제로 제출하지 않는다.
+최종 묶음 정합은 인벤토리·마감·폴백 결정·영상 선택 보고를 모아 만든 묶음 보고를 대조만 하며 실제로 제출하지 않는다.
 패키지 내보내기 정합은 제출물을 임시 staging 디렉터리로 실제로 복사해
 복사본 해시를 대조만 하며 실제로 제출하지 않는다. 내보내기가 온전해도
 제출 가능을 뜻하지 않는다.
@@ -141,6 +143,8 @@ from qa.final_package import validate_final_package as _validate_fp
 from qa.package_export import build_export as _build_pkg_export
 from qa.package_export import validate_export as _validate_pkg_export
 from qa.package_export import verify_export_dir as _verify_pkg_export_dir
+from qa.video_selection import FALLBACK_VIDEO as VS_FALLBACK_VIDEO
+from qa.video_selection import PRIMARY_VIDEO as VS_PRIMARY_VIDEO
 from qa.video_selection import build_selection as _build_vs
 from qa.video_selection import validate_selection as _validate_vs
 
@@ -3765,8 +3769,8 @@ def _check_deadline(deadline_now=None):
     return PreSubmissionCheck(name, True, detail), report
 
 
-def validate_final_package_report(report, blockers=None, inventory_report=None, deadline_report=None, decision_report=None) -> list[str]:
-    """최종 묶음 보고가 내부적으로, 그리고 인벤토리·마감·폴백 결정 보고와 맞는지 검사한다."""
+def validate_final_package_report(report, blockers=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None) -> list[str]:
+    """최종 묶음 보고가 내부적으로, 그리고 인벤토리·마감·폴백 결정·영상 선택 보고와 맞는지 검사한다."""
     if blockers is None:
         blockers = BLOCKERS
     problems: list[str] = []
@@ -3784,6 +3788,9 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
         "remaining_seconds",
         "fallback_status",
         "fallback_adopted",
+        "selected_video",
+        "selection_reason",
+        "selected_size",
         "blockers",
         "status",
         "submission_ready",
@@ -3842,6 +3849,53 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
         problems.append(
             f"final package: export_total_bytes={export_bytes!r} != "
             f"submission inventory total_bytes={inventory_report['total_bytes']!r}")
+    # 영상 선택 필드는 None 변조가 qa.final_package의 조건부 검사를 빠져나가지
+    # 못하게 여기서 필수값으로 다시 검사하고, 영상 선택 보고와 교차 대조한다.
+    selected_video = report.get("selected_video")
+    if selected_video not in (VS_PRIMARY_VIDEO, VS_FALLBACK_VIDEO):
+        problems.append(
+            f"final package: selected_video={selected_video!r} is not a known video candidate")
+    selection_reason = report.get("selection_reason")
+    if not isinstance(selection_reason, str) or not selection_reason:
+        problems.append(
+            f"final package: selection_reason={selection_reason!r} is not a non-empty str")
+    selected_size = report.get("selected_size")
+    if isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0:
+        problems.append(
+            f"final package: selected_size={selected_size!r} is not a positive int")
+    _expected_by_status = {
+        "pending": ("pending_default", VS_PRIMARY_VIDEO),
+        "fallback_due": ("fallback_due", VS_FALLBACK_VIDEO),
+        "pi_ready": ("pi_ready", VS_PRIMARY_VIDEO),
+    }
+    _expected_pair = _expected_by_status.get(report.get("fallback_status"))
+    if _expected_pair is not None:
+        _exp_reason, _exp_video = _expected_pair
+        if selection_reason != _exp_reason:
+            problems.append(
+                f"final package: selection_reason={selection_reason!r} != "
+                f"{_exp_reason!r} for fallback_status={report.get('fallback_status')!r}")
+        if selected_video != _exp_video:
+            problems.append(
+                f"final package: selected_video={selected_video!r} != "
+                f"{_exp_video!r} for fallback_status={report.get('fallback_status')!r}")
+    if isinstance(video_selection_report, dict):
+        if "selected_video" in video_selection_report and selected_video != video_selection_report["selected_video"]:
+            problems.append(
+                f"final package: selected_video={selected_video!r} != "
+                f"video selection selected_video={video_selection_report['selected_video']!r}")
+        if "selection_reason" in video_selection_report and selection_reason != video_selection_report["selection_reason"]:
+            problems.append(
+                f"final package: selection_reason={selection_reason!r} != "
+                f"video selection selection_reason={video_selection_report['selection_reason']!r}")
+        if "selected_size" in video_selection_report and selected_size != video_selection_report["selected_size"]:
+            problems.append(
+                f"final package: selected_size={selected_size!r} != "
+                f"video selection selected_size={video_selection_report['selected_size']!r}")
+        if "fallback_status" in video_selection_report and report.get("fallback_status") != video_selection_report["fallback_status"]:
+            problems.append(
+                f"final package: fallback_status={report.get('fallback_status')!r} != "
+                f"video selection fallback_status={video_selection_report['fallback_status']!r}")
     if isinstance(inventory_report, dict):
         if "total_files" in inventory_report and report["inventory_total"] != inventory_report["total_files"]:
             problems.append(
@@ -3886,7 +3940,7 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
     return problems
 
 
-def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confirmed=False, pi_which=None, inventory_report=None, deadline_report=None, decision_report=None):
+def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confirmed=False, pi_which=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None):
     name = "final_package_consistent"
     try:
         report = _build_fp(
@@ -3904,6 +3958,7 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         inventory_report=inventory_report,
         deadline_report=deadline_report,
         decision_report=decision_report,
+        video_selection_report=video_selection_report,
     )
     if problems:
         return PreSubmissionCheck(name, False, "; ".join(problems)), report
@@ -3916,6 +3971,9 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         f"export_total={report['export_total']} "
         f"deadline_status={report['deadline_status']} "
         f"fallback_status={report['fallback_status']} "
+        f"selected_video={report.get('selected_video')} "
+        f"selection_reason={report.get('selection_reason')} "
+        f"selected_size={report.get('selected_size')} "
         f"blockers={report['blockers']}"
     )
     return PreSubmissionCheck(name, True, detail), report
@@ -4257,6 +4315,7 @@ def run_pre_submission_checks(
         inventory_report=inventory_report,
         deadline_report=deadline_report,
         decision_report=decision_report,
+        video_selection_report=vs_report,
     )
     checks.append(fp_check)
 

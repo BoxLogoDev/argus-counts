@@ -2023,6 +2023,12 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertIn("export_copied=18", check.detail)
         self.assertIn("export_total=18", check.detail)
         fp = result["readiness"]["final_package"]
+        vs = result["readiness"]["video_selection"]
+        self.assertEqual(fp["selected_video"], vs["selected_video"])
+        self.assertEqual(fp["selection_reason"], vs["selection_reason"])
+        self.assertEqual(fp["selected_size"], vs["selected_size"])
+        self.assertIn("selected_video=demo/assets/argus-demo-draft.mp4", check.detail)
+        self.assertIn("selection_reason=pending_default", check.detail)
         self.assertEqual(fp["status"], "blocked")
         self.assertEqual(fp["inventory_present"], 18)
         self.assertEqual(fp["inventory_total"], 18)
@@ -2150,6 +2156,64 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             report, inventory_report=inventory)
         self.assertTrue(
             any("export_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_accepts_video_selection_cross_check(self):
+        from qa.final_package import build_final_package
+        from qa.video_selection import build_selection
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        selection = build_selection(root=ROOT, today="2026-10-31")
+        self.assertEqual(report["selected_video"], selection["selected_video"])
+        self.assertEqual(report["selection_reason"], selection["selection_reason"])
+        self.assertEqual(report["selected_size"], selection["selected_size"])
+        self.assertEqual(
+            validate_final_package_report(
+                report, video_selection_report=selection), [])
+
+    def test_validate_final_package_report_detects_missing_selected_key(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        del report["selected_video"]
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("selected_video" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_nulled_selected(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["selected_video"] = None
+        report["selection_reason"] = None
+        report["selected_size"] = None
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("selected_video" in x for x in problems), problems)
+        self.assertTrue(any("selection_reason" in x for x in problems), problems)
+        self.assertTrue(any("selected_size" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_selected_vs_selection_mismatch(self):
+        from qa.final_package import build_final_package
+        from qa.video_selection import build_selection
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        selection = build_selection(root=ROOT, today="2026-10-31")
+        report["selected_size"] = selection["selected_size"] + 1
+        problems = validate_final_package_report(
+            report, video_selection_report=selection)
+        self.assertTrue(any("selected_size" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_selected_status_mismatch(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        # pending 상태인데 폴백 렌더를 고르면 상태별 기대 쌍과 어긋난다.
+        report["selected_video"] = "demo/assets/argus-demo-fallback-draft.mp4"
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("selected_video" in x for x in problems), problems)
 
     def test_validate_final_package_report_detects_export_missing_mismatch(self):
         from qa.final_package import build_final_package

@@ -687,6 +687,55 @@ class HelperRunTests(unittest.TestCase):
                              payload["readiness"]["package_export"]["total_bytes"])
             self.assertFalse(summary["readiness_final_package_submission_ready"])
 
+    def test_pre_submission_final_package_selected_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-selected"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_selected_video"],
+                             "demo/assets/argus-demo-draft.mp4")
+            self.assertEqual(summary["readiness_final_package_selection_reason"],
+                             "pending_default")
+            self.assertIsInstance(summary["readiness_final_package_selected_size"], int)
+            self.assertGreater(summary["readiness_final_package_selected_size"], 0)
+            self.assertEqual(summary["readiness_final_package_selected_video"],
+                             payload["readiness"]["final_package"]["selected_video"])
+            self.assertEqual(summary["readiness_final_package_selected_size"],
+                             payload["readiness"]["final_package"]["selected_size"])
+
+    def test_pre_submission_final_package_selected_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-selected-cross"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_selected_video"],
+                             summary["readiness_video_selection_selected_video"])
+            self.assertEqual(summary["readiness_final_package_selection_reason"],
+                             summary["readiness_video_selection_reason"])
+            self.assertEqual(summary["readiness_final_package_selected_size"],
+                             summary["readiness_video_selection_selected_size"])
+
+    def test_pre_submission_final_package_selected_not_ready_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-selected-notready"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_final_package_selected_video"],
+                             "demo/assets/argus-demo-draft.mp4")
+            self.assertFalse(summary["readiness_final_package_submission_ready"])
+            self.assertFalse(summary["submission_ready"])
+
     def test_pre_submission_package_export_bytes_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-pre-pkg-bytes"

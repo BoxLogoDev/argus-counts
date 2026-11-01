@@ -1288,6 +1288,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_export_total = fp_r.get("export_total")
         fp_export_missing = fp_r.get("export_missing")
         fp_export_total_bytes = fp_r.get("export_total_bytes")
+        fp_selected_video = fp_r.get("selected_video")
+        fp_selection_reason = fp_r.get("selection_reason")
+        fp_selected_size = fp_r.get("selected_size")
         _inv_raw = readiness.get("submission_inventory") or {}
         if fp_inv_present != _inv_raw.get("present_files"):
             problems.append(f"readiness final_package inventory_present가 submission_inventory present_files와 다르다: {fp_inv_present} != {_inv_raw.get('present_files')}")
@@ -1323,6 +1326,18 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness final_package export_total_bytes 기대 양의 int, 실제 {fp_export_total_bytes}")
         if fp_export_total_bytes != _inv_raw.get("total_bytes"):
             problems.append(f"readiness final_package export_total_bytes가 submission_inventory total_bytes와 다르다: {fp_export_total_bytes} != {_inv_raw.get('total_bytes')}")
+        if fp_selected_video not in ("demo/assets/argus-demo-draft.mp4", "demo/assets/argus-demo-fallback-draft.mp4"):
+            problems.append(f"readiness final_package selected_video 기대 두 후보 중 하나, 실제 {fp_selected_video}")
+        if fp_selected_video != vs_selected:
+            problems.append(f"readiness final_package selected_video가 video_selection selected_video와 다르다: {fp_selected_video} != {vs_selected}")
+        if fp_selection_reason != vs_reason:
+            problems.append(f"readiness final_package selection_reason가 video_selection selection_reason과 다르다: {fp_selection_reason} != {vs_reason}")
+        if not isinstance(fp_selected_size, int) or isinstance(fp_selected_size, bool) or fp_selected_size <= 0:
+            problems.append(f"readiness final_package selected_size 기대 양의 int, 실제 {fp_selected_size}")
+        if fp_selected_size != vs_selected_size:
+            problems.append(f"readiness final_package selected_size가 video_selection selected_size와 다르다: {fp_selected_size} != {vs_selected_size}")
+        if (fp_fallback_status, fp_selection_reason, fp_selected_video) not in (("pending", "pending_default", "demo/assets/argus-demo-draft.mp4"), ("fallback_due", "fallback_due", "demo/assets/argus-demo-fallback-draft.mp4"), ("pi_ready", "pi_ready", "demo/assets/argus-demo-draft.mp4")):
+            problems.append(f"readiness final_package fallback_status/selection_reason/selected_video 쌍이 어긋난다: {fp_fallback_status}/{fp_selection_reason}/{fp_selected_video}")
         pkg_r = readiness.get("package_export") or {}
         pkg_total = pkg_r.get("total_files")
         pkg_copied = pkg_r.get("copied_files")
@@ -1412,6 +1427,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         fp_submission_ready = None
         fp_export_copied, fp_export_total = None, None
         fp_export_missing, fp_export_total_bytes = None, None
+        fp_selected_video, fp_selection_reason, fp_selected_size = None, None, None
         pkg_total, pkg_copied, pkg_rb = None, None, []
         pkg_missing, pkg_total_bytes, pkg_submission_ready = None, None, None
         pkg_verify_verified, pkg_verify_copied, pkg_verify_bytes = None, None, None
@@ -1488,6 +1504,9 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_final_package_export_total": fp_export_total,
                "readiness_final_package_export_missing": fp_export_missing,
                "readiness_final_package_export_total_bytes": fp_export_total_bytes,
+               "readiness_final_package_selected_video": fp_selected_video,
+               "readiness_final_package_selection_reason": fp_selection_reason,
+               "readiness_final_package_selected_size": fp_selected_size,
                "readiness_package_export_total_files": pkg_total,
                "readiness_package_export_copied_files": pkg_copied,
                "readiness_package_export_blockers": pkg_rb,
