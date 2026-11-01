@@ -267,6 +267,82 @@ class FinalPackageTests(unittest.TestCase):
         self.assertIn("SELECTED_VIDEO: demo/assets/argus-demo-draft.mp4", out)
         self.assertIn("SELECTION_REASON: pending_default", out)
         self.assertIn("SELECTED_SIZE: ", out)
+    def test_evaluate_without_export_verify_fields_is_none(self):
+        r = _base()
+        self.assertIsNone(r["export_verify_verified"])
+        self.assertIsNone(r["export_verify_copied_files"])
+        self.assertIsNone(r["export_verify_total_bytes"])
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_export_verify_ok_keeps_blocked_and_validates(self):
+        r = _base(
+            export_copied=18,
+            export_total=18,
+            export_missing=[],
+            export_total_bytes=2136591,
+            export_verify_verified=True,
+            export_verify_copied_files=18,
+            export_verify_total_bytes=2136591,
+        )
+        self.assertEqual(r["status"], "blocked")
+        self.assertIs(r["export_verify_verified"], True)
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_validate_detects_export_verify_tamper(self):
+        r = _base(
+            export_copied=18,
+            export_total=18,
+            export_missing=[],
+            export_total_bytes=2136591,
+            export_verify_verified=True,
+            export_verify_copied_files=18,
+            export_verify_total_bytes=2136591,
+        )
+        bad = dict(r, export_verify_verified=False)
+        self.assertTrue(
+            any("export_verify_verified" in p for p in fp.validate_final_package(bad))
+        )
+        bad2 = dict(r, export_verify_copied_files=10)
+        self.assertTrue(
+            any(
+                "export_verify_copied_files" in p
+                for p in fp.validate_final_package(bad2)
+            )
+        )
+        bad3 = dict(r, export_verify_total_bytes=1)
+        self.assertTrue(
+            any(
+                "export_verify_total_bytes" in p
+                for p in fp.validate_final_package(bad3)
+            )
+        )
+        bad4 = dict(r, export_verify_verified=None)
+        self.assertTrue(
+            any("export_verify" in p for p in fp.validate_final_package(bad4))
+        )
+
+    def test_build_includes_export_verify_evidence(self):
+        r = fp.build_final_package(
+            now="2026-11-01T13:50:00+09:00", today="2026-11-01"
+        )
+        self.assertIs(r["export_verify_verified"], True)
+        self.assertEqual(r["export_verify_copied_files"], 18)
+        self.assertEqual(r["export_verify_copied_files"], r["export_copied"])
+        self.assertEqual(r["export_verify_total_bytes"], r["export_total_bytes"])
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_cli_text_includes_export_verify_lines(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = fp.main(
+                ["--now", "2026-11-01T13:50:00+09:00", "--date", "2026-11-01"]
+            )
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("EXPORT_VERIFY_VERIFIED: true", out)
+        self.assertIn("EXPORT_VERIFY_COPIED_FILES: 18", out)
+        self.assertIn("EXPORT_VERIFY_TOTAL_BYTES: ", out)
+
 
 if __name__ == "__main__":
     unittest.main()

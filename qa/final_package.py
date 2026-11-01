@@ -2,10 +2,13 @@
 
 11/03 제출 패키지 마감을 앞두고, 제출물 인벤토리(qa.submission_inventory),
 제출 마감(qa.deadline), Pi 폴백 결정(qa.fallback_decision) 세 보고와
-패키지 내보내기(qa.package_export) 실측, 데모 영상 선택(qa.video_selection)
+패키지 내보내기(qa.package_export) 실측과 그 staging의 매니페스트
+재검증(verify_export_dir), 데모 영상 선택(qa.video_selection)
 보고를 한곳에 모아 패키지 상태를
 판정한다. 내보내기 실측은 임시 staging 디렉터리에 실제로 복사하고
-복사본을 대조하는 방식으로만 구하며, 임시 staging은 보고 뒤 사라진다.
+복사본을 대조하는 방식으로만 구하며, 재검증은 같은 staging을
+매니페스트만 읽어 다시 대조하고 그 통과 여부와 복사 수·합계 바이트를
+보고에 함께 기록한다. 임시 staging은 보고 뒤 사라진다.
 상태는 overdue(마감 경과), incomplete(제출물 누락),
 blocked(제출 블로커 잔존), ready_for_packaging(묶음 준비 완료) 중 하나다.
 
@@ -50,6 +53,9 @@ _REQUIRED_KEYS = (
     "export_total",
     "export_missing",
     "export_total_bytes",
+    "export_verify_verified",
+    "export_verify_copied_files",
+    "export_verify_total_bytes",
     "deadline_status",
     "remaining_seconds",
     "fallback_status",
@@ -102,6 +108,9 @@ def evaluate_final_package(
     export_total=None,
     export_missing=None,
     export_total_bytes=None,
+    export_verify_verified=None,
+    export_verify_copied_files=None,
+    export_verify_total_bytes=None,
     selected_video=None,
     selection_reason=None,
     selected_size=None,
@@ -124,6 +133,18 @@ def evaluate_final_package(
         "export_missing": export_missing_list,
         "export_total_bytes": (
             int(export_total_bytes) if export_total_bytes is not None else None
+        ),
+        "export_verify_verified": (
+            bool(export_verify_verified)
+            if export_verify_verified is not None else None
+        ),
+        "export_verify_copied_files": (
+            int(export_verify_copied_files)
+            if export_verify_copied_files is not None else None
+        ),
+        "export_verify_total_bytes": (
+            int(export_verify_total_bytes)
+            if export_verify_total_bytes is not None else None
         ),
         "deadline_status": str(deadline_status),
         "remaining_seconds": int(remaining_seconds),
@@ -173,7 +194,7 @@ def build_final_package(
     """
     from qa.deadline import build_deadline
     from qa.fallback_decision import build_decision
-    from qa.package_export import build_export
+    from qa.package_export import build_export, verify_export_dir
     from qa.video_selection import build_selection as build_video_selection
     from qa.pre_submission import BLOCKERS
     from qa.submission_inventory import build_inventory
@@ -187,7 +208,10 @@ def build_final_package(
         which=which,
     )
     with tempfile.TemporaryDirectory() as tmp:
-        export = build_export(Path(tmp) / "staging", source_root=root)
+        staging = Path(tmp) / "staging"
+        export = build_export(staging, source_root=root)
+        verified_export, verify_problems = verify_export_dir(
+            staging, source_root=root)
     video = build_video_selection(
         root=root,
         today=today,
@@ -203,6 +227,14 @@ def build_final_package(
         export_total=export["total_files"],
         export_missing=export["missing"],
         export_total_bytes=export["total_bytes"],
+        export_verify_verified=(
+            isinstance(verified_export, dict) and not verify_problems),
+        export_verify_copied_files=(
+            verified_export.get("copied_files")
+            if isinstance(verified_export, dict) else None),
+        export_verify_total_bytes=(
+            verified_export.get("total_bytes")
+            if isinstance(verified_export, dict) else None),
         deadline_status=deadline["status"],
         remaining_seconds=deadline["remaining_seconds"],
         fallback_status=decision["status"],
@@ -259,6 +291,47 @@ def validate_final_package(report: dict) -> list[str]:
         if not isinstance(export_bytes, int) or export_bytes <= 0:
             problems.append(
                 f"export_total_bytes={export_bytes!r} is not a positive int"
+            )
+    verify_verified = report.get("export_verify_verified")
+    if verify_verified is None:
+        if report.get("export_verify_copied_files") is not None:
+            problems.append(
+                f"export_verify_copied_files={report.get('export_verify_copied_files')!r} "
+                "is not None while export_verify_verified is None"
+            )
+        if report.get("export_verify_total_bytes") is not None:
+            problems.append(
+                f"export_verify_total_bytes={report.get('export_verify_total_bytes')!r} "
+                "is not None while export_verify_verified is None"
+            )
+    else:
+        if verify_verified is not True:
+            problems.append(
+                f"export_verify_verified={verify_verified!r} is not True"
+            )
+        verify_copied = report.get("export_verify_copied_files")
+        if isinstance(verify_copied, bool) or not isinstance(verify_copied, int):
+            problems.append(
+                f"export_verify_copied_files={verify_copied!r} is not an int"
+            )
+        elif verify_copied != report.get("export_copied"):
+            problems.append(
+                f"export_verify_copied_files={verify_copied!r} != "
+                f"export_copied={report.get('export_copied')!r}"
+            )
+        verify_bytes = report.get("export_verify_total_bytes")
+        if (
+            isinstance(verify_bytes, bool)
+            or not isinstance(verify_bytes, int)
+            or verify_bytes <= 0
+        ):
+            problems.append(
+                f"export_verify_total_bytes={verify_bytes!r} is not a positive int"
+            )
+        elif verify_bytes != report.get("export_total_bytes"):
+            problems.append(
+                f"export_verify_total_bytes={verify_bytes!r} != "
+                f"export_total_bytes={report.get('export_total_bytes')!r}"
             )
     expected_status = _package_status(
         inventory_present=report["inventory_present"],
@@ -337,6 +410,9 @@ def format_text_report(report: dict) -> str:
         f"EXPORT_TOTAL: {report.get('export_total')}",
         f"EXPORT_MISSING: {report.get('export_missing')}",
         f"EXPORT_TOTAL_BYTES: {report.get('export_total_bytes')}",
+        f"EXPORT_VERIFY_VERIFIED: {str(report.get('export_verify_verified')).lower()}",
+        f"EXPORT_VERIFY_COPIED_FILES: {report.get('export_verify_copied_files')}",
+        f"EXPORT_VERIFY_TOTAL_BYTES: {report.get('export_verify_total_bytes')}",
         f"DEADLINE_STATUS: {report['deadline_status']}",
         f"REMAINING_SECONDS: {report['remaining_seconds']}",
         f"FALLBACK_STATUS: {report['fallback_status']}",
