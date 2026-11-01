@@ -2090,6 +2090,61 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(before["deadline_kst"], "2026-11-05T11:00:00+09:00")
             self.assertIs(before["submission_ready"], False)
 
+    def test_deadline_final_package_cross_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-deadline-fp-cross"
+            result = self._run_helper("--feature", "deadline",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_remaining_seconds"], 465000)
+            self.assertEqual(summary["fp_deadline_status"], "before_deadline")
+            self.assertEqual(summary["fp_status"], "blocked")
+            self.assertEqual(summary["fp_remaining_seconds"],
+                             summary["before_remaining_seconds"])
+            self.assertEqual(summary["fp_deadline_status"],
+                             summary["before_status"])
+
+    def test_deadline_final_package_evidence_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-deadline-fp-file"
+            result = self._run_helper("--feature", "deadline",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            fp = json.loads(
+                (evidence / "deadline-final-package.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(fp["status"], "blocked")
+            self.assertEqual(fp["deadline_status"], "before_deadline")
+            self.assertEqual(fp["remaining_seconds"], 465000)
+            self.assertEqual(fp["blockers"], ["pi_real_capture_pending"])
+            self.assertIs(fp["submission_ready"], False)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["fp_remaining_seconds"],
+                             fp["remaining_seconds"])
+
+    def test_deadline_final_package_cross_keeps_not_ready(self):
+        feature = (SKILL_DIR / "features" / "deadline.md").read_text(
+            encoding="utf-8")
+        for marker in ("deadline-final-package-cross",
+                       "fp_remaining_seconds", "fp_deadline_status",
+                       "fp_cross_ok", "deadline-final-package.json"):
+            self.assertIn(marker, feature)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-deadline-fp-not-ready"
+            result = self._run_helper("--feature", "deadline",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["fp_cross_ok"])
+            self.assertEqual(summary["fp_status"], "blocked")
+            self.assertFalse(summary.get("submission_ready", False))
+
     def test_final_package_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("final-package", skill)

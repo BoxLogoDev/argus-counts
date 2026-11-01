@@ -4557,6 +4557,54 @@ def drive_deadline(ctx: Ctx, evidence: Path) -> dict:
     if not tamper_detected:
         problems.append("변조 탐지 실패: status/remaining_seconds/submission_ready 중 하나를 바꿔도 문제를 찾지 못했다")
 
+    # 최종 묶음 교차 대조: 같은 기준 시각의 qa.final_package 보고와 대조한다.
+    fp: dict = {}
+    fp_cross_ok = False
+    result_fp = run_cli(["-m", "qa.final_package", "--now", DEADLINE_BEFORE_NOW,
+                         "--date", "2026-10-31", "--json"])
+    ctx.note(f"python3 -m qa.final_package --now {DEADLINE_BEFORE_NOW} "
+             f"--date 2026-10-31 --json -> 종료코드 {result_fp.returncode}")
+    cross_before = len(problems)
+    if result_fp.returncode != 0:
+        problems.append(
+            f"final_package 교차 종료코드 기대 0, 실제 {result_fp.returncode}: "
+            f"{result_fp.stderr[:200]}")
+    try:
+        fp = json.loads(result_fp.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"final_package 교차 --json 파싱 실패: {e}")
+    if fp:
+        if fp.get("status") != "blocked":
+            problems.append(
+                f"final_package status 기대 'blocked', 실제 {fp.get('status')}")
+        if fp.get("deadline_status") != before.get("status"):
+            problems.append(
+                f"final_package deadline_status가 deadline status와 다르다: "
+                f"{fp.get('deadline_status')} != {before.get('status')}")
+        fp_remaining = fp.get("remaining_seconds")
+        if not isinstance(fp_remaining, int) or isinstance(fp_remaining, bool) \
+                or fp_remaining <= 0:
+            problems.append(
+                f"final_package remaining_seconds 기대 양의 int, 실제 {fp_remaining}")
+        elif fp_remaining != DEADLINE_BEFORE_REMAINING:
+            problems.append(
+                f"final_package remaining_seconds 기대 {DEADLINE_BEFORE_REMAINING}, "
+                f"실제 {fp_remaining}")
+        elif fp_remaining != before.get("remaining_seconds"):
+            problems.append(
+                f"final_package remaining_seconds가 deadline remaining_seconds와 "
+                f"다르다: {fp_remaining} != {before.get('remaining_seconds')}")
+        if fp.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(f"final_package blockers 이상: {fp.get('blockers')}")
+        if fp.get("submission_ready") is not False:
+            problems.append(
+                f"final_package submission_ready 기대 False, "
+                f"실제 {fp.get('submission_ready')}")
+    fp_cross_ok = bool(fp) and len(problems) == cross_before
+    ctx.note(f"마감↔최종 묶음 교차 대조 -> fp_cross_ok={fp_cross_ok}, "
+             f"fp_remaining_seconds={fp.get('remaining_seconds')}, "
+             f"fp_deadline_status={fp.get('deadline_status')}")
+
     summary = {"feature": "deadline",
                "before_status": before.get("status"),
                "before_remaining_seconds": before.get("remaining_seconds"),
@@ -4568,10 +4616,15 @@ def drive_deadline(ctx: Ctx, evidence: Path) -> dict:
                "status_tamper_detected": status_tamper_detected,
                "remaining_tamper_detected": remaining_tamper_detected,
                "submission_ready_tamper_detected": submission_ready_tamper_detected,
+               "fp_remaining_seconds": fp.get("remaining_seconds"),
+               "fp_deadline_status": fp.get("deadline_status"),
+               "fp_status": fp.get("status"),
+               "fp_cross_ok": fp_cross_ok,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"deadline-before.json": result_j.stdout,
-                    "deadline-overdue.json": result_over.stdout})
+                    "deadline-overdue.json": result_over.stdout,
+                    "deadline-final-package.json": result_fp.stdout})
     return summary
 
 

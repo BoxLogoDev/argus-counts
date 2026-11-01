@@ -9,6 +9,7 @@
 - `deadline-cli-overdue` CLI 마감 도달 판정: `python3 -m qa.deadline --now 2026-11-05T11:00:00+09:00 --json`이 종료코드 1을 내고 status overdue·remaining_seconds 0·is_overdue true임을 확인한다.
 - `deadline-evaluate` 프로세스 내 판정식: `evaluate_deadline`과 `build_deadline`이 마감 전·임박·마감 도달 3상태를 내고, 세 보고 모두 `validate_deadline`에서 문제 0건임을 확인한다. 구동 함수는 `drive_deadline`다.
 - `deadline-tamper` 변조 탐지: status를 바꾸면 status 문제를, remaining_seconds를 바꾸면 remaining_seconds 문제를, submission_ready를 true로 바꾸면 submission_ready 문제를 `validate_deadline`이 각각 지목함을 확인한다.
+- `deadline-final-package-cross` 최종 묶음 교차 대조: 헬퍼가 마감 전 기준 시각과 같은 `--now 2026-10-31T01:50:00+09:00 --date 2026-10-31`로 `qa.final_package` CLI를 `--json`으로 따로 실행해 status blocked·deadline_status가 마감 보고의 status(before_deadline)와 같고·remaining_seconds 465000(양의 정수)이 마감 보고의 remaining_seconds와 같으며·blockers [`pi_real_capture_pending`]·submission_ready false임을 확인한다. 증거 summary에 `fp_remaining_seconds`·`fp_deadline_status`·`fp_status`·`fp_cross_ok`를 남기고 최종 묶음 CLI 원문은 `deadline-final-package.json` 증거로 남는다. 교차 대조는 보고 대조일 뿐 실제 제출이나 제출 준비 완료를 뜻하지 않는다.
 - `deadline-invalid-now` 잘못된 시각 차단: `python3 -m qa.deadline --now not-a-date`가 종료코드 2로 거부됨을 확인한다.
 
 ## How to get to it (user POV)
@@ -30,7 +31,8 @@ Preconditions:
 - **CLI 3상태 확인.** 헬퍼가 `qa.deadline` CLI를 `--now 2026-10-31T01:50:00+09:00` 텍스트·JSON, `--now 2026-11-04T12:00:00+09:00 --json`, `--now 2026-11-05T11:00:00+09:00 --json`으로 실행해 종료코드와 before_deadline·due_soon·overdue 판정, 남은 초, 블로커, honesty 표기를 확인한다.
 - **프로세스 내 판정 확인.** 헬퍼가 `evaluate_deadline` 3상태와 `build_deadline` 마감 전 판정, `validate_deadline` 문제 0건을 확인한다.
 - **변조·잘못된 시각 확인.** 헬퍼가 status·remaining_seconds·submission_ready 변조 탐지와 잘못된 시각 종료코드 2를 확인한다.
-- **증거 확인.** 종료 후 증거 디렉터리에 `deadline-before.json`(CLI 마감 전 `--json` stdout 원문)과 `deadline-overdue.json`(CLI 마감 도달 `--json` stdout 원문)이 남고, `summary.json`의 `feature`가 `deadline`이며 `before_status` before_deadline·`before_remaining_seconds` 465000·`due_soon_status` due_soon·`overdue_status` overdue·`tamper_detected` true·`invalid_exit_code` 2인지 대조한다.
+- **최종 묶음 교차 확인.** 헬퍼가 같은 기준 시각으로 `qa.final_package --now 2026-10-31T01:50:00+09:00 --date 2026-10-31 --json`을 따로 실행해 blocked·deadline_status·remaining_seconds·블로커·`submission_ready` false가 마감 보고와 일치하는지 대조하고, 증거 파일 `deadline-final-package.json`과 summary 키 `fp_remaining_seconds`·`fp_deadline_status`·`fp_status`·`fp_cross_ok`를 남긴다.
+- **증거 확인.** 종료 후 증거 디렉터리에 `deadline-before.json`(CLI 마감 전 `--json` stdout 원문)과 `deadline-overdue.json`(CLI 마감 도달 `--json` stdout 원문)이 남고, `summary.json`의 `feature`가 `deadline`이며 `before_status` before_deadline·`before_remaining_seconds` 465000·`due_soon_status` due_soon·`overdue_status` overdue·`tamper_detected` true·`invalid_exit_code` 2·`fp_cross_ok` true·`fp_remaining_seconds` 465000·`fp_deadline_status` before_deadline·`fp_status` blocked인지 대조하고, `deadline-final-package.json`(최종 묶음 `--json` stdout 원문)도 남는지 확인한다.
 
 ## Gotchas
 
