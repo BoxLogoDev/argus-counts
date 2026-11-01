@@ -1268,6 +1268,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         dl_status = dl_r.get("status")
         dl_rb = dl_r.get("blockers")
         dl_kst = dl_r.get("deadline_kst")
+        dl_remaining = dl_r.get("remaining_seconds")
         if dl_status not in ("before_deadline", "due_soon", "overdue"):
             problems.append(f"readiness deadline status 기대 상태값 중 하나, 실제 {dl_status}")
         if dl_rb != list(EXPECTED_BLOCKER_IDS):
@@ -1276,12 +1277,15 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness deadline deadline_kst 기대 2026-11-05T11:00:00+09:00, 실제 {dl_kst}")
         if dl_r.get("submission_ready") is not False:
             problems.append(f"readiness deadline submission_ready 기대 False, 실제 {dl_r.get('submission_ready')}")
+        if not isinstance(dl_remaining, int) or isinstance(dl_remaining, bool) or dl_remaining <= 0:
+            problems.append(f"readiness deadline remaining_seconds 기대 양의 int, 실제 {dl_remaining}")
         fp_r = readiness.get("final_package") or {}
         fp_status = fp_r.get("status")
         fp_rb = fp_r.get("blockers")
         fp_inv_present = fp_r.get("inventory_present")
         fp_inv_total = fp_r.get("inventory_total")
         fp_deadline_status = fp_r.get("deadline_status")
+        fp_remaining = fp_r.get("remaining_seconds")
         fp_fallback_status = fp_r.get("fallback_status")
         fp_submission_ready = fp_r.get("submission_ready")
         fp_export_copied = fp_r.get("export_copied")
@@ -1307,6 +1311,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness final_package inventory_total 기대 18, 실제 {fp_r.get('inventory_total')}")
         if fp_r.get("deadline_status") != dl_status:
             problems.append(f"readiness final_package deadline_status가 deadline status와 다르다: {fp_r.get('deadline_status')} != {dl_status}")
+        if not isinstance(fp_remaining, int) or isinstance(fp_remaining, bool) or fp_remaining <= 0:
+            problems.append(f"readiness final_package remaining_seconds 기대 양의 int, 실제 {fp_remaining}")
+        elif fp_remaining != dl_remaining:
+            problems.append(f"readiness final_package remaining_seconds가 deadline remaining_seconds와 다르다: {fp_remaining} != {dl_remaining}")
         if fp_r.get("fallback_status") != fd_status:
             problems.append(f"readiness final_package fallback_status가 fallback_decision status와 다르다: {fp_r.get('fallback_status')} != {fd_status}")
         if fp_rb != list(EXPECTED_BLOCKER_IDS):
@@ -1444,9 +1452,11 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         vs_status, vs_selected, vs_reason = None, None, None
         vs_selected_size, vs_submission_ready = None, None
         dl_status, dl_rb, dl_kst = None, [], None
+        dl_remaining = None
         fp_status, fp_rb = None, []
         fp_inv_present, fp_inv_total = None, None
         fp_deadline_status, fp_fallback_status = None, None
+        fp_remaining = None
         fp_submission_ready = None
         fp_export_copied, fp_export_total = None, None
         fp_export_missing, fp_export_total_bytes = None, None
@@ -1523,6 +1533,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_final_package_inventory_present": fp_inv_present,
                "readiness_final_package_inventory_total": fp_inv_total,
                "readiness_final_package_deadline_status": fp_deadline_status,
+               "readiness_final_package_remaining_seconds": fp_remaining,
                "readiness_final_package_fallback_status": fp_fallback_status,
                "readiness_final_package_submission_ready": fp_submission_ready,
                "readiness_final_package_export_copied": fp_export_copied,
@@ -1552,6 +1563,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_deadline_status": dl_status,
                "readiness_deadline_blockers": dl_rb,
                "readiness_deadline_kst": dl_kst,
+               "readiness_deadline_remaining_seconds": dl_remaining,
                "demo_assembly_fallback_cut": demo_fallback_cut,
                "video_fallback_render_cut": video_fallback_cut,
                "submission_ready": report.get("submission_ready"),

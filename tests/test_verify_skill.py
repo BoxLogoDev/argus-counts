@@ -622,6 +622,54 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["readiness_final_package_fallback_status"],
                              summary["readiness_fallback_decision_status"])
 
+    def test_pre_submission_final_package_remaining_seconds_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-remaining"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            remaining = summary["readiness_final_package_remaining_seconds"]
+            self.assertIsInstance(remaining, int)
+            self.assertNotIsInstance(remaining, bool)
+            self.assertGreater(remaining, 0)
+            self.assertEqual(
+                remaining,
+                payload["readiness"]["final_package"]["remaining_seconds"])
+
+    def test_pre_submission_final_package_remaining_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-remaining-cross"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(
+                summary["readiness_final_package_remaining_seconds"],
+                summary["readiness_deadline_remaining_seconds"])
+            self.assertEqual(
+                summary["readiness_deadline_remaining_seconds"],
+                payload["readiness"]["deadline"]["remaining_seconds"])
+
+    def test_pre_submission_final_package_remaining_not_ready_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-fp-remaining-notready"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertGreater(
+                summary["readiness_final_package_remaining_seconds"], 0)
+            self.assertFalse(summary["readiness_final_package_submission_ready"])
+            self.assertFalse(summary["submission_ready"])
+
     def test_pre_submission_final_package_not_ready_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-pre-fp-not-ready"
