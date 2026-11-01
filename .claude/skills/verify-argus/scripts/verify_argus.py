@@ -81,6 +81,13 @@ validate_selection으로만 구동한다(실제로 제출하지 않으며 선택
 --verify-dir(텍스트·--json)와 프로세스 내 verify_export_dir로 다시
 대조한다(읽기 전용·복사본 변조 탐지·매니페스트 없음 종료코드 2·
 인자 충돌 종료코드 2 포함, 실제로 제출하지 않는다).
+제출 패키지 영속 아카이브(package-archive)는 qa.package_archive CLI와
+프로세스 내 build_archive·build_archive_verify·validate_archive으로만
+구동한다(제출물 18개를 영속 디렉터리로 복사·재검증하고 최종 묶음 수치와
+교차 대조한 아카이브 보고만 확인하며 실제로 제출하지 않는다.
+아카이브가 archived여도 제출 준비 완료를 뜻하지 않고, Pi 실촬영 검증
+전이며 수치는 데모 기준이다). 재검증은 매니페스트만 읽어 읽기 전용으로
+다시 대조하고, 복사본 변조와 매니페스트 없음을 탐지한다.
 응답 원문과 종료 판정을 증거 디렉터리에 남긴다.
 서버는 이 스크립트가 띄운 것만 종료한다.
 
@@ -96,7 +103,7 @@ pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
 fallback-decision, deadline, final-package, package-export,
 sam-per-bin, sam-live-evidence, sam-session-evidence,
-video-selection, all(전부, 기능별 하위 디렉터리).
+video-selection, package-archive, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -136,7 +143,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "pi-session-full", "submission-inventory",
             "fallback-decision", "deadline", "final-package",
             "package-export", "sam-per-bin", "sam-live-evidence",
-            "sam-session-evidence", "video-selection")
+            "sam-session-evidence", "video-selection", "package-archive")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -6329,6 +6336,280 @@ def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
                     "video-selection-final-package-due.json": result_fp_due.stdout})
     return summary
 
+
+def drive_package_archive(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    from qa.package_archive import (build_archive, build_archive_verify,
+                                    validate_archive)
+    from qa.video_selection import FALLBACK_VIDEO
+
+    result = result_j = None
+    archived: dict = {}
+    total_bytes = None
+    validate_problems: list = []
+    manifest_ok = False
+    selected_sha_ok = False
+    tamper_detected = False
+    ready_tamper_detected = False
+    result_verify = result_verify_j = None
+    verify_exit_code = None
+    verify_text_ok = False
+    verify_readonly = False
+    verify_tamper_detected = False
+    verify_tamper_exit_code = None
+    verify_missing_exit_code = None
+    verify_inproc_ok = False
+    with tempfile.TemporaryDirectory() as tmp:
+        arch = Path(tmp) / "arc-cli"
+        result = run_cli(["-m", "qa.package_archive", "--out-dir", str(arch)])
+        ctx.note(f"python3 -m qa.package_archive --out-dir <tmp> -> 종료코드 {result.returncode}")
+        if result.returncode != 0:
+            problems.append(
+                f"package_archive 종료코드 기대 0, 실제 {result.returncode}: "
+                f"{result.stderr[:200]}")
+        for needle in ("Argus 제출 패키지 아카이브", "STATUS: archived",
+                       "COPIED: 18", "TOTAL: 18", "ARCHIVE_VERIFIED: true",
+                       f"SELECTED_VIDEO: {FALLBACK_VIDEO}",
+                       "SUBMISSION_READY: false",
+                       "실제로 제출하지 않는다", "Pi 실촬영 검증 전"):
+            if needle not in result.stdout:
+                problems.append(f"package_archive 텍스트에 {needle!r} 없음")
+
+        arch_j = Path(tmp) / "arc-json"
+        result_j = run_cli(["-m", "qa.package_archive", "--out-dir",
+                            str(arch_j), "--json"])
+        ctx.note(f"python3 -m qa.package_archive --out-dir <tmp> --json "
+                 f"-> 종료코드 {result_j.returncode}")
+        if result_j.returncode != 0:
+            problems.append(
+                f"package_archive --json 종료코드 기대 0, 실제 {result_j.returncode}: "
+                f"{result_j.stderr[:200]}")
+        try:
+            archived = json.loads(result_j.stdout)
+        except json.JSONDecodeError as e:
+            problems.append(f"package_archive --json 파싱 실패: {e}")
+        if archived:
+            if archived.get("status") != "archived":
+                problems.append(f"status 기대 archived, 실제 {archived.get('status')}")
+            if archived.get("mode") != "export":
+                problems.append(f"mode 기대 export, 실제 {archived.get('mode')}")
+            if archived.get("copied") != INVENTORY_TOTAL_FILES:
+                problems.append(f"copied 기대 {INVENTORY_TOTAL_FILES}, 실제 {archived.get('copied')}")
+            if archived.get("total") != INVENTORY_TOTAL_FILES:
+                problems.append(f"total 기대 {INVENTORY_TOTAL_FILES}, 실제 {archived.get('total')}")
+            if archived.get("missing") != []:
+                problems.append(f"missing 기대 [], 실제 {archived.get('missing')}")
+            if archived.get("verify_verified") is not True:
+                problems.append(f"verify_verified 기대 True, 실제 {archived.get('verify_verified')}")
+            if archived.get("archive_verified") is not True:
+                problems.append(f"archive_verified 기대 True, 실제 {archived.get('archive_verified')}")
+            if archived.get("blockers") != list(EXPECTED_BLOCKER_IDS):
+                problems.append(f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {archived.get('blockers')}")
+            if archived.get("submission_ready") is not False:
+                problems.append(f"submission_ready 기대 False, 실제 {archived.get('submission_ready')}")
+            if archived.get("selected_video") != FALLBACK_VIDEO:
+                problems.append(f"selected_video 기대 {FALLBACK_VIDEO}, 실제 {archived.get('selected_video')}")
+            if archived.get("selected_copied") is not True:
+                problems.append(f"selected_copied 기대 True, 실제 {archived.get('selected_copied')}")
+            sel_size = archived.get("selected_size")
+            if not isinstance(sel_size, int) or sel_size <= 0:
+                problems.append(f"selected_size 이상: {sel_size}")
+            if archived.get("selected_size_in_archive") != sel_size:
+                problems.append(
+                    f"selected_size_in_archive가 selected_size와 다르다: "
+                    f"{archived.get('selected_size_in_archive')} != {sel_size}")
+            sha = archived.get("selected_sha256")
+            if not (isinstance(sha, str) and len(sha) == 64):
+                problems.append(f"selected_sha256 이상: {sha}")
+            total_bytes = archived.get("total_bytes")
+            if not isinstance(total_bytes, int) or total_bytes <= 0:
+                problems.append(f"total_bytes 이상: {total_bytes}")
+            joined = " ".join(str(x) for x in archived.get("honesty", []))
+            for marker in ("실제로 제출하지 않는다", "제출 준비 완료를 뜻하지 않는다",
+                           "Pi 실촬영 검증 전", "데모 기준"):
+                if marker not in joined:
+                    problems.append(f"honesty에 {marker!r} 없음")
+
+        result_bad = run_cli(["-m", "qa.package_archive"])
+        ctx.note(f"python3 -m qa.package_archive (인자 없음) -> 종료코드 {result_bad.returncode}")
+        if result_bad.returncode != 2:
+            problems.append(f"인자 없음 종료코드 기대 2, 실제 {result_bad.returncode}")
+        invalid_exit_code = result_bad.returncode
+
+        result_conflict = run_cli(["-m", "qa.package_archive", "--out-dir",
+                                   str(Path(tmp) / "arc-x"), "--verify-dir",
+                                   str(arch)])
+        ctx.note(f"python3 -m qa.package_archive --out-dir+--verify-dir -> 종료코드 {result_conflict.returncode}")
+        if result_conflict.returncode != 2:
+            problems.append(f"인자 충돌 종료코드 기대 2, 실제 {result_conflict.returncode}")
+        conflict_exit_code = result_conflict.returncode
+
+        arch_in = Path(tmp) / "arc-inproc"
+        built = build_archive(arch_in, ROOT)
+        validate_problems = validate_archive(built)
+        ctx.note(f"validate_archive(build_archive) -> 문제 {len(validate_problems)}건")
+        if validate_problems:
+            problems.append(f"validate_archive 문제: {validate_problems}")
+        if built.get("status") != "archived" or built.get("archive_verified") is not True:
+            problems.append(f"build_archive archived 아님: {built.get('status')}")
+        manifest_ok = (arch_in / "package-manifest.json").is_file()
+        if not manifest_ok:
+            problems.append("package-manifest.json이 아카이브에 없다")
+        copied_video = arch_in / str(built.get("selected_video"))
+        if not copied_video.is_file():
+            problems.append(f"선택 영상 복사본 없음: {built.get('selected_video')}")
+        else:
+            digest = hashlib.sha256(copied_video.read_bytes()).hexdigest()
+            selected_sha_ok = digest == built.get("selected_sha256")
+            if not selected_sha_ok:
+                problems.append("선택 영상 복사본 sha256이 기록과 다르다")
+            if copied_video.stat().st_size != built.get("selected_size_in_archive"):
+                problems.append("선택 영상 복사본 크기가 기록과 다르다")
+        ctx.note(f"선택 영상 복사본 SHA-256 일치 -> {selected_sha_ok}")
+
+        tampered_status = copy.deepcopy(built)
+        tampered_status["status"] = "mismatch"
+        tamper_detected = any(
+            "status" in p for p in validate_archive(tampered_status))
+        ctx.note(f"status 변조 탐지 -> {tamper_detected}")
+        if not tamper_detected:
+            problems.append("변조 탐지 실패: status를 mismatch로 바꿔도 문제를 찾지 못했다")
+        tampered_ready = copy.deepcopy(built)
+        tampered_ready["submission_ready"] = True
+        ready_tamper_detected = any(
+            "submission_ready" in p for p in validate_archive(tampered_ready))
+        ctx.note(f"submission_ready 변조 탐지 -> {ready_tamper_detected}")
+        if not ready_tamper_detected:
+            problems.append("변조 탐지 실패: submission_ready를 True로 바꿔도 문제를 찾지 못했다")
+
+        def _snapshot(base: Path) -> dict:
+            snap = {}
+            for fp in sorted(base.rglob("*")):
+                if fp.is_file():
+                    data = fp.read_bytes()
+                    snap[str(fp.relative_to(base))] = (len(data), hashlib.sha256(data).hexdigest())
+            return snap
+
+        arch_verify = Path(tmp) / "arc-verify"
+        build_archive(arch_verify, ROOT)
+        snap_before = _snapshot(arch_verify)
+        result_verify_j = run_cli(["-m", "qa.package_archive", "--verify-dir",
+                                   str(arch_verify), "--json"])
+        verify_exit_code = result_verify_j.returncode
+        ctx.note(f"python3 -m qa.package_archive --verify-dir <tmp> --json "
+                 f"-> 종료코드 {result_verify_j.returncode}")
+        if result_verify_j.returncode != 0:
+            problems.append(
+                f"package_archive --verify-dir --json 종료코드 기대 0, 실제 {result_verify_j.returncode}: "
+                f"{result_verify_j.stderr[:200]}")
+        try:
+            verify_payload = json.loads(result_verify_j.stdout)
+        except json.JSONDecodeError as e:
+            verify_payload = {}
+            problems.append(f"package_archive --verify-dir --json 파싱 실패: {e}")
+        if verify_payload:
+            if verify_payload.get("mode") != "verify":
+                problems.append(f"verify mode 기대 verify, 실제 {verify_payload.get('mode')}")
+            if verify_payload.get("status") != "archived":
+                problems.append(f"verify status 기대 archived, 실제 {verify_payload.get('status')}")
+            if verify_payload.get("archive_verified") is not True:
+                problems.append(f"verify archive_verified 기대 True, 실제 {verify_payload.get('archive_verified')}")
+            if verify_payload.get("submission_ready") is not False:
+                problems.append(f"verify submission_ready 기대 False, 실제 {verify_payload.get('submission_ready')}")
+
+        result_verify = run_cli(["-m", "qa.package_archive", "--verify-dir",
+                                 str(arch_verify)])
+        ctx.note(f"python3 -m qa.package_archive --verify-dir <tmp> -> 종료코드 {result_verify.returncode}")
+        if result_verify.returncode != 0:
+            problems.append(f"package_archive --verify-dir 종료코드 기대 0, 실제 {result_verify.returncode}")
+        verify_text_ok = True
+        for needle in ("Argus 제출 패키지 아카이브", "STATUS: archived",
+                       "ARCHIVE_VERIFIED: true", "SUBMISSION_READY: false",
+                       "실제로 제출하지 않는다", "Pi 실촬영 검증 전"):
+            if needle not in result_verify.stdout:
+                verify_text_ok = False
+                problems.append(f"package_archive --verify-dir 텍스트에 {needle!r} 없음")
+
+        snap_after = _snapshot(arch_verify)
+        verify_readonly = snap_before == snap_after and bool(snap_before)
+        ctx.note(f"verify-dir 읽기 전용(스냅샷 불변) -> {verify_readonly}")
+        if not verify_readonly:
+            problems.append("verify-dir가 아카이브 파일을 변경했다(읽기 전용 위반)")
+
+        verified_inproc = build_archive_verify(arch_verify, ROOT)
+        verify_inproc_ok = (verified_inproc.get("status") == "archived"
+                            and verified_inproc.get("archive_verified") is True
+                            and validate_archive(verified_inproc) == [])
+        ctx.note(f"build_archive_verify(깨끗한 아카이브) -> status {verified_inproc.get('status')}")
+        if not verify_inproc_ok:
+            problems.append(f"build_archive_verify 문제: {verified_inproc.get('problems')}")
+
+        arch_vt = Path(tmp) / "arc-verify-tamper"
+        build_archive(arch_vt, ROOT)
+        (arch_vt / "README.md").write_bytes(b"tampered")
+        result_vt = run_cli(["-m", "qa.package_archive", "--verify-dir",
+                             str(arch_vt), "--json"])
+        verify_tamper_exit_code = result_vt.returncode
+        ctx.note(f"python3 -m qa.package_archive --verify-dir <변조 tmp> --json -> 종료코드 {result_vt.returncode}")
+        try:
+            vt_payload = json.loads(result_vt.stdout)
+        except json.JSONDecodeError:
+            vt_payload = {}
+        verify_tamper_detected = (result_vt.returncode == 1
+                                  and vt_payload.get("archive_verified") is False
+                                  and vt_payload.get("status") != "archived")
+        if not verify_tamper_detected:
+            problems.append("verify-dir 변조 탐지 실패: 복사본 README.md를 바꿔도 archive_verified=false로 잡지 못했다")
+
+        empty_dir = Path(tmp) / "arc-verify-empty"
+        empty_dir.mkdir()
+        result_vm = run_cli(["-m", "qa.package_archive", "--verify-dir",
+                             str(empty_dir), "--json"])
+        verify_missing_exit_code = result_vm.returncode
+        ctx.note(f"python3 -m qa.package_archive --verify-dir <빈 tmp> --json -> 종료코드 {result_vm.returncode}")
+        try:
+            vm_payload = json.loads(result_vm.stdout)
+        except json.JSONDecodeError:
+            vm_payload = {}
+        if result_vm.returncode != 1 or vm_payload.get("archive_verified") is not False \
+                or vm_payload.get("status") == "archived":
+            problems.append(
+                f"verify-dir 매니페스트 없음 기대 종료코드 1·archive_verified false·status archived 아님, "
+                f"실제 {result_vm.returncode}·{vm_payload.get('archive_verified')}·{vm_payload.get('status')}")
+
+    summary = {"feature": "package-archive",
+               "status": archived.get("status"),
+               "copied": archived.get("copied"),
+               "total": archived.get("total"),
+               "total_bytes": total_bytes,
+               "verify_verified": archived.get("verify_verified"),
+               "archive_verified": archived.get("archive_verified"),
+               "selected_video": archived.get("selected_video"),
+               "selected_size": archived.get("selected_size"),
+               "blockers": archived.get("blockers"),
+               "submission_ready": archived.get("submission_ready"),
+               "validate_problems": validate_problems,
+               "manifest_ok": manifest_ok,
+               "selected_sha_ok": selected_sha_ok,
+               "tamper_detected": tamper_detected,
+               "ready_tamper_detected": ready_tamper_detected,
+               "invalid_exit_code": invalid_exit_code,
+               "conflict_exit_code": conflict_exit_code,
+               "verify_exit_code": verify_exit_code,
+               "verify_text_ok": verify_text_ok,
+               "verify_readonly": verify_readonly,
+               "verify_tamper_detected": verify_tamper_detected,
+               "verify_tamper_exit_code": verify_tamper_exit_code,
+               "verify_missing_exit_code": verify_missing_exit_code,
+               "verify_inproc_ok": verify_inproc_ok,
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"package-archive.json": result_j.stdout if result_j else "",
+                    "package-archive.txt": result.stdout if result else "",
+                    "package-archive-verify.json": result_verify_j.stdout if result_verify_j else "",
+                    "package-archive-verify.txt": result_verify.stdout if result_verify else ""})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -6357,7 +6638,8 @@ DRIVERS = {"console-home": drive_console_home,
            "sam-per-bin": drive_sam_per_bin,
            "sam-live-evidence": drive_sam_live_evidence,
            "sam-session-evidence": drive_sam_session_evidence,
-           "video-selection": drive_video_selection}
+           "video-selection": drive_video_selection,
+           "package-archive": drive_package_archive}
 
 
 def main(argv: list[str] | None = None) -> int:
