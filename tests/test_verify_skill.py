@@ -2192,6 +2192,65 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["export_verify_bytes_tamper_detected"])
             self.assertTrue(summary["export_verify_none_tamper_detected"])
 
+    def test_final_package_deadline_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-deadline-cross"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["deadline_remaining_seconds"], 454200)
+            self.assertEqual(summary["deadline_status_from_deadline"],
+                             "before_deadline")
+            self.assertEqual(summary["deadline_remaining_seconds"],
+                             summary["remaining_seconds"])
+            self.assertEqual(summary["deadline_status_from_deadline"],
+                             summary["deadline_status"])
+
+    def test_final_package_deadline_evidence_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-deadline-file"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            deadline = json.loads(
+                (evidence / "final-package-deadline.json").read_text(
+                    encoding="utf-8"))
+            self.assertEqual(deadline["status"], "before_deadline")
+            self.assertEqual(deadline["remaining_seconds"], 454200)
+            self.assertEqual(deadline["deadline_kst"],
+                             "2026-11-05T11:00:00+09:00")
+            self.assertEqual(deadline["blockers"],
+                             ["pi_real_capture_pending"])
+            self.assertIs(deadline["submission_ready"], False)
+            self.assertEqual(summary["deadline_remaining_seconds"],
+                             deadline["remaining_seconds"])
+
+    def test_final_package_deadline_not_ready_evidence(self):
+        feature = (SKILL_DIR / "features" / "final-package.md").read_text(
+            encoding="utf-8")
+        for marker in ("final-package-deadline-cross-evidence",
+                       "deadline_remaining_seconds",
+                       "deadline_status_from_deadline",
+                       "final-package-deadline.json"):
+            self.assertIn(marker, feature)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-deadline-not-ready"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["deadline_remaining_seconds"], 454200)
+            self.assertEqual(summary["blocked_status"], "blocked")
+            blocked = json.loads(
+                (evidence / "final-package-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertIs(blocked["submission_ready"], False)
+
     def test_final_package_video_selection_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-final-package-video"

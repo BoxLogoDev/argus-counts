@@ -4595,6 +4595,9 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
     due: dict = {}
     built_selected_video = built_selected_size = None
     built_due_selected_video = built_due_selected_size = None
+    deadline_remaining = None
+    deadline_status_from = None
+    result_dl = None
     video_tamper_detected = False
     selected_video_tamper_detected = False
     selection_reason_tamper_detected = False
@@ -4708,6 +4711,46 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                        "Pi 실촬영 검증 전"):
             if marker not in joined:
                 problems.append(f"honesty에 {marker!r} 없음")
+
+    result_dl = run_cli(["-m", "qa.deadline", "--now", FINAL_PACKAGE_NOW,
+                         "--json"])
+    ctx.note(f"python3 -m qa.deadline --now {FINAL_PACKAGE_NOW} --json "
+             f"-> 종료코드 {result_dl.returncode} (최종 묶음과 같은 기준 시각)")
+    if result_dl.returncode != 0:
+        problems.append(
+            f"deadline --json 종료코드 기대 0, 실제 {result_dl.returncode}: "
+            f"{result_dl.stderr[:200]}")
+    dl_report: dict = {}
+    try:
+        dl_report = json.loads(result_dl.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"deadline --json 파싱 실패: {e}")
+    if dl_report:
+        deadline_remaining = dl_report.get("remaining_seconds")
+        deadline_status_from = dl_report.get("status")
+        if deadline_status_from != "before_deadline":
+            problems.append(
+                f"deadline status 기대 'before_deadline', 실제 {deadline_status_from}")
+        if not isinstance(deadline_remaining, int) or isinstance(deadline_remaining, bool) or deadline_remaining <= 0:
+            problems.append(f"deadline remaining_seconds 기대 양의 int, 실제 {deadline_remaining}")
+        elif deadline_remaining != FINAL_PACKAGE_REMAINING:
+            problems.append(
+                f"deadline remaining_seconds 기대 {FINAL_PACKAGE_REMAINING}, "
+                f"실제 {deadline_remaining}")
+        if dl_report.get("deadline_kst") != "2026-11-05T11:00:00+09:00":
+            problems.append(f"deadline deadline_kst 이상: {dl_report.get('deadline_kst')}")
+        if dl_report.get("blockers") != ["pi_real_capture_pending"]:
+            problems.append(f"deadline blockers 이상: {dl_report.get('blockers')}")
+        if dl_report.get("submission_ready") is not False:
+            problems.append(
+                f"deadline submission_ready 기대 False, 실제 {dl_report.get('submission_ready')}")
+        if blocked:
+            if blocked.get("remaining_seconds") != deadline_remaining:
+                problems.append(
+                    f"final_package remaining_seconds가 deadline remaining_seconds와 다르다: {blocked.get('remaining_seconds')} != {deadline_remaining}")
+            if blocked.get("deadline_status") != deadline_status_from:
+                problems.append(
+                    f"final_package deadline_status가 deadline status와 다르다: {blocked.get('deadline_status')} != {deadline_status_from}")
 
     result_due = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
                           "--date", FINAL_PACKAGE_DUE_DATE, "--json"])
@@ -4937,6 +4980,8 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                "inventory_total": blocked.get("inventory_total"),
                "deadline_status": blocked.get("deadline_status"),
                "remaining_seconds": blocked.get("remaining_seconds"),
+               "deadline_remaining_seconds": deadline_remaining,
+               "deadline_status_from_deadline": deadline_status_from,
                "fallback_status": blocked.get("fallback_status"),
                "fallback_adopted": blocked.get("fallback_adopted"),
                "package_date_target": FINAL_PACKAGE_TARGET,
@@ -4985,7 +5030,8 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"final-package-blocked.json": result_j.stdout,
-                    "final-package-overdue.json": result_over.stdout})
+                    "final-package-overdue.json": result_over.stdout,
+                    "final-package-deadline.json": result_dl.stdout if result_dl is not None else ""})
     return summary
 
 def drive_package_export(ctx: Ctx, evidence: Path) -> dict:
