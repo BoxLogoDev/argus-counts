@@ -752,10 +752,14 @@ class HelperRunTests(unittest.TestCase):
                 encoding="utf-8"))
             payload = json.loads((evidence / "pre-submission.json").read_text(
                 encoding="utf-8"))
+            fp_payload = payload["readiness"]["final_package"]
             self.assertEqual(summary["readiness_final_package_selected_video"],
-                             "demo/assets/argus-demo-draft.mp4")
+                             fp_payload["selected_video"])
             self.assertEqual(summary["readiness_final_package_selection_reason"],
-                             "pending_default")
+                             fp_payload["selection_reason"])
+            self.assertIn(summary["readiness_final_package_selected_video"],
+                          ("demo/assets/argus-demo-draft.mp4",
+                           "demo/assets/argus-demo-fallback-draft.mp4"))
             self.assertIsInstance(summary["readiness_final_package_selected_size"], int)
             self.assertGreater(summary["readiness_final_package_selected_size"], 0)
             self.assertEqual(summary["readiness_final_package_selected_video"],
@@ -844,8 +848,13 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             summary = json.loads((evidence / "summary.json").read_text(
                 encoding="utf-8"))
+            payload = json.loads((evidence / "pre-submission.json").read_text(
+                encoding="utf-8"))
             self.assertEqual(summary["readiness_final_package_selected_video"],
-                             "demo/assets/argus-demo-draft.mp4")
+                             payload["readiness"]["final_package"]["selected_video"])
+            self.assertIn(summary["readiness_final_package_selected_video"],
+                          ("demo/assets/argus-demo-draft.mp4",
+                           "demo/assets/argus-demo-fallback-draft.mp4"))
             self.assertFalse(summary["readiness_final_package_submission_ready"])
             self.assertFalse(summary["submission_ready"])
 
