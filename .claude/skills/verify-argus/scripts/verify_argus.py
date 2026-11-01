@@ -866,7 +866,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 29/29 mechanical passed", "BLOCKERS: 1",
+    for needle in ("PRE_SUBMISSION: 30/30 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -881,10 +881,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 29:
-            problems.append(f"passed 기대 29, 실제 {report.get('passed')}")
-        if report.get("total") != 29:
-            problems.append(f"total 기대 29, 실제 {report.get('total')}")
+        if report.get("passed") != 30:
+            problems.append(f"passed 기대 30, 실제 {report.get('passed')}")
+        if report.get("total") != 30:
+            problems.append(f"total 기대 30, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -897,8 +897,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 29:
-            problems.append(f"checks 기대 29, 실제 {len(checks)}")
+        if len(checks) != 30:
+            problems.append(f"checks 기대 30, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
@@ -942,6 +942,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append("checks에 final_package_consistent 없음")
         if "package_export_consistent" not in check_names:
             problems.append("checks에 package_export_consistent 없음")
+        if "package_archive_consistent" not in check_names:
+            problems.append("checks에 package_archive_consistent 없음")
         video_check = next((c for c in checks if c.get("name") == "video_draft_present"), {})
         video_fallback_cut = 3 if "fallback_render_cut=3" in str(video_check.get("detail") or "") else None
         if video_fallback_cut != 3:
@@ -1440,6 +1442,43 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"readiness final_package export_verify_total_bytes가 package_export verify_total_bytes와 다르다: {fp_export_verify_bytes} != {pkg_verify_bytes}")
         if fp_export_verify_bytes != pkg_total_bytes:
             problems.append(f"readiness final_package export_verify_total_bytes가 package_export total_bytes와 다르다: {fp_export_verify_bytes} != {pkg_total_bytes}")
+        arch_r = readiness.get("package_archive") or {}
+        arch_status = arch_r.get("status")
+        arch_copied = arch_r.get("copied")
+        arch_total = arch_r.get("total")
+        arch_missing = arch_r.get("missing")
+        arch_total_bytes = arch_r.get("total_bytes")
+        arch_verify_verified = arch_r.get("verify_verified")
+        arch_archive_verified = arch_r.get("archive_verified")
+        arch_selected_video = arch_r.get("selected_video")
+        arch_selected_size = arch_r.get("selected_size")
+        arch_selected_sha256 = arch_r.get("selected_sha256")
+        arch_rb = arch_r.get("blockers")
+        arch_submission_ready = arch_r.get("submission_ready")
+        if arch_status != "archived":
+            problems.append(f"readiness package_archive status 기대 archived, 실제 {arch_status}")
+        if arch_copied != 18:
+            problems.append(f"readiness package_archive copied 기대 18, 실제 {arch_copied}")
+        if arch_total != 18:
+            problems.append(f"readiness package_archive total 기대 18, 실제 {arch_total}")
+        if arch_missing != []:
+            problems.append(f"readiness package_archive missing 기대 [], 실제 {arch_missing}")
+        if arch_total_bytes != pkg_total_bytes:
+            problems.append(f"readiness package_archive total_bytes가 package_export total_bytes와 다르다: {arch_total_bytes} != {pkg_total_bytes}")
+        if arch_verify_verified is not True:
+            problems.append(f"readiness package_archive verify_verified 기대 True, 실제 {arch_verify_verified}")
+        if arch_archive_verified is not True:
+            problems.append(f"readiness package_archive archive_verified 기대 True, 실제 {arch_archive_verified}")
+        if arch_selected_video != fp_selected_video:
+            problems.append(f"readiness package_archive selected_video가 final_package selected_video와 다르다: {arch_selected_video} != {fp_selected_video}")
+        if arch_selected_size != fp_selected_size:
+            problems.append(f"readiness package_archive selected_size가 final_package selected_size와 다르다: {arch_selected_size} != {fp_selected_size}")
+        if not (isinstance(arch_selected_sha256, str) and len(arch_selected_sha256) == 64 and all(c in "0123456789abcdef" for c in arch_selected_sha256)):
+            problems.append(f"readiness package_archive selected_sha256 기대 64자 hex, 실제 {arch_selected_sha256}")
+        if arch_rb != list(EXPECTED_BLOCKER_IDS):
+            problems.append(f"readiness package_archive blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {arch_rb}")
+        if arch_submission_ready is not False:
+            problems.append(f"readiness package_archive submission_ready 기대 False, 실제 {arch_submission_ready}")
         inv_r = readiness.get("submission_inventory") or {}
         inv_total = inv_r.get("total_files")
         inv_present = inv_r.get("present_files")
@@ -1496,6 +1535,12 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         pkg_total, pkg_copied, pkg_rb = None, None, []
         pkg_missing, pkg_total_bytes, pkg_submission_ready = None, None, None
         pkg_verify_verified, pkg_verify_copied, pkg_verify_bytes = None, None, None
+        arch_status, arch_copied, arch_total = None, None, None
+        arch_missing, arch_total_bytes = None, None
+        arch_verify_verified, arch_archive_verified = None, None
+        arch_selected_video, arch_selected_size = None, None
+        arch_selected_sha256 = None
+        arch_rb, arch_submission_ready = [], None
         demo_fallback_cut = None
         video_fallback_cut = None
     summary = {"feature": "pre-submission",
@@ -1588,6 +1633,18 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_package_export_verify_verified": pkg_verify_verified,
                "readiness_package_export_verify_copied_files": pkg_verify_copied,
                "readiness_package_export_verify_total_bytes": pkg_verify_bytes,
+               "readiness_package_archive_status": arch_status,
+               "readiness_package_archive_copied": arch_copied,
+               "readiness_package_archive_total": arch_total,
+               "readiness_package_archive_missing": arch_missing,
+               "readiness_package_archive_total_bytes": arch_total_bytes,
+               "readiness_package_archive_verify_verified": arch_verify_verified,
+               "readiness_package_archive_archive_verified": arch_archive_verified,
+               "readiness_package_archive_selected_video": arch_selected_video,
+               "readiness_package_archive_selected_size": arch_selected_size,
+               "readiness_package_archive_selected_sha256": arch_selected_sha256,
+               "readiness_package_archive_blockers": arch_rb,
+               "readiness_package_archive_submission_ready": arch_submission_ready,
                "readiness_video_selection_status": vs_status,
                "readiness_video_selection_selected_video": vs_selected,
                "readiness_video_selection_reason": vs_reason,

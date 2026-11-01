@@ -51,8 +51,14 @@ copied_files·total_bytes와 교차 대조하는 것을 포함한다),
 어긋나지 않는지의 정합(같은 staging을 매니페스트만으로 다시 대조하는
 재검증(verify_export_dir) 결과가 내보내기 보고와 어긋나지 않는지를
 필수로 검사하는 것을 포함한다),
+제출 패키지 영속 아카이브(qa.package_archive) 보고가 최종 묶음 보고와
+어긋나지 않는지의 정합(임시 디렉터리에 실제로 아카이브를 만들어
+매니페스트 재검증 결과와 선택 영상의 크기·SHA-256을 대조하고,
+아카이브의 copied·total·total_bytes·selected_video·selected_size·
+final_status를 최종 묶음의 inventory·export·selected 필드와
+교차 대조하는 것을 포함한다),
 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 29종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 30종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -69,6 +75,10 @@ copied_files·total_bytes와 교차 대조하는 것을 포함한다),
 패키지 내보내기 정합은 제출물을 임시 staging 디렉터리로 실제로 복사해
 복사본 해시를 대조만 하며 실제로 제출하지 않는다. 내보내기가 온전해도
 제출 가능을 뜻하지 않는다.
+패키지 아카이브 정합은 제출물을 임시 디렉터리로 실제로 복사해
+영속 아카이브와 같은 경로로 만들고 매니페스트 재검증·선택 영상
+해시를 최종 묶음 보고와 대조만 하며 실제로 제출하지 않는다.
+아카이브가 archived여도 제출 가능을 뜻하지 않는다.
 최종 묶음 상태가 blocked인 것은 실패가 아니고, ready_for_packaging이어도 제출 완료를 뜻하지 않는다.
 결정일 전 pending은 실패가 아니고, fallback_due(폴백 채택)도 Pi 실촬영
 성공을 뜻하지 않는다.
@@ -148,6 +158,8 @@ from qa.final_package import validate_final_package as _validate_fp
 from qa.package_export import build_export as _build_pkg_export
 from qa.package_export import validate_export as _validate_pkg_export
 from qa.package_export import verify_export_dir as _verify_pkg_export_dir
+from qa.package_archive import build_archive as _build_pkg_archive
+from qa.package_archive import validate_archive as _validate_pkg_archive
 from qa.video_selection import FALLBACK_VIDEO as VS_FALLBACK_VIDEO
 from qa.video_selection import PRIMARY_VIDEO as VS_PRIMARY_VIDEO
 from qa.video_selection import build_selection as _build_vs
@@ -4264,6 +4276,201 @@ def _check_package_export(root, inventory_report=None):
     return PreSubmissionCheck(name, True, detail), report
 
 
+def _is_sha256_hex(value) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(c in "0123456789abcdef" for c in value)
+    )
+
+
+def _trim_package_archive(archive) -> dict:
+    if not isinstance(archive, dict):
+        archive = {}
+    return {
+        "status": archive.get("status"),
+        "copied": archive.get("copied", 0),
+        "total": archive.get("total", 0),
+        "missing": list(archive.get("missing") or []),
+        "total_bytes": archive.get("total_bytes", 0),
+        "verify_verified": bool(archive.get("verify_verified")),
+        "verify_copied": archive.get("verify_copied"),
+        "verify_total_bytes": archive.get("verify_total_bytes"),
+        "archive_verified": bool(archive.get("archive_verified")),
+        "selected_video": archive.get("selected_video"),
+        "selected_size": archive.get("selected_size"),
+        "selected_sha256": archive.get("selected_sha256"),
+        "final_status": archive.get("final_status"),
+        "blockers": list(archive.get("blockers") or []),
+        "submission_ready": False,
+    }
+
+
+def validate_package_archive(archive, blockers=None, final_package_report=None) -> list[str]:
+    """패키지 아카이브 전체 보고가 내부적으로, 그리고 최종 묶음과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(archive, dict):
+        return [f"package archive: archive is not a dict: {archive!r}"]
+    required = ("status", "copied", "total", "missing", "total_bytes", "verify_verified", "verify_copied", "verify_total_bytes", "archive_verified", "selected_video", "selected_size", "selected_copied", "selected_size_in_archive", "selected_sha256", "final_status", "blockers", "submission_ready", "honesty", "problems")
+    missing_keys = [k for k in required if k not in archive]
+    if missing_keys:
+        problems.append(f"package archive: missing required keys: {missing_keys}")
+        return problems
+    if list(archive.get("problems") or []):
+        problems.append(f"package archive: problems={list(archive['problems'])!r} is not empty")
+    if archive["status"] != "archived":
+        problems.append(f"package archive: status={archive['status']!r} != 'archived'")
+    if archive["archive_verified"] is not True:
+        problems.append(f"package archive: archive_verified={archive['archive_verified']!r} is not True")
+    if archive["verify_verified"] is not True:
+        problems.append(f"package archive: verify_verified={archive['verify_verified']!r} is not True")
+    if archive["copied"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"package archive: copied={archive['copied']!r} != {INVENTORY_TOTAL_FILES}")
+    if archive["total"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"package archive: total={archive['total']!r} != {INVENTORY_TOTAL_FILES}")
+    if list(archive["missing"]) != []:
+        problems.append(f"package archive: missing={list(archive['missing'])!r} != []")
+    total_bytes = archive["total_bytes"]
+    if isinstance(total_bytes, bool) or not isinstance(total_bytes, int) or total_bytes <= 0:
+        problems.append(f"package archive: total_bytes={total_bytes!r} is not a positive int")
+    if archive["verify_copied"] != archive["copied"]:
+        problems.append(f"package archive: verify_copied={archive['verify_copied']!r} != copied={archive['copied']!r}")
+    if archive["verify_total_bytes"] != archive["total_bytes"]:
+        problems.append(f"package archive: verify_total_bytes={archive['verify_total_bytes']!r} != total_bytes={archive['total_bytes']!r}")
+    if archive["selected_copied"] is not True:
+        problems.append(f"package archive: selected_copied={archive['selected_copied']!r} is not True")
+    selected_size = archive["selected_size"]
+    if isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0:
+        problems.append(f"package archive: selected_size={selected_size!r} is not a positive int")
+    if archive["selected_size_in_archive"] != archive["selected_size"]:
+        problems.append(f"package archive: selected_size_in_archive={archive['selected_size_in_archive']!r} != selected_size={archive['selected_size']!r}")
+    if not _is_sha256_hex(archive["selected_sha256"]):
+        problems.append(f"package archive: selected_sha256={archive['selected_sha256']!r} is not a 64-char hex")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(archive["blockers"]) != expected_ids:
+        problems.append(f"package archive: blockers {list(archive['blockers'])} != {expected_ids}")
+    if archive["submission_ready"] is not False:
+        problems.append(f"package archive: submission_ready={archive['submission_ready']!r} is not False")
+    _check_honesty(archive, problems, "package archive", "실제로 제출하지 않는다")
+    _check_honesty(archive, problems, "package archive", "제출 준비 완료를 뜻하지 않는다")
+    _check_honesty(archive, problems, "package archive", "Pi 실촬영 검증 전")
+    if isinstance(final_package_report, dict):
+        fp = final_package_report
+        if "inventory_present" in fp and archive["copied"] != fp["inventory_present"]:
+            problems.append(f"package archive: copied={archive['copied']!r} != final package inventory_present={fp['inventory_present']!r}")
+        if "export_copied" in fp and archive["copied"] != fp["export_copied"]:
+            problems.append(f"package archive: copied={archive['copied']!r} != final package export_copied={fp['export_copied']!r}")
+        if "inventory_total" in fp and archive["total"] != fp["inventory_total"]:
+            problems.append(f"package archive: total={archive['total']!r} != final package inventory_total={fp['inventory_total']!r}")
+        if "export_total" in fp and archive["total"] != fp["export_total"]:
+            problems.append(f"package archive: total={archive['total']!r} != final package export_total={fp['export_total']!r}")
+        if "export_total_bytes" in fp and archive["total_bytes"] != fp["export_total_bytes"]:
+            problems.append(f"package archive: total_bytes={archive['total_bytes']!r} != final package export_total_bytes={fp['export_total_bytes']!r}")
+        if "selected_video" in fp and archive["selected_video"] != fp["selected_video"]:
+            problems.append(f"package archive: selected_video={archive['selected_video']!r} != final package selected_video={fp['selected_video']!r}")
+        if "selected_size" in fp and archive["selected_size"] != fp["selected_size"]:
+            problems.append(f"package archive: selected_size={archive['selected_size']!r} != final package selected_size={fp['selected_size']!r}")
+        if "status" in fp and archive["final_status"] != fp["status"]:
+            problems.append(f"package archive: final_status={archive['final_status']!r} != final package status={fp['status']!r}")
+    return problems
+
+
+def build_package_archive_report(root, blockers=None) -> dict:
+    """임시 디렉터리 아카이브에서 trimmed 보고 dict를 만든다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    try:
+        with tempfile.TemporaryDirectory(prefix="argus-pre-archive-") as tmp:
+            archive = _build_pkg_archive(Path(tmp) / "archive", root=Path(root))
+    except Exception:
+        return {"status": "incomplete", "copied": 0, "total": 0, "missing": [], "total_bytes": 0, "verify_verified": False, "verify_copied": None, "verify_total_bytes": None, "archive_verified": False, "selected_video": None, "selected_size": None, "selected_sha256": None, "final_status": None, "blockers": [], "submission_ready": False}
+    return _trim_package_archive(archive)
+
+
+def validate_package_archive_report(report, blockers=None, final_package_report=None) -> list[str]:
+    """패키지 아카이브 trimmed 보고가 내부적으로, 그리고 최종 묶음과 맞는지 검사한다."""
+    if blockers is None:
+        blockers = BLOCKERS
+    problems: list[str] = []
+    if not isinstance(report, dict):
+        return [f"package archive report is not a dict: {report!r}"]
+    required = ("status", "copied", "total", "missing", "total_bytes", "verify_verified", "verify_copied", "verify_total_bytes", "archive_verified", "selected_video", "selected_size", "selected_sha256", "final_status", "blockers", "submission_ready")
+    missing_keys = [k for k in required if k not in report]
+    if missing_keys:
+        problems.append(f"package archive: missing required keys: {missing_keys}")
+        return problems
+    if report["status"] != "archived":
+        problems.append(f"package archive: status={report['status']!r} != 'archived'")
+    if report["archive_verified"] is not True:
+        problems.append(f"package archive: archive_verified={report['archive_verified']!r} is not True")
+    if report["verify_verified"] is not True:
+        problems.append(f"package archive: verify_verified={report['verify_verified']!r} is not True")
+    if report["copied"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"package archive: copied={report['copied']!r} != {INVENTORY_TOTAL_FILES}")
+    if report["total"] != INVENTORY_TOTAL_FILES:
+        problems.append(f"package archive: total={report['total']!r} != {INVENTORY_TOTAL_FILES}")
+    if list(report["missing"]) != []:
+        problems.append(f"package archive: missing={list(report['missing'])!r} != []")
+    total_bytes = report["total_bytes"]
+    if isinstance(total_bytes, bool) or not isinstance(total_bytes, int) or total_bytes <= 0:
+        problems.append(f"package archive: total_bytes={total_bytes!r} is not a positive int")
+    if report["verify_copied"] != report["copied"]:
+        problems.append(f"package archive: verify_copied={report['verify_copied']!r} != copied={report['copied']!r}")
+    if report["verify_total_bytes"] != report["total_bytes"]:
+        problems.append(f"package archive: verify_total_bytes={report['verify_total_bytes']!r} != total_bytes={report['total_bytes']!r}")
+    if report["selected_video"] not in (VS_PRIMARY_VIDEO, VS_FALLBACK_VIDEO):
+        problems.append(f"package archive: selected_video={report['selected_video']!r} is not a known video candidate")
+    selected_size = report["selected_size"]
+    if isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0:
+        problems.append(f"package archive: selected_size={selected_size!r} is not a positive int")
+    if not _is_sha256_hex(report["selected_sha256"]):
+        problems.append(f"package archive: selected_sha256={report['selected_sha256']!r} is not a 64-char hex")
+    expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
+    if list(report["blockers"]) != expected_ids:
+        problems.append(f"package archive: blockers {list(report['blockers'])} != {expected_ids}")
+    if report["submission_ready"] is not False:
+        problems.append(f"package archive: submission_ready={report['submission_ready']!r} is not False")
+    if isinstance(final_package_report, dict):
+        fp = final_package_report
+        if "selected_video" in fp and report["selected_video"] != fp["selected_video"]:
+            problems.append(f"package archive: selected_video={report['selected_video']!r} != final package selected_video={fp['selected_video']!r}")
+        if "selected_size" in fp and report["selected_size"] != fp["selected_size"]:
+            problems.append(f"package archive: selected_size={report['selected_size']!r} != final package selected_size={fp['selected_size']!r}")
+        if "status" in fp and report["final_status"] != fp["status"]:
+            problems.append(f"package archive: final_status={report['final_status']!r} != final package status={fp['status']!r}")
+        if "export_total_bytes" in fp and report["total_bytes"] != fp["export_total_bytes"]:
+            problems.append(f"package archive: total_bytes={report['total_bytes']!r} != final package export_total_bytes={fp['export_total_bytes']!r}")
+    return problems
+
+
+def _check_package_archive(root, final_package_report=None):
+    name = "package_archive_consistent"
+    try:
+        with tempfile.TemporaryDirectory(prefix="argus-pre-archive-") as tmp:
+            archive = _build_pkg_archive(Path(tmp) / "archive", root=Path(root))
+    except Exception as exc:
+        report = build_package_archive_report(root)
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), report
+    problems = [f"package archive: {p}" for p in _validate_pkg_archive(archive)]
+    problems.extend(validate_package_archive(archive, final_package_report=final_package_report))
+    report = _trim_package_archive(archive)
+    problems.extend(validate_package_archive_report(report, final_package_report=final_package_report))
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"status={report['status']} "
+        f"copied={report['copied']} "
+        f"total={report['total']} "
+        f"total_bytes={report['total_bytes']} "
+        f"verify_verified={report['verify_verified']} "
+        f"archive_verified={report['archive_verified']} "
+        f"selected_video={report['selected_video']}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
+
+
 def run_pre_submission_checks(
     root: Path | None = None,
     sam_env=None,
@@ -4436,6 +4643,10 @@ def run_pre_submission_checks(
     checks.append(fp_check)
     checks.append(pkg_check)
 
+    archive_check, archive_report = _check_package_archive(
+        root, final_package_report=fp_report)
+    checks.append(archive_check)
+
     missing = [rel for rel in DEMO_ASSET_FILES if not (root / rel).is_file()]
     checks.append(
         PreSubmissionCheck(
@@ -4480,6 +4691,7 @@ def run_pre_submission_checks(
             "deadline": deadline_report,
             "final_package": fp_report,
             "package_export": pkg_report,
+            "package_archive": archive_report,
         },
         # 블로커가 남아 있는 한 기계적 통과와 무관하게 항상 False다.
         "submission_ready": False,

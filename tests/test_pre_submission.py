@@ -53,6 +53,9 @@ from qa.pre_submission import (
     validate_package_export,
     validate_package_export_report,
     build_package_export_report,
+    validate_package_archive,
+    validate_package_archive_report,
+    build_package_archive_report,
     validate_sam_per_bin,
     validate_sam_live_evidence_report,
     build_synthetic_sam_evidence,
@@ -637,7 +640,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -751,7 +754,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 29)
+            self.assertEqual(result["total"], 30)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1652,7 +1655,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1696,7 +1699,7 @@ class SamLiveEvidenceIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T03:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("sam_live_evidence_consistent", names)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["sam_live_evidence_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1763,7 +1766,7 @@ class SamSessionEvidenceIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T09:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("sam_session_evidence_consistent", names)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["sam_session_evidence_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1938,7 +1941,7 @@ class VideoSelectionIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("video_selection_consistent", names)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["video_selection_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2011,7 +2014,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2063,7 +2066,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("final_package_consistent", names)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["final_package_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2369,7 +2372,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
 class PackageExportIntegrationTests(unittest.TestCase):
     def test_real_root_includes_package_export_check_and_section(self):
         result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
-        self.assertEqual(result["total"], 29)
+        self.assertEqual(result["total"], 30)
         names = [c.name for c in result["checks"]]
         self.assertIn("package_export_consistent", names)
         by_name = {c.name: c for c in result["checks"]}
@@ -2456,3 +2459,73 @@ class PackageExportIntegrationTests(unittest.TestCase):
         report["verify_total_bytes"] = report["total_bytes"] + 1
         problems = validate_package_export_report(report)
         self.assertTrue(any("verify_total_bytes" in x for x in problems), problems)
+
+
+class PackageArchiveIntegrationTests(unittest.TestCase):
+    def test_real_root_includes_package_archive_check_and_section(self):
+        result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
+        self.assertEqual(result["total"], 30)
+        names = [c.name for c in result["checks"]]
+        self.assertIn("package_archive_consistent", names)
+        by_name = {c.name: c for c in result["checks"]}
+        check = by_name["package_archive_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("status=archived", check.detail)
+        self.assertIn("copied=18", check.detail)
+        arch = result["readiness"]["package_archive"]
+        self.assertEqual(arch["status"], "archived")
+        self.assertEqual(arch["copied"], 18)
+        self.assertEqual(arch["total"], 18)
+        self.assertEqual(arch["missing"], [])
+        self.assertEqual(arch["total_bytes"], result["readiness"]["submission_inventory"]["total_bytes"])
+        self.assertEqual(arch["selected_video"], result["readiness"]["final_package"]["selected_video"])
+        self.assertEqual(arch["selected_size"], result["readiness"]["final_package"]["selected_size"])
+        self.assertEqual(len(arch["selected_sha256"]), 64)
+        self.assertEqual(arch["blockers"], ["pi_real_capture_pending"])
+        self.assertIs(arch["submission_ready"], False)
+        self.assertFalse(result["submission_ready"])
+
+    def test_validate_package_archive_accepts_built_archive(self):
+        from qa.package_archive import build_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = build_archive(Path(tmp) / "archive")
+            self.assertEqual(archive["status"], "archived")
+            self.assertEqual(validate_package_archive(archive), [])
+            report = build_package_archive_report(ROOT)
+            self.assertEqual(validate_package_archive_report(report), [])
+            self.assertEqual(report["copied"], 18)
+
+    def test_validate_package_archive_detects_status_tamper(self):
+        from qa.package_archive import build_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = build_archive(Path(tmp) / "archive")
+            archive["status"] = "mismatch"
+            problems = validate_package_archive(archive)
+            self.assertTrue(any("status" in x for x in problems), problems)
+
+    def test_validate_package_archive_detects_final_package_cross_mismatch(self):
+        from qa.package_archive import build_archive
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = build_archive(Path(tmp) / "archive")
+            fake_fp = {"inventory_present": 18, "export_copied": 18,
+                       "inventory_total": 18, "export_total": 18,
+                       "export_total_bytes": archive["total_bytes"],
+                       "selected_video": "demo/assets/argus-demo-draft.mp4",
+                       "selected_size": 1, "status": "blocked"}
+            if archive["selected_video"] == fake_fp["selected_video"]:
+                fake_fp["selected_video"] = "demo/assets/argus-demo-fallback-draft.mp4"
+            problems = validate_package_archive(archive, final_package_report=fake_fp)
+            self.assertTrue(any("selected_" in x for x in problems), problems)
+
+    def test_validate_package_archive_report_detects_sha_and_verify_tamper(self):
+        report = build_package_archive_report(ROOT)
+        report["selected_sha256"] = "not-a-sha"
+        problems = validate_package_archive_report(report)
+        self.assertTrue(any("selected_sha256" in x for x in problems), problems)
+        report = build_package_archive_report(ROOT)
+        report["verify_copied"] = 17
+        problems = validate_package_archive_report(report)
+        self.assertTrue(any("verify_copied" in x for x in problems), problems)
