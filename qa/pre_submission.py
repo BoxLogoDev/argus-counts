@@ -4307,7 +4307,12 @@ def _trim_package_archive(archive) -> dict:
 
 
 def validate_package_archive(archive, blockers=None, final_package_report=None) -> list[str]:
-    """패키지 아카이브 전체 보고가 내부적으로, 그리고 최종 묶음과 맞는지 검사한다."""
+    """패키지 아카이브 전체 보고가 내부적으로, 그리고 최종 묶음과 맞는지 검사한다.
+
+    최소 루트처럼 제출물이 일부 없는 경우에도 보고가 일관되면 통과한다
+    (패키지 내보내기 검사와 같은 원칙). 완결(archived·18/18) 여부는
+    실루트 구동과 검증 스킬이 따로 확인한다.
+    """
     if blockers is None:
         blockers = BLOCKERS
     problems: list[str] = []
@@ -4318,36 +4323,33 @@ def validate_package_archive(archive, blockers=None, final_package_report=None) 
     if missing_keys:
         problems.append(f"package archive: missing required keys: {missing_keys}")
         return problems
-    if list(archive.get("problems") or []):
-        problems.append(f"package archive: problems={list(archive['problems'])!r} is not empty")
-    if archive["status"] != "archived":
-        problems.append(f"package archive: status={archive['status']!r} != 'archived'")
-    if archive["archive_verified"] is not True:
-        problems.append(f"package archive: archive_verified={archive['archive_verified']!r} is not True")
-    if archive["verify_verified"] is not True:
-        problems.append(f"package archive: verify_verified={archive['verify_verified']!r} is not True")
-    if archive["copied"] != INVENTORY_TOTAL_FILES:
-        problems.append(f"package archive: copied={archive['copied']!r} != {INVENTORY_TOTAL_FILES}")
     if archive["total"] != INVENTORY_TOTAL_FILES:
         problems.append(f"package archive: total={archive['total']!r} != {INVENTORY_TOTAL_FILES}")
-    if list(archive["missing"]) != []:
-        problems.append(f"package archive: missing={list(archive['missing'])!r} != []")
+    missing_list = list(archive["missing"]) if isinstance(archive["missing"], list) else None
+    if missing_list is None:
+        problems.append(f"package archive: missing is not a list: {archive['missing']!r}")
+    elif archive["copied"] != archive["total"] - len(missing_list):
+        problems.append(f"package archive: copied={archive['copied']!r} != total - len(missing)={archive['total'] - len(missing_list)}")
+    # status와 archive_verified는 evaluate_archive 산식과 어긋나지 않아야 한다
+    if (archive["archive_verified"] is True) != (archive["status"] == "archived"):
+        problems.append(f"package archive: status={archive['status']!r} vs archive_verified={archive['archive_verified']!r} inconsistent")
+    if archive["status"] not in ("archived", "incomplete", "mismatch"):
+        problems.append(f"package archive: status={archive['status']!r} is not a known status")
     total_bytes = archive["total_bytes"]
-    if isinstance(total_bytes, bool) or not isinstance(total_bytes, int) or total_bytes <= 0:
-        problems.append(f"package archive: total_bytes={total_bytes!r} is not a positive int")
-    if archive["verify_copied"] != archive["copied"]:
+    if isinstance(total_bytes, bool) or not isinstance(total_bytes, int) or total_bytes < 0:
+        problems.append(f"package archive: total_bytes={total_bytes!r} is not a non-negative int")
+    if archive["verify_copied"] is not None and archive["verify_copied"] != archive["copied"]:
         problems.append(f"package archive: verify_copied={archive['verify_copied']!r} != copied={archive['copied']!r}")
-    if archive["verify_total_bytes"] != archive["total_bytes"]:
+    if archive["verify_total_bytes"] is not None and archive["verify_total_bytes"] != archive["total_bytes"]:
         problems.append(f"package archive: verify_total_bytes={archive['verify_total_bytes']!r} != total_bytes={archive['total_bytes']!r}")
-    if archive["selected_copied"] is not True:
-        problems.append(f"package archive: selected_copied={archive['selected_copied']!r} is not True")
-    selected_size = archive["selected_size"]
-    if isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0:
-        problems.append(f"package archive: selected_size={selected_size!r} is not a positive int")
-    if archive["selected_size_in_archive"] != archive["selected_size"]:
-        problems.append(f"package archive: selected_size_in_archive={archive['selected_size_in_archive']!r} != selected_size={archive['selected_size']!r}")
-    if not _is_sha256_hex(archive["selected_sha256"]):
-        problems.append(f"package archive: selected_sha256={archive['selected_sha256']!r} is not a 64-char hex")
+    if archive["selected_copied"] is True:
+        selected_size = archive["selected_size"]
+        if isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0:
+            problems.append(f"package archive: selected_size={selected_size!r} is not a positive int")
+        if archive["selected_size_in_archive"] != archive["selected_size"]:
+            problems.append(f"package archive: selected_size_in_archive={archive['selected_size_in_archive']!r} != selected_size={archive['selected_size']!r}")
+        if not _is_sha256_hex(archive["selected_sha256"]):
+            problems.append(f"package archive: selected_sha256={archive['selected_sha256']!r} is not a 64-char hex")
     expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
     if list(archive["blockers"]) != expected_ids:
         problems.append(f"package archive: blockers {list(archive['blockers'])} != {expected_ids}")
@@ -4390,7 +4392,10 @@ def build_package_archive_report(root, blockers=None) -> dict:
 
 
 def validate_package_archive_report(report, blockers=None, final_package_report=None) -> list[str]:
-    """패키지 아카이브 trimmed 보고가 내부적으로, 그리고 최종 묶음과 맞는지 검사한다."""
+    """패키지 아카이브 trimmed 보고가 내부적으로, 그리고 최종 묶음과 맞는지 검사한다.
+
+    최소 루트처럼 제출물이 일부 없는 경우에도 보고가 일관되면 통과한다.
+    """
     if blockers is None:
         blockers = BLOCKERS
     problems: list[str] = []
@@ -4401,32 +4406,36 @@ def validate_package_archive_report(report, blockers=None, final_package_report=
     if missing_keys:
         problems.append(f"package archive: missing required keys: {missing_keys}")
         return problems
-    if report["status"] != "archived":
-        problems.append(f"package archive: status={report['status']!r} != 'archived'")
-    if report["archive_verified"] is not True:
-        problems.append(f"package archive: archive_verified={report['archive_verified']!r} is not True")
-    if report["verify_verified"] is not True:
-        problems.append(f"package archive: verify_verified={report['verify_verified']!r} is not True")
-    if report["copied"] != INVENTORY_TOTAL_FILES:
-        problems.append(f"package archive: copied={report['copied']!r} != {INVENTORY_TOTAL_FILES}")
     if report["total"] != INVENTORY_TOTAL_FILES:
         problems.append(f"package archive: total={report['total']!r} != {INVENTORY_TOTAL_FILES}")
-    if list(report["missing"]) != []:
-        problems.append(f"package archive: missing={list(report['missing'])!r} != []")
+    missing_list = list(report["missing"]) if isinstance(report["missing"], list) else None
+    if missing_list is None:
+        problems.append(f"package archive: missing is not a list: {report['missing']!r}")
+    elif report["copied"] != report["total"] - len(missing_list):
+        problems.append(f"package archive: copied={report['copied']!r} != total - len(missing)={report['total'] - len(missing_list)}")
+    if (report["archive_verified"] is True) != (report["status"] == "archived"):
+        problems.append(f"package archive: status={report['status']!r} vs archive_verified={report['archive_verified']!r} inconsistent")
+    if report["status"] not in ("archived", "incomplete", "mismatch"):
+        problems.append(f"package archive: status={report['status']!r} is not a known status")
     total_bytes = report["total_bytes"]
-    if isinstance(total_bytes, bool) or not isinstance(total_bytes, int) or total_bytes <= 0:
-        problems.append(f"package archive: total_bytes={total_bytes!r} is not a positive int")
-    if report["verify_copied"] != report["copied"]:
+    if isinstance(total_bytes, bool) or not isinstance(total_bytes, int) or total_bytes < 0:
+        problems.append(f"package archive: total_bytes={total_bytes!r} is not a non-negative int")
+    if report["verify_copied"] is not None and report["verify_copied"] != report["copied"]:
         problems.append(f"package archive: verify_copied={report['verify_copied']!r} != copied={report['copied']!r}")
-    if report["verify_total_bytes"] != report["total_bytes"]:
+    if report["verify_total_bytes"] is not None and report["verify_total_bytes"] != report["total_bytes"]:
         problems.append(f"package archive: verify_total_bytes={report['verify_total_bytes']!r} != total_bytes={report['total_bytes']!r}")
     if report["selected_video"] not in (VS_PRIMARY_VIDEO, VS_FALLBACK_VIDEO):
         problems.append(f"package archive: selected_video={report['selected_video']!r} is not a known video candidate")
     selected_size = report["selected_size"]
-    if isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0:
+    if selected_size is not None and (isinstance(selected_size, bool) or not isinstance(selected_size, int) or selected_size <= 0):
         problems.append(f"package archive: selected_size={selected_size!r} is not a positive int")
-    if not _is_sha256_hex(report["selected_sha256"]):
+    if report["selected_sha256"] is not None and not _is_sha256_hex(report["selected_sha256"]):
         problems.append(f"package archive: selected_sha256={report['selected_sha256']!r} is not a 64-char hex")
+    if report["status"] == "archived":
+        if report["verify_verified"] is not True:
+            problems.append(f"package archive: verify_verified={report['verify_verified']!r} is not True")
+        if not _is_sha256_hex(report["selected_sha256"]):
+            problems.append(f"package archive: selected_sha256={report['selected_sha256']!r} is not a 64-char hex")
     expected_ids = [b["id"] if isinstance(b, dict) else b for b in blockers]
     if list(report["blockers"]) != expected_ids:
         problems.append(f"package archive: blockers {list(report['blockers'])} != {expected_ids}")
