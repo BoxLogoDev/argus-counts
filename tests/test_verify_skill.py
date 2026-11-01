@@ -468,8 +468,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 28)
-            self.assertEqual(summary["total"], 28)
+            self.assertEqual(summary["passed"], 29)
+            self.assertEqual(summary["total"], 29)
             self.assertIn(summary["readiness_deadline_status"], ("before_deadline", "due_soon", "overdue"))
             self.assertEqual(summary["readiness_deadline_blockers"], ["pi_real_capture_pending"])
             self.assertEqual(summary["readiness_deadline_kst"], "2026-11-05T11:00:00+09:00")
@@ -562,7 +562,7 @@ class HelperRunTests(unittest.TestCase):
                  "pi_camera_command_missing"])
             names = [c["name"] for c in payload["checks"]]
             self.assertIn("video_selection_consistent", names)
-            self.assertEqual(payload["total"], 28)
+            self.assertEqual(payload["total"], 29)
 
     def test_pre_submission_video_selection_honesty_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
