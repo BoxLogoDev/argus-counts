@@ -62,6 +62,12 @@ SAM 실호출 증거 검증(sam-live-evidence)은 qa.sam_live_evidence 하네스
 build_report·validate_report으로만 구동한다(합성한 유효 증거의 내부
 정합·해시 서로 다름·요약 재계산·변조 탐지만 확인하며, 증거 검증 통과는
 실제 빈 촬영이나 Pi 실촬영, 제출 준비 완료를 뜻하지 않는다).
+SAM 전체 세션 실호출 증거 검증(sam-session-evidence)은
+qa.sam_session_evidence 하네스를 실제 API 호출 없이 CLI 파일 구동과
+프로세스 내 validate_evidence·build_report·validate_report으로만
+구동한다(합성한 유효 증거의 내부 정합·image_hashes 서로 다름·요약
+재계산·변조 탐지만 확인하며, 증거 검증 통과는 실제 빈 촬영이나
+Pi 실촬영, 제출 준비 완료를 뜻하지 않는다).
 데모 영상 제출 후보 선택(video-selection)은 qa.video_selection 하네스를
 CLI 날짜 구동과 프로세스 내 evaluate_selection·build_selection·
 validate_selection으로만 구동한다(실제로 제출하지 않으며 선택은 제출
@@ -89,7 +95,8 @@ pi-capture, pi-session, sam-live, sam-readiness, submission-runbook,
 pi-readiness, console-readiness, sam-smoke, pi-smoke, devpost-submission,
 file-fallback, sam-session, pi-session-full, submission-inventory,
 fallback-decision, deadline, final-package, package-export,
-sam-per-bin, sam-live-evidence, video-selection, all(전부, 기능별 하위 디렉터리).
+sam-per-bin, sam-live-evidence, sam-session-evidence,
+video-selection, all(전부, 기능별 하위 디렉터리).
 
 SAM 실호출은 하지 않는다. 자식 프로세스 환경에서도 SAM_API_BASE_URL과
 SAM_API_KEY를 제거하고, 응답의 source가 mock이 아니면 실패로 처리한다.
@@ -129,7 +136,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "pi-session-full", "submission-inventory",
             "fallback-decision", "deadline", "final-package",
             "package-export", "sam-per-bin", "sam-live-evidence",
-            "video-selection")
+            "sam-session-evidence", "video-selection")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -164,6 +171,9 @@ SAM_PERBIN_SENTINEL = "sentinel-perbin-not-real"
 SAM_EVIDENCE_SESSION_ID = "VERIFY-SAM-EVIDENCE-1"
 SAM_EVIDENCE_COUNTED = {"A-01-01": 9, "A-01-02": 3, "A-02-02": 7,
                         "A-03-01": 5, "B-01-02": 6, "B-02-02": 11}
+SAM_SESSION_EVIDENCE_SESSION_ID = "VERIFY-SAM-SESSION-EVIDENCE-1"
+SAM_SESSION_EVIDENCE_COUNTED = {"A-01-01": 9, "A-01-02": 3, "A-02-02": 7,
+                                "A-03-01": 5, "B-01-02": 6, "B-02-02": 11}
 VIDEO_SELECTION_PENDING_DATE = "2026-11-01"
 VIDEO_SELECTION_DUE_DATE = "2026-11-02"
 VIDEO_SELECTION_READY_DATE = "2026-11-03"
@@ -5132,6 +5142,194 @@ def drive_sam_live_evidence(ctx: Ctx, evidence: Path) -> dict:
     return summary
 
 
+
+def drive_sam_session_evidence(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    import copy as _copy
+    from qa.sam_session_evidence import (EXPECTED_ENDPOINT, build_report,
+                                         validate_evidence, validate_report)
+    from terminal.demo_data import demo_bin_ids, demo_ledger
+
+    def _make_evidence() -> dict:
+        ledger = demo_ledger()
+        bins = []
+        hashes = {}
+        for bin_id in demo_bin_ids():
+            book = ledger[bin_id].book_qty
+            qty = SAM_SESSION_EVIDENCE_COUNTED[bin_id]
+            diff = qty - book
+            verdict = "match" if diff == 0 else ("short" if diff < 0 else "over")
+            bins.append({"bin_id": bin_id, "book_qty": book, "counted_qty": qty,
+                         "diff": diff, "verdict": verdict})
+            hashes[bin_id] = hashlib.sha256(
+                f"fake-session-evidence-{bin_id}".encode()).hexdigest()
+        matched = sum(1 for b in bins if b["diff"] == 0)
+        summary = {"counted_bins": len(bins), "matched": matched,
+                   "mismatched": len(bins) - matched,
+                   "match_rate": matched / len(bins),
+                   "abs_diff_total": sum(abs(b["diff"]) for b in bins),
+                   "net_diff": sum(b["diff"] for b in bins)}
+        return {"bridge": "custom.meta-model-api connector transport (surrogate)",
+                "endpoint": EXPECTED_ENDPOINT,
+                "image_source": "synthetic probe photo, 6 distinct crops",
+                "image_hashes": hashes,
+                "report": {"status": "passed", "attempted": True,
+                           "ready_for_live_call": True, "blockers": [],
+                           "session_id": SAM_SESSION_EVIDENCE_SESSION_ID,
+                           "source": "sam", "bins": bins, "summary": summary,
+                           "error_type": None,
+                           "honesty": ["전체 세션 실호출이어도 Pi 실촬영이 아니며 사진은 호출자가 제공한 것이다"]}}
+
+    valid_ev = _make_evidence()
+    base_problems = validate_evidence(valid_ev)
+    ctx.note(f"validate_evidence 유효 세션 증거 -> problems={base_problems}")
+    if base_problems != []:
+        problems.append(f"유효 세션 증거 validate_evidence 기대 [], 실제 {base_problems}")
+    report = build_report(valid_ev)
+    if report.get("valid") is not True or report.get("problems") != []:
+        problems.append(f"build_report 유효 기대, 실제 {report}")
+    if report.get("source") != "sam":
+        problems.append(f"source 기대 sam, 실제 {report.get('source')}")
+    if report.get("distinct_image_count") != 6:
+        problems.append(f"distinct 기대 6, 실제 {report.get('distinct_image_count')}")
+    if report.get("session_id") != SAM_SESSION_EVIDENCE_SESSION_ID:
+        problems.append(f"session 기대 {SAM_SESSION_EVIDENCE_SESSION_ID}, 실제 {report.get('session_id')}")
+    if report.get("submission_ready") is not False:
+        problems.append("submission_ready는 False여야 한다")
+    vr = validate_report(report)
+    if vr != []:
+        problems.append(f"validate_report 기대 [], 실제 {vr}")
+
+    dup = _copy.deepcopy(valid_ev)
+    dup["image_hashes"]["A-01-02"] = dup["image_hashes"]["A-01-01"]
+    dup_problems = validate_evidence(dup)
+    duplicate_detected = any("distinct" in x for x in dup_problems)
+    ctx.note(f"validate_evidence 중복 해시 -> duplicate_detected={duplicate_detected}")
+    if not duplicate_detected:
+        problems.append(f"중복 해시 탐지 실패: {dup_problems}")
+
+    miss = _copy.deepcopy(valid_ev)
+    del miss["image_hashes"]["B-02-02"]
+    miss_problems = validate_evidence(miss)
+    missing_detected = any("image_hashes" in x for x in miss_problems)
+    ctx.note(f"validate_evidence 해시 누락 -> missing_detected={missing_detected}")
+    if not missing_detected:
+        problems.append(f"해시 누락 탐지 실패: {miss_problems}")
+
+    summ = _copy.deepcopy(valid_ev)
+    summ["report"]["summary"]["net_diff"] += 1
+    summ_problems = validate_evidence(summ)
+    summary_tamper_detected = any("summary" in x for x in summ_problems)
+    if not summary_tamper_detected:
+        problems.append(f"요약 변조 탐지 실패: {summ_problems}")
+
+    difft = _copy.deepcopy(valid_ev)
+    difft["report"]["bins"][0]["diff"] += 1
+    diff_problems = validate_evidence(difft)
+    diff_tamper_detected = any(("diff" in x or "verdict" in x) for x in diff_problems)
+    if not diff_tamper_detected:
+        problems.append(f"diff 변조 탐지 실패: {diff_problems}")
+
+    mockt = _copy.deepcopy(valid_ev)
+    mockt["report"]["source"] = "mock"
+    mockt["report"]["status"] = "blocked"
+    mock_problems = validate_evidence(mockt)
+    mock_source_blocked = any("source" in x for x in mock_problems) and any("status" in x for x in mock_problems)
+    if not mock_source_blocked:
+        problems.append(f"mock source/blocked 탐지 실패: {mock_problems}")
+
+    endt = _copy.deepcopy(valid_ev)
+    endt["endpoint"] = "https://example.invalid/v1/responses"
+    endt["bridge"] = "unknown"
+    end_problems = validate_evidence(endt)
+    endpoint_tamper_detected = any("endpoint" in x for x in end_problems) and any("bridge" in x for x in end_problems)
+    if not endpoint_tamper_detected:
+        problems.append(f"endpoint/bridge 탐지 실패: {end_problems}")
+
+    valid_cli_stdout = ""
+    valid_exit = -1
+    tamper_exit = -1
+    missing_exit = -1
+    cli_report: dict = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        good = root / "session-evidence.json"
+        good.write_text(json.dumps(valid_ev, ensure_ascii=False), encoding="utf-8")
+        result = run_cli(["-m", "qa.sam_session_evidence", "--file", str(good)])
+        valid_exit = result.returncode
+        ctx.note(f"python3 -m qa.sam_session_evidence --file 유효 -> 종료코드 {result.returncode}")
+        if result.returncode != 0:
+            problems.append(f"유효 CLI 종료코드 기대 0, 실제 {result.returncode}: {result.stderr[:200]}")
+        for needle in ("VALID: true", f"SESSION: {SAM_SESSION_EVIDENCE_SESSION_ID}", "SOURCE: sam", "DISTINCT_IMAGES: 6", "SUBMISSION_READY: false"):
+            if needle not in result.stdout:
+                problems.append(f"유효 CLI 텍스트에 {needle!r} 없음")
+        result_j = run_cli(["-m", "qa.sam_session_evidence", "--file", str(good), "--json"])
+        valid_cli_stdout = result_j.stdout
+        ctx.note(f"python3 -m qa.sam_session_evidence --file 유효 --json -> 종료코드 {result_j.returncode}")
+        if result_j.returncode != 0:
+            problems.append(f"유효 CLI --json 종료코드 기대 0, 실제 {result_j.returncode}")
+        try:
+            cli_report = json.loads(result_j.stdout)
+        except json.JSONDecodeError as e:
+            problems.append(f"유효 CLI --json 파싱 실패: {e}")
+        if cli_report:
+            if cli_report.get("valid") is not True:
+                problems.append(f"CLI valid 기대 True, 실제 {cli_report.get('valid')}")
+            if cli_report.get("distinct_image_count") != 6:
+                problems.append(f"CLI distinct 기대 6, 실제 {cli_report.get('distinct_image_count')}")
+            sm = cli_report.get("summary") or {}
+            if sm.get("abs_diff_total") != 30 or sm.get("net_diff") != -28 or sm.get("matched") != 1 or sm.get("mismatched") != 5:
+                problems.append(f"CLI summary 기대 matched1/mismatched5/abs30/net-28, 실제 {sm}")
+            joined = " ".join(str(x) for x in cli_report.get("honesty", []))
+            for marker in ("API를 호출하지 않는다", "Pi 실촬영이 아니다"):
+                if marker not in joined:
+                    problems.append(f"CLI honesty에 {marker!r} 없음")
+        bad = root / "session-evidence-dup.json"
+        bad.write_text(json.dumps(dup, ensure_ascii=False), encoding="utf-8")
+        result_bad = run_cli(["-m", "qa.sam_session_evidence", "--file", str(bad), "--json"])
+        tamper_exit = result_bad.returncode
+        ctx.note(f"python3 -m qa.sam_session_evidence --file 중복 --json -> 종료코드 {result_bad.returncode}")
+        if result_bad.returncode != 1:
+            problems.append(f"변조 CLI 종료코드 기대 1, 실제 {result_bad.returncode}")
+        else:
+            try:
+                bad_report = json.loads(result_bad.stdout)
+                if bad_report.get("valid") is not False:
+                    problems.append(f"변조 CLI valid 기대 False, 실제 {bad_report.get('valid')}")
+            except json.JSONDecodeError as e:
+                problems.append(f"변조 CLI --json 파싱 실패: {e}")
+        result_missing = run_cli(["-m", "qa.sam_session_evidence", "--file", str(root / "nope.json")])
+        missing_exit = result_missing.returncode
+        ctx.note(f"python3 -m qa.sam_session_evidence --file 없음 -> 종료코드 {result_missing.returncode}")
+        if result_missing.returncode != 2:
+            problems.append(f"없는 파일 종료코드 기대 2, 실제 {result_missing.returncode}")
+
+    smry = report.get("summary") or {}
+    summary = {"feature": "sam-session-evidence",
+               "valid_ok": report.get("valid") is True,
+               "session_id": report.get("session_id"),
+               "source": report.get("source"),
+               "distinct_image_count": report.get("distinct_image_count"),
+               "matched": smry.get("matched"),
+               "mismatched": smry.get("mismatched"),
+               "abs_diff_total": smry.get("abs_diff_total"),
+               "net_diff": smry.get("net_diff"),
+               "duplicate_detected": duplicate_detected,
+               "missing_detected": missing_detected,
+               "summary_tamper_detected": summary_tamper_detected,
+               "diff_tamper_detected": diff_tamper_detected,
+               "mock_source_blocked": mock_source_blocked,
+               "endpoint_tamper_detected": endpoint_tamper_detected,
+               "missing_file_exit_code": missing_exit,
+               "tamper_exit_code": tamper_exit,
+               "valid_exit_code": valid_exit,
+               "all_ok": not problems, "problems": problems}
+    summary["valid_ok"] = report.get("valid") is True and not problems
+    write_evidence(evidence, ctx.lines, summary,
+                   {"sam-session-evidence-valid.json": valid_cli_stdout,
+                    "sam-session-evidence-report.json": json.dumps(report, ensure_ascii=False, indent=2) + "\n"})
+    return summary
+
 def drive_video_selection(ctx: Ctx, evidence: Path) -> dict:
     problems: list[str] = []
     from qa.video_selection import (FALLBACK_VIDEO, PRIMARY_VIDEO,
@@ -5338,6 +5536,7 @@ DRIVERS = {"console-home": drive_console_home,
            "package-export": drive_package_export,
            "sam-per-bin": drive_sam_per_bin,
            "sam-live-evidence": drive_sam_live_evidence,
+           "sam-session-evidence": drive_sam_session_evidence,
            "video-selection": drive_video_selection}
 
 
