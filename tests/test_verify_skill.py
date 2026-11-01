@@ -2026,6 +2026,66 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["export_incomplete_status"], "incomplete")
             self.assertTrue(summary["export_tamper_detected"])
 
+    def test_final_package_export_verify_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-export-verify"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["export_verify_verified"], True)
+            self.assertEqual(summary["export_verify_copied_files"], 18)
+            self.assertIsInstance(summary["export_verify_total_bytes"], int)
+            self.assertGreater(summary["export_verify_total_bytes"], 0)
+            self.assertEqual(summary["export_verify_total_bytes"],
+                             summary["export_total_bytes"])
+            blocked = json.loads(
+                (evidence / "final-package-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertIs(blocked["export_verify_verified"], True)
+            self.assertEqual(summary["export_verify_copied_files"],
+                             blocked["export_verify_copied_files"])
+
+    def test_final_package_export_verify_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-export-verify-cross"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["built_export_verify_verified"], True)
+            self.assertEqual(summary["built_export_verify_copied_files"],
+                             summary["export_verify_copied_files"])
+            self.assertEqual(summary["built_export_verify_copied_files"],
+                             summary["export_copied"])
+            self.assertEqual(summary["built_export_verify_total_bytes"],
+                             summary["export_verify_total_bytes"])
+            self.assertEqual(summary["built_export_verify_total_bytes"],
+                             summary["built_export_total_bytes"])
+
+    def test_final_package_export_verify_tamper_evidence(self):
+        feature = (SKILL_DIR / "features" / "final-package.md").read_text(
+            encoding="utf-8")
+        for marker in ("final-package-export-verify-evidence",
+                       "export_verify_verified", "export_verify_copied_files",
+                       "export_verify_total_bytes",
+                       "export_verify_tamper_detected"):
+            self.assertIn(marker, feature)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-export-verify-tamper"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["export_verify_tamper_detected"])
+            self.assertTrue(summary["export_verify_verified_tamper_detected"])
+            self.assertTrue(summary["export_verify_copied_tamper_detected"])
+            self.assertTrue(summary["export_verify_bytes_tamper_detected"])
+            self.assertTrue(summary["export_verify_none_tamper_detected"])
+
     def test_final_package_video_selection_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-final-package-video"
