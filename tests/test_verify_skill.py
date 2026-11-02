@@ -505,8 +505,9 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 31)
-            self.assertEqual(summary["total"], 31)
+            self.assertEqual(summary["passed"], 32)
+            self.assertEqual(summary["total"], 32)
+            self.assertTrue(summary["readiness_date_consistency_consistent"])
             self.assertIn(summary["readiness_deadline_status"], ("before_deadline", "due_soon", "overdue"))
             self.assertEqual(summary["readiness_deadline_blockers"], ["pi_real_capture_pending"])
             self.assertEqual(summary["readiness_deadline_kst"], "2026-11-05T11:00:00+09:00")
@@ -599,7 +600,9 @@ class HelperRunTests(unittest.TestCase):
                  "pi_camera_command_missing"])
             names = [c["name"] for c in payload["checks"]]
             self.assertIn("video_selection_consistent", names)
-            self.assertEqual(payload["total"], 31)
+            self.assertIn("date_consistency_consistent", names)
+            self.assertTrue(payload["readiness"]["date_consistency"]["consistent"])
+            self.assertEqual(payload["total"], 32)
 
     def test_pre_submission_video_selection_honesty_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3450,7 +3453,7 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(len(arch["selected_sha256"]), 64)
             names = [c["name"] for c in payload["checks"]]
             self.assertIn("package_archive_consistent", names)
-            self.assertEqual(payload["total"], 31)
+            self.assertEqual(payload["total"], 32)
 
     def test_pre_submission_package_archive_evidence_keeps_not_ready(self):
         with tempfile.TemporaryDirectory() as tmp:

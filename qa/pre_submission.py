@@ -1,6 +1,10 @@
 """제출 전 전수 점검 하네스.
 
 기존 점검들(QA 기준값 대조, standalone 점검, 현재형 주장 감사)과
+날짜·시각 기준 일관성 감사(qa.date_consistency) 보고가 전수 점검
+블로커와 어긋나지 않는지의 정합(날짜 감사는 날짜·시각 기준만
+감사하며 실제로 제출·촬영·호출하지 않고, 감사 통과는 제출 준비
+완료를 뜻하지 않는다),
 SAM 실호출 준비 점검·Pi 실촬영 준비 점검의 상태 정합,
 콘솔 준비 상태(console.readiness)가 같은 조건의 두 준비 점검과
 어긋나지 않는지의 정합, SAM 단일 빈 스모크(qa.sam_smoke) 보고가
@@ -64,7 +68,7 @@ copied_files·total_bytes와 교차 대조하는 것을 포함한다),
 final_status를 최종 묶음의 inventory·export·selected 필드와
 교차 대조하는 것을 포함한다),
 데모 자산의 존재·정합을
-한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 31종이다.
+한 번에 묶어 기계적으로 확인한다. 기계 점검은 총 32종이다.
 데모 자산 정합(demo_assets_consistent)에는 조립 매니페스트
 (demo/assets/assembly.json) 컷 3의 파일 입력 폴백 참조가 폴백
 자산과 어긋나지 않는지의 대조도 포함된다. 조립 폴백 대조는
@@ -129,6 +133,8 @@ from types import SimpleNamespace
 
 from console.readiness import build_readiness as build_console_readiness
 from qa.claims_audit import audit_files, audit_text
+from qa.date_consistency import build_report as _build_dc_report
+from qa.date_consistency import validate_report as _validate_dc_report
 from qa.harness import run_checks as run_qa_checks
 from qa.pi_readiness import check_readiness as check_pi_readiness
 from qa.sam_readiness import check_readiness as check_sam_readiness
@@ -1185,6 +1191,35 @@ def validate_sam_smoke(report, sam_report=None, blockers=None) -> list[str]:
     _check_honesty(report, problems, "sam smoke", "호출하지 않는다")
     _check_honesty(report, problems, "sam smoke", "대체하지 않는다")
     return problems
+
+
+def _check_date_consistency(root):
+    name = "date_consistency_consistent"
+    try:
+        report = _build_dc_report(root)
+    except Exception as exc:
+        return PreSubmissionCheck(name, False, f"raised: {exc!r}"), None
+    problems = list(_validate_dc_report(report))
+    if report["consistent"] is not True:
+        problems.append(
+            f"date consistency: consistent={report['consistent']!r} != True")
+    for problem in report["problems"]:
+        problems.append(f"date consistency: {problem}")
+    if report["blockers"] != ["pi_real_capture_pending"]:
+        problems.append(
+            f"date consistency: blockers={report['blockers']!r} "
+            "!= ['pi_real_capture_pending']")
+    if report["submission_ready"] is not False:
+        problems.append("date consistency: submission_ready is not False")
+    if problems:
+        return PreSubmissionCheck(name, False, "; ".join(problems)), report
+    detail = (
+        f"consistent={report['consistent']} "
+        f"scanned_files={report['scanned_files']} "
+        f"date_kst={report['date_kst']} "
+        f"problems={len(report['problems'])}"
+    )
+    return PreSubmissionCheck(name, True, detail), report
 
 
 def _check_sam_readiness(sam_env=None, sam_credit_confirmed=False):
@@ -4671,6 +4706,9 @@ def run_pre_submission_checks(
     except Exception as exc:
         checks.append(PreSubmissionCheck("claims_audit", False, f"raised: {exc!r}"))
 
+    dc_check, dc_report = _check_date_consistency(root)
+    checks.append(dc_check)
+
     sam_check, sam_report = _check_sam_readiness(
         sam_env=sam_env, sam_credit_confirmed=sam_credit_confirmed
     )
@@ -4828,6 +4866,7 @@ def run_pre_submission_checks(
         "mechanical_pass": passed == len(checks),
         "blockers": [dict(b) for b in BLOCKERS],
         "readiness": {
+            "date_consistency": dc_report,
             "sam": sam_report,
             "pi": pi_report,
             "console": console_report,

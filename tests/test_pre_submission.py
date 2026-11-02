@@ -12,6 +12,7 @@ from qa.pre_submission import (
     build_report,
     format_text_report,
     run_pre_submission_checks,
+    _check_date_consistency,
     validate_console_readiness,
     validate_data_panel,
     validate_pi_readiness,
@@ -326,6 +327,12 @@ def _minimal_root(root: Path) -> None:
         ".claude/skills/verify-argus/features/README.md",
     ):
         _write(root, rel, "ok\n")
+    _write(root, "qa/fallback_decision.py",
+           "def today_kst():\n    return datetime.datetime.now(KST).date()\n")
+    _write(root, "qa/video_selection.py",
+           "from qa.fallback_decision import today_kst\n")
+    _write(root, "qa/deadline.py", "NOW = datetime.datetime.now(KST)\n")
+    _write(root, "qa/final_package.py", "build_final_package(today=today)\n")
     _write(root, "README.md", _valid_readme_text())
     _write(root, "docs/submission-story.md", _valid_story_text())
     _write(root, "docs/submission-summary-en.md", _valid_en_summary_text())
@@ -682,7 +689,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE
         )
         names = [c.name for c in result["checks"]]
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         self.assertIn("sam_readiness_consistent", names)
         self.assertIn("pi_readiness_consistent", names)
         self.assertIn("console_readiness_consistent", names)
@@ -796,7 +803,7 @@ class ReadinessIntegrationTests(unittest.TestCase):
             result = run_pre_submission_checks(
                 root, sam_env={}, pi_probe=MISSING_PI_PROBE
             )
-            self.assertEqual(result["total"], 31)
+            self.assertEqual(result["total"], 32)
             self.assertTrue(result["mechanical_pass"], result["checks"])
             self.assertFalse(result["submission_ready"])
 
@@ -1697,7 +1704,7 @@ class AssemblyFallbackIntegrationTests(unittest.TestCase):
         demo = by_name["demo_assets_consistent"]
         self.assertTrue(demo.passed, demo.detail)
         self.assertIn("assembly_fallback_cut=3", demo.detail)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         self.assertFalse(result["submission_ready"])
 
     def test_validate_assembly_fallback_accepts_valid_and_detects_pi_tamper(self):
@@ -1741,7 +1748,7 @@ class SamLiveEvidenceIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T03:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("sam_live_evidence_consistent", names)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["sam_live_evidence_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1808,7 +1815,7 @@ class SamSessionEvidenceIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T09:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("sam_session_evidence_consistent", names)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["sam_session_evidence_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -1875,7 +1882,7 @@ class SamPhotoEvidenceIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T09:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("sam_photo_evidence_consistent", names)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["sam_photo_evidence_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2052,7 +2059,7 @@ class VideoSelectionIntegrationTests(unittest.TestCase):
             deadline_now="2026-11-01T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("video_selection_consistent", names)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["video_selection_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2125,7 +2132,7 @@ class DeadlineIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T01:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("deadline_consistent", names)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["deadline_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2177,7 +2184,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             deadline_now="2026-10-31T06:50:00+09:00")
         names = [c.name for c in result["checks"]]
         self.assertIn("final_package_consistent", names)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         by_name = {c.name: c for c in result["checks"]}
         check = by_name["final_package_consistent"]
         self.assertTrue(check.passed, check.detail)
@@ -2483,7 +2490,7 @@ class FinalPackageIntegrationTests(unittest.TestCase):
 class PackageExportIntegrationTests(unittest.TestCase):
     def test_real_root_includes_package_export_check_and_section(self):
         result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         names = [c.name for c in result["checks"]]
         self.assertIn("package_export_consistent", names)
         by_name = {c.name: c for c in result["checks"]}
@@ -2575,7 +2582,7 @@ class PackageExportIntegrationTests(unittest.TestCase):
 class PackageArchiveIntegrationTests(unittest.TestCase):
     def test_real_root_includes_package_archive_check_and_section(self):
         result = run_pre_submission_checks(ROOT, sam_env={}, pi_probe=MISSING_PI_PROBE)
-        self.assertEqual(result["total"], 31)
+        self.assertEqual(result["total"], 32)
         names = [c.name for c in result["checks"]]
         self.assertIn("package_archive_consistent", names)
         by_name = {c.name: c for c in result["checks"]}
@@ -2640,3 +2647,42 @@ class PackageArchiveIntegrationTests(unittest.TestCase):
         report["verify_copied"] = 17
         problems = validate_package_archive_report(report)
         self.assertTrue(any("verify_copied" in x for x in problems), problems)
+
+
+class DateConsistencyIntegrationTests(unittest.TestCase):
+    """날짜 일관성 감사의 전수 점검 통합(32종) 테스트."""
+
+    def test_date_consistency_check_present_and_passes(self):
+        result = run_pre_submission_checks()
+        self.assertEqual(result["total"], 32)
+        by_name = {c.name: c for c in result["checks"]}
+        self.assertIn("date_consistency_consistent", by_name)
+        check = by_name["date_consistency_consistent"]
+        self.assertTrue(check.passed, check.detail)
+        self.assertIn("consistent=True", check.detail)
+        self.assertIn("problems=0", check.detail)
+
+    def test_date_consistency_readiness_entry(self):
+        report = build_report()
+        dc = report["readiness"]["date_consistency"]
+        self.assertTrue(dc["consistent"])
+        self.assertEqual(dc["problems"], [])
+        self.assertEqual(dc["blockers"], ["pi_real_capture_pending"])
+        self.assertFalse(dc["submission_ready"])
+        self.assertFalse(report["submission_ready"])
+
+    def test_date_consistency_check_detects_naive_pattern(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad_module.py"
+            bad.write_text(
+                "import datetime\n\nVALUE = datetime.date.today()\n",
+                encoding="utf-8")
+            check, report = _check_date_consistency(Path(tmp))
+            self.assertFalse(check.passed)
+            self.assertIn("naive pattern", check.detail)
+            self.assertFalse(report["consistent"])
+
+    def test_date_consistency_text_report_line(self):
+        text = format_text_report(build_report())
+        self.assertIn("PRE_SUBMISSION: 32/32", text)
+        self.assertIn("[PASS] date_consistency_consistent", text)

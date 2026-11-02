@@ -878,7 +878,7 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
     ctx.note(f"python3 -m qa.pre_submission -> 종료코드 {result.returncode}")
     if result.returncode != 0:
         problems.append(f"전수 점검 종료코드 {result.returncode}: {result.stderr[:200]}")
-    for needle in ("PRE_SUBMISSION: 31/31 mechanical passed", "BLOCKERS: 1",
+    for needle in ("PRE_SUBMISSION: 32/32 mechanical passed", "BLOCKERS: 1",
                    "SUBMISSION_READY: false", *EXPECTED_BLOCKER_IDS):
         if needle not in text:
             problems.append(f"전수 점검 텍스트에 {needle!r} 없음")
@@ -893,10 +893,10 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         problems.append(f"--json 파싱 실패: {e}")
     blocker_ids: list = []
     if report:
-        if report.get("passed") != 31:
-            problems.append(f"passed 기대 31, 실제 {report.get('passed')}")
-        if report.get("total") != 31:
-            problems.append(f"total 기대 31, 실제 {report.get('total')}")
+        if report.get("passed") != 32:
+            problems.append(f"passed 기대 32, 실제 {report.get('passed')}")
+        if report.get("total") != 32:
+            problems.append(f"total 기대 32, 실제 {report.get('total')}")
         if report.get("mechanical_pass") is not True:
             problems.append(f"mechanical_pass 기대 True, 실제 {report.get('mechanical_pass')}")
         if report.get("submission_ready") is not False:
@@ -909,11 +909,13 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
             problems.append(
                 f"blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {blocker_ids}")
         checks = report.get("checks", [])
-        if len(checks) != 31:
-            problems.append(f"checks 기대 31, 실제 {len(checks)}")
+        if len(checks) != 32:
+            problems.append(f"checks 기대 32, 실제 {len(checks)}")
         check_names = [c.get("name") for c in checks]
         if "console_readiness_consistent" not in check_names:
             problems.append("checks에 console_readiness_consistent 없음")
+        if "date_consistency_consistent" not in check_names:
+            problems.append("checks에 date_consistency_consistent 없음")
         if "sam_smoke_consistent" not in check_names:
             problems.append("checks에 sam_smoke_consistent 없음")
         if "sam_session_consistent" not in check_names:
@@ -978,6 +980,15 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
         if not any("데모 기준" in line for line in honesty):
             problems.append("honesty에 '데모 기준'을 포함한 줄 없음")
         readiness = report.get("readiness", {}) or {}
+        dc_r = readiness.get("date_consistency") or {}
+        dc_consistent = dc_r.get("consistent")
+        dc_scanned = dc_r.get("scanned_files")
+        if dc_consistent is not True:
+            problems.append(f"readiness date_consistency consistent 기대 True, 실제 {dc_consistent}")
+        if dc_r.get("submission_ready") is not False:
+            problems.append(f"readiness date_consistency submission_ready 기대 False, 실제 {dc_r.get('submission_ready')}")
+        if dc_r.get("blockers") != list(EXPECTED_BLOCKER_IDS):
+            problems.append(f"readiness date_consistency blockers 기대 {list(EXPECTED_BLOCKER_IDS)}, 실제 {dc_r.get('blockers')}")
         sam_r = readiness.get("sam") or {}
         pi_r = readiness.get("pi") or {}
         sam_rb = [b["id"] for b in sam_r.get("blockers", [])]
@@ -1702,6 +1713,8 @@ def drive_pre_submission(ctx: Ctx, evidence: Path) -> dict:
                "readiness_deadline_blockers": dl_rb,
                "readiness_deadline_kst": dl_kst,
                "readiness_deadline_remaining_seconds": dl_remaining,
+               "readiness_date_consistency_consistent": dc_consistent,
+               "readiness_date_consistency_scanned_files": dc_scanned,
                "demo_assembly_fallback_cut": demo_fallback_cut,
                "video_fallback_render_cut": video_fallback_cut,
                "submission_ready": report.get("submission_ready"),
