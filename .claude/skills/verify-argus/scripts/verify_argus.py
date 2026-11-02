@@ -151,7 +151,7 @@ FEATURES = ("console-home", "terminal-simulator", "session-list",
             "fallback-decision", "deadline", "final-package",
             "package-export", "sam-per-bin", "sam-live-evidence",
             "sam-session-evidence", "video-selection", "package-archive",
-            "sam-photo-evidence")
+            "sam-photo-evidence", "date-consistency")
 EXPECTED_BLOCKER_IDS = ("pi_real_capture_pending",)
 PHOTO_BIN_IDS = ("A-01-01", "A-01-02", "A-02-02",
                  "A-03-01", "B-01-02", "B-02-02")
@@ -6915,6 +6915,134 @@ def drive_package_archive(ctx: Ctx, evidence: Path) -> dict:
                     "package-archive-verify.txt": result_verify.stdout if result_verify else ""})
     return summary
 
+
+def drive_date_consistency(ctx: Ctx, evidence: Path) -> dict:
+    problems: list[str] = []
+    import copy as _copy
+    from qa.date_consistency import (build_report, scan_naive_patterns,
+                                     scan_utc_allowlist, validate_report)
+
+    report = build_report()
+    ctx.note(f"build_report 날짜 감사 -> consistent={report.get('consistent')} "
+             f"scanned={report.get('scanned_files')} date={report.get('date_kst')}")
+    if report.get("consistent") is not True:
+        problems.append(f"consistent 기대 True, 실제 {report.get('consistent')}")
+    if report.get("problems") != []:
+        problems.append(f"problems 기대 [], 실제 {report.get('problems')}")
+    if report.get("naive_problems") != []:
+        problems.append(f"naive 기대 [], 실제 {report.get('naive_problems')}")
+    if report.get("utc_problems") != []:
+        problems.append(f"utc 기대 [], 실제 {report.get('utc_problems')}")
+    if report.get("decision_problems") != []:
+        problems.append(f"decision 기대 [], 실제 {report.get('decision_problems')}")
+    if report.get("blockers") != ["pi_real_capture_pending"]:
+        problems.append(f"blockers 이상: {report.get('blockers')}")
+    if report.get("submission_ready") is not False:
+        problems.append("submission_ready는 False여야 한다")
+    func = report.get("functional") or {}
+    if func.get("today_kst") != report.get("date_kst"):
+        problems.append(f"today_kst != date_kst: {func}")
+    if func.get("fallback_default_date") != report.get("date_kst"):
+        problems.append(f"fallback_default_date != date_kst: {func}")
+    if not str(func.get("deadline_now") or "").endswith("+09:00"):
+        problems.append(f"deadline_now +09:00 아님: {func.get('deadline_now')}")
+    if not (isinstance(report.get("scanned_files"), int)
+            and report["scanned_files"] > 0):
+        problems.append(f"scanned_files 이상: {report.get('scanned_files')}")
+    vr = validate_report(report)
+    if vr != []:
+        problems.append(f"validate_report 기대 [], 실제 {vr}")
+
+    tam = _copy.deepcopy(report)
+    tam["consistent"] = False
+    tamper_detected = any("consistent" in x for x in validate_report(tam))
+    ctx.note(f"validate_report consistent 변조 -> tamper_detected={tamper_detected}")
+    if not tamper_detected:
+        problems.append("consistent 변조 탐지 실패")
+    rdy = _copy.deepcopy(report)
+    rdy["submission_ready"] = True
+    ready_tamper_detected = any(
+        "submission_ready" in x for x in validate_report(rdy))
+    if not ready_tamper_detected:
+        problems.append("submission_ready 변조 탐지 실패")
+    blk = _copy.deepcopy(report)
+    blk["blockers"] = []
+    blockers_tamper_detected = any(
+        "blockers" in x for x in validate_report(blk))
+    if not blockers_tamper_detected:
+        problems.append("blockers 변조 탐지 실패")
+
+    naive_detected = False
+    utc_detected = False
+    with tempfile.TemporaryDirectory() as tmp:
+        troot = Path(tmp)
+        naive_src = "import datetime" + chr(10) + "x = datetime.date" + ".today" + "()" + chr(10)
+        (troot / "naive_probe.py").write_text(naive_src, encoding="utf-8")
+        naive_found = scan_naive_patterns(root=troot)
+        naive_detected = any("naive_probe" in x for x in naive_found)
+        utc_src = "import datetime" + chr(10) + "x = datetime." + "now(timezone." + "utc)" + chr(10)
+        (troot / "utc_probe.py").write_text(utc_src, encoding="utf-8")
+        utc_found = scan_utc_allowlist(root=troot)
+        utc_detected = any("utc_probe" in x for x in utc_found)
+    ctx.note(f"임시 루트 naive 탐지={naive_detected} utc 탐지={utc_detected}")
+    if not naive_detected:
+        problems.append("naive 패턴 탐지 실패")
+    if not utc_detected:
+        problems.append("utc 허용 목록 밖 탐지 실패")
+
+    result = run_cli(["-m", "qa.date_consistency"])
+    ctx.note(f"python3 -m qa.date_consistency -> 종료코드 {result.returncode}")
+    if result.returncode != 0:
+        problems.append(f"텍스트 CLI 종료코드 기대 0, 실제 {result.returncode}")
+    for needle in ("CONSISTENT: true", "SUBMISSION_READY: false",
+                   "제출 준비 완료를 뜻하지 않는다"):
+        if needle not in result.stdout:
+            problems.append(f"텍스트 CLI에 {needle!r} 없음")
+    result_j = run_cli(["-m", "qa.date_consistency", "--json"])
+    ctx.note(f"python3 -m qa.date_consistency --json -> 종료코드 {result_j.returncode}")
+    if result_j.returncode != 0:
+        problems.append(f"JSON CLI 종료코드 기대 0, 실제 {result_j.returncode}")
+    cli_report: dict = {}
+    try:
+        cli_report = json.loads(result_j.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"JSON CLI 파싱 실패: {e}")
+    if cli_report:
+        if cli_report.get("consistent") is not True:
+            problems.append(f"CLI consistent 기대 True, 실제 {cli_report.get('consistent')}")
+        if cli_report.get("date_kst") != report.get("date_kst"):
+            problems.append("CLI date_kst가 build_report와 다르다")
+        if cli_report.get("scanned_files") != report.get("scanned_files"):
+            problems.append("CLI scanned_files가 build_report와 다르다")
+        joined = " ".join(str(x) for x in cli_report.get("honesty", []))
+        for marker in ("제출 준비 완료를 뜻하지 않는다", "날짜 판정이 아니다"):
+            if marker not in joined:
+                problems.append(f"CLI honesty에 {marker!r} 없음")
+
+    summary = {"feature": "date-consistency",
+               "consistent": report.get("consistent") is True,
+               "date_kst": report.get("date_kst"),
+               "scanned_files": report.get("scanned_files"),
+               "naive_problem_count": len(report.get("naive_problems") or []),
+               "utc_problem_count": len(report.get("utc_problems") or []),
+               "decision_problem_count": len(report.get("decision_problems") or []),
+               "fallback_default_date": func.get("fallback_default_date"),
+               "deadline_now": func.get("deadline_now"),
+               "tamper_detected": tamper_detected,
+               "ready_tamper_detected": ready_tamper_detected,
+               "blockers_tamper_detected": blockers_tamper_detected,
+               "naive_detected": naive_detected,
+               "utc_detected": utc_detected,
+               "valid_exit_code": result.returncode,
+               "json_exit_code": result_j.returncode,
+               "submission_ready": False,
+               "blockers": list(report.get("blockers") or []),
+               "all_ok": not problems, "problems": problems}
+    write_evidence(evidence, ctx.lines, summary,
+                   {"date-consistency.json": result_j.stdout,
+                    "date-consistency.txt": result.stdout})
+    return summary
+
 DRIVERS = {"console-home": drive_console_home,
            "terminal-simulator": drive_terminal_simulator,
            "session-list": drive_session_list,
@@ -6945,7 +7073,8 @@ DRIVERS = {"console-home": drive_console_home,
            "sam-session-evidence": drive_sam_session_evidence,
            "video-selection": drive_video_selection,
            "package-archive": drive_package_archive,
-           "sam-photo-evidence": drive_sam_photo_evidence}
+           "sam-photo-evidence": drive_sam_photo_evidence,
+           "date-consistency": drive_date_consistency}
 
 
 def main(argv: list[str] | None = None) -> int:

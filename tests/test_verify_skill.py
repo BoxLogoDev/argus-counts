@@ -46,6 +46,7 @@ FEATURES = [
     "video-selection.md",
     "package-archive.md",
     "sam-photo-evidence.md",
+    "date-consistency.md",
 ]
 EXPECTED_H2 = [
     "## Sub-features",
@@ -84,7 +85,7 @@ class SkillFileTests(unittest.TestCase):
     def test_photo_intake_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("photo-intake", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "photo-intake.md").read_text(
             encoding="utf-8")
         for marker in ("capture_source", "Pi 실촬영이 아닙니다", "SHA-256",
@@ -102,7 +103,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pre_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pre-submission", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "pre-submission.md").read_text(
             encoding="utf-8")
         for marker in ("submission_ready", "pi_real_capture_pending",
@@ -112,7 +113,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_capture_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-capture", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "pi-capture.md").read_text(
             encoding="utf-8")
         for marker in ("probe_pi_camera", "capture_photo", "Pi 실촬영 검증 전",
@@ -122,7 +123,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_session_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-session", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "pi-session.md").read_text(
             encoding="utf-8")
         for marker in ("run_pi_session", "capture_source", "pi-camera",
@@ -134,7 +135,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_live_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-live", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-live.md").read_text(
             encoding="utf-8")
         for marker in ("LiveSamCounter", "build_payload", "parse_response",
@@ -146,7 +147,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-readiness", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-readiness.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_readiness", "check_readiness",
@@ -158,7 +159,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_smoke_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-smoke", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-smoke.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_smoke", "run_smoke",
@@ -171,7 +172,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_session_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-session", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-session.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_session", "run_sam_session",
@@ -186,7 +187,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_per_bin_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-per-bin", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-per-bin.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_per_bin", "run_sam_per_bin",
@@ -202,7 +203,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_live_evidence_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-live-evidence", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-live-evidence.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_live_evidence", "validate_evidence",
@@ -219,7 +220,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_session_evidence_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-session-evidence", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-session-evidence.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_session_evidence", "validate_evidence",
@@ -236,7 +237,7 @@ class SkillFileTests(unittest.TestCase):
     def test_sam_photo_evidence_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("sam-photo-evidence", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "sam-photo-evidence.md").read_text(
             encoding="utf-8")
         for marker in ("qa.sam_photo_evidence", "validate_evidence",
@@ -251,10 +252,24 @@ class SkillFileTests(unittest.TestCase):
                        "https://api.meta.ai/v1/responses"):
             self.assertIn(marker, feature)
 
+    def test_date_consistency_listed_and_grounded(self):
+        skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("date-consistency", skill)
+        self.assertIn("기능 32종", skill)
+        feature = (SKILL_DIR / "features" / "date-consistency.md").read_text(
+            encoding="utf-8")
+        for marker in ("qa.date_consistency", "build_report",
+                       "validate_report", "drive_date_consistency",
+                       "date-consistency.json", "date-consistency.txt",
+                       "CONSISTENT", "KST", "today_kst", "허용 목록",
+                       "실제로 제출·촬영·호출하지 않는다",
+                       "제출 준비 완료를 뜻하지 않는다"):
+            self.assertIn(marker, feature)
+
     def test_video_selection_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("video-selection", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "video-selection.md").read_text(
             encoding="utf-8")
         for marker in ("qa.video_selection", "evaluate_selection",
@@ -272,7 +287,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_session_full_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-session-full", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "pi-session-full.md").read_text(
             encoding="utf-8")
         for marker in ("qa.pi_session", "run_pi_full_session",
@@ -288,7 +303,7 @@ class SkillFileTests(unittest.TestCase):
     def test_submission_inventory_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("submission-inventory", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "submission-inventory.md").read_text(
             encoding="utf-8")
         for marker in ("qa.submission_inventory", "build_inventory",
@@ -302,7 +317,7 @@ class SkillFileTests(unittest.TestCase):
     def test_fallback_decision_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("fallback-decision", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "fallback-decision.md").read_text(
             encoding="utf-8")
         for marker in ("qa.fallback_decision", "evaluate_decision",
@@ -325,7 +340,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_smoke_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-smoke", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "pi-smoke.md").read_text(
             encoding="utf-8")
         for marker in ("qa.pi_smoke", "run_smoke",
@@ -341,7 +356,7 @@ class SkillFileTests(unittest.TestCase):
     def test_devpost_submission_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("devpost-submission", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "devpost-submission.md").read_text(
             encoding="utf-8")
         for marker in ("docs/devpost-submission.md", "validate_devpost_text",
@@ -354,7 +369,7 @@ class SkillFileTests(unittest.TestCase):
     def test_submission_runbook_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("submission-runbook", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "submission-runbook.md").read_text(
             encoding="utf-8")
         for marker in ("docs/submission-runbook.md", "validate_runbook_text",
@@ -367,7 +382,7 @@ class SkillFileTests(unittest.TestCase):
     def test_pi_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("pi-readiness", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "pi-readiness.md").read_text(
             encoding="utf-8")
         for marker in ("qa.pi_readiness", "check_readiness",
@@ -420,7 +435,7 @@ class HelperRunTests(unittest.TestCase):
                         "package-export", "sam-per-bin",
                         "sam-live-evidence", "sam-session-evidence",
                         "video-selection", "package-archive",
-                        "sam-photo-evidence"):
+                        "sam-photo-evidence", "date-consistency"):
             with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmp:
                 evidence = Path(tmp) / "run"
                 result = self._run_helper("--feature", feature, evidence=evidence)
@@ -449,7 +464,8 @@ class HelperRunTests(unittest.TestCase):
                 "fallback-decision", "deadline", "final-package",
                 "package-export", "sam-per-bin", "sam-live-evidence",
                 "sam-session-evidence", "video-selection",
-                "package-archive", "sam-photo-evidence"})
+                "package-archive", "sam-photo-evidence",
+                "date-consistency"})
             self.assertTrue(all(summary["features"].values()))
             for name in summary["features"]:
                 self.assertTrue((evidence / name / "summary.json").is_file(), name)
@@ -1504,7 +1520,7 @@ class HelperRunTests(unittest.TestCase):
     def test_console_readiness_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("console-readiness", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "console-readiness.md").read_text(
             encoding="utf-8")
         for marker in ("build_readiness", "/api/readiness", "준비 상태",
@@ -1966,6 +1982,58 @@ class HelperRunTests(unittest.TestCase):
             self.assertTrue(summary["summary_tamper_detected"])
             self.assertEqual(summary["missing_file_exit_code"], 2)
 
+    def test_date_consistency_drives_and_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-date-consistency"
+            result = self._run_helper("--feature", "date-consistency",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("VERIFY: PASS", result.stdout)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["feature"], "date-consistency")
+            self.assertTrue(summary["all_ok"])
+            self.assertTrue(summary["consistent"])
+            self.assertEqual(summary["date_kst"],
+                             summary["fallback_default_date"])
+            self.assertTrue(summary["deadline_now"].endswith("+09:00"))
+            self.assertGreater(summary["scanned_files"], 0)
+            self.assertEqual(summary["naive_problem_count"], 0)
+            self.assertEqual(summary["utc_problem_count"], 0)
+            self.assertEqual(summary["decision_problem_count"], 0)
+            self.assertTrue(summary["tamper_detected"])
+            self.assertTrue(summary["ready_tamper_detected"])
+            self.assertTrue(summary["blockers_tamper_detected"])
+            self.assertTrue(summary["naive_detected"])
+            self.assertTrue(summary["utc_detected"])
+            self.assertEqual(summary["valid_exit_code"], 0)
+            self.assertEqual(summary["json_exit_code"], 0)
+            self.assertFalse(summary["submission_ready"])
+            self.assertEqual(summary["blockers"],
+                             ["pi_real_capture_pending"])
+            self.assertTrue((evidence / "date-consistency.json").is_file())
+            self.assertTrue((evidence / "date-consistency.txt").is_file())
+            self.assertTrue((evidence / "transcript.txt").is_file())
+
+    def test_date_consistency_evidence_keeps_honesty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-date-consistency-honesty"
+            result = self._run_helper("--feature", "date-consistency",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            report = json.loads((evidence / "date-consistency.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(report["consistent"])
+            self.assertFalse(report["submission_ready"])
+            self.assertTrue(any("제출 준비 완료를 뜻하지 않는다" in line
+                                for line in report["honesty"]))
+            self.assertTrue(any("날짜 판정이 아니다" in line
+                                for line in report["honesty"]))
+            text = (evidence / "date-consistency.txt").read_text(
+                encoding="utf-8")
+            self.assertIn("CONSISTENT: true", text)
+            self.assertIn("SUBMISSION_READY: false", text)
+
     def test_video_selection_drives_and_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             evidence = Path(tmp) / "run-video-selection"
@@ -2357,7 +2425,7 @@ class HelperRunTests(unittest.TestCase):
     def test_deadline_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("deadline", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "deadline.md").read_text(
             encoding="utf-8")
         for marker in ("qa.deadline", "evaluate_deadline",
@@ -2472,7 +2540,7 @@ class HelperRunTests(unittest.TestCase):
     def test_final_package_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("final-package", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "final-package.md").read_text(
             encoding="utf-8")
         for marker in ("qa.final_package", "evaluate_final_package",
@@ -2769,7 +2837,7 @@ class HelperRunTests(unittest.TestCase):
     def test_package_export_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("package-export", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "package-export.md").read_text(
             encoding="utf-8")
         for marker in ("qa.package_export", "build_export",
@@ -2940,7 +3008,7 @@ class HelperRunTests(unittest.TestCase):
     def test_package_archive_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("package-archive", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "package-archive.md").read_text(
             encoding="utf-8")
         for marker in ("qa.package_archive", "build_archive",
@@ -3237,7 +3305,7 @@ class HelperRunTests(unittest.TestCase):
     def test_file_fallback_listed_and_grounded(self):
         skill = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("file-fallback", skill)
-        self.assertIn("기능 31종", skill)
+        self.assertIn("기능 32종", skill)
         feature = (SKILL_DIR / "features" / "file-fallback.md").read_text(
             encoding="utf-8")
         for marker in ("demo.fallback", "build_fallback_manifest",
