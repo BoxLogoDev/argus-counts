@@ -2208,6 +2208,14 @@ class FinalPackageIntegrationTests(unittest.TestCase):
         self.assertEqual(fp["export_verify_verified"], pkg["verify_verified"])
         self.assertEqual(fp["export_verify_copied_files"], pkg["verify_copied_files"])
         self.assertEqual(fp["export_verify_total_bytes"], pkg["verify_total_bytes"])
+        dc = result["readiness"]["date_consistency"]
+        self.assertIs(fp["date_consistent"], True)
+        self.assertEqual(fp["date_consistent"], dc["consistent"])
+        self.assertEqual(fp["date_scanned_files"], dc["scanned_files"])
+        self.assertEqual(fp["date_problem_count"], len(dc["problems"]))
+        self.assertIn("date_consistent=True", check.detail)
+        self.assertIn(f"date_scanned_files={dc['scanned_files']}", check.detail)
+        self.assertIn("date_problem_count=0", check.detail)
         self.assertEqual(fp["status"], "blocked")
         self.assertEqual(fp["inventory_present"], 18)
         self.assertEqual(fp["inventory_total"], 18)
@@ -2485,6 +2493,65 @@ class FinalPackageIntegrationTests(unittest.TestCase):
             report, package_export_report=pkg)
         self.assertTrue(
             any("export_verify_total_bytes" in x for x in problems), problems)
+
+    def test_validate_final_package_report_accepts_date_cross_check(self):
+        from qa.date_consistency import build_report as build_dc_report
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        dc = build_dc_report(ROOT)
+        self.assertIs(report["date_consistent"], True)
+        self.assertEqual(report["date_scanned_files"], dc["scanned_files"])
+        self.assertEqual(report["date_problem_count"], len(dc["problems"]))
+        self.assertEqual(
+            validate_final_package_report(
+                report, date_consistency_report=dc), [])
+
+    def test_validate_final_package_report_detects_missing_date_key(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        del report["date_consistent"]
+        problems = validate_final_package_report(report)
+        self.assertTrue(
+            any("date_consistent" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_nulled_date(self):
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["date_consistent"] = None
+        report["date_scanned_files"] = None
+        report["date_problem_count"] = None
+        problems = validate_final_package_report(report)
+        self.assertTrue(any("date_consistent" in x for x in problems), problems)
+        self.assertTrue(
+            any("date_scanned_files" in x for x in problems), problems)
+        self.assertTrue(
+            any("date_problem_count" in x for x in problems), problems)
+
+    def test_validate_final_package_report_detects_date_vs_consistency_mismatch(self):
+        from qa.date_consistency import build_report as build_dc_report
+        from qa.final_package import build_final_package
+
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        dc = build_dc_report(ROOT)
+        dc["scanned_files"] = dc["scanned_files"] + 1
+        problems = validate_final_package_report(
+            report, date_consistency_report=dc)
+        self.assertTrue(
+            any("date_scanned_files" in x for x in problems), problems)
+        report = build_final_package(
+            now="2026-10-31T06:50:00+09:00", today="2026-10-31")
+        report["date_problem_count"] = 1
+        problems = validate_final_package_report(
+            report, date_consistency_report=build_dc_report(ROOT))
+        self.assertTrue(
+            any("date_problem_count" in x for x in problems), problems)
 
 
 class PackageExportIntegrationTests(unittest.TestCase):

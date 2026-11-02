@@ -4022,8 +4022,8 @@ def _check_deadline(deadline_now=None):
     return PreSubmissionCheck(name, True, detail), report
 
 
-def validate_final_package_report(report, blockers=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None, package_export_report=None) -> list[str]:
-    """최종 묶음 보고가 내부적으로, 그리고 인벤토리·마감·폴백 결정·영상 선택·패키지 내보내기 보고와 맞는지 검사한다."""
+def validate_final_package_report(report, blockers=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None, package_export_report=None, date_consistency_report=None) -> list[str]:
+    """최종 묶음 보고가 내부적으로, 그리고 인벤토리·마감·폴백 결정·영상 선택·패키지 내보내기 보고와 맞는지 검사한다. 날짜 일관성 보고(date_consistency_report)가 주어지면 날짜 필드를 교차 대조한다."""
     if blockers is None:
         blockers = BLOCKERS
     problems: list[str] = []
@@ -4040,6 +4040,9 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
         "export_verify_verified",
         "export_verify_copied_files",
         "export_verify_total_bytes",
+        "date_consistent",
+        "date_scanned_files",
+        "date_problem_count",
         "deadline_status",
         "remaining_seconds",
         "fallback_status",
@@ -4069,6 +4072,34 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
             problems.append(f"final package: {problem}")
     except Exception as exc:
         problems.append(f"final package: validate_final_package raised: {exc!r}")
+    # 날짜 필드는 None 변조가 qa.final_package의 조건부 검사를 빠져나가지
+    # 못하게 여기서 필수값으로 다시 검사하고, 날짜 일관성 보고와 교차 대조한다.
+    date_consistent = report.get("date_consistent")
+    if date_consistent is not True:
+        problems.append(
+            f"final package: date_consistent={date_consistent!r} is not True")
+    date_scanned = report.get("date_scanned_files")
+    if isinstance(date_scanned, bool) or not isinstance(date_scanned, int) or date_scanned <= 0:
+        problems.append(
+            f"final package: date_scanned_files={date_scanned!r} "
+            "is not a positive int")
+    date_problems = report.get("date_problem_count")
+    if isinstance(date_problems, bool) or not isinstance(date_problems, int) or date_problems != 0:
+        problems.append(
+            f"final package: date_problem_count={date_problems!r} is not zero")
+    if isinstance(date_consistency_report, dict):
+        if "consistent" in date_consistency_report and date_consistent != date_consistency_report["consistent"]:
+            problems.append(
+                f"final package: date_consistent={date_consistent!r} != "
+                f"date consistency consistent={date_consistency_report['consistent']!r}")
+        if "scanned_files" in date_consistency_report and date_scanned != date_consistency_report["scanned_files"]:
+            problems.append(
+                f"final package: date_scanned_files={date_scanned!r} != "
+                f"date consistency scanned_files={date_consistency_report['scanned_files']!r}")
+        if isinstance(date_consistency_report.get("problems"), (list, tuple)) and date_problems != len(date_consistency_report["problems"]):
+            problems.append(
+                f"final package: date_problem_count={date_problems!r} != "
+                f"date consistency problems={len(date_consistency_report['problems'])!r}")
     # export 필드는 None 변조가 qa.final_package의 조건부 검사를 빠져나가지
     # 못하게 여기서 필수값으로 다시 검사하고, 인벤토리 보고와 교차 대조한다.
     export_total = report.get("export_total")
@@ -4241,7 +4272,7 @@ def validate_final_package_report(report, blockers=None, inventory_report=None, 
     return problems
 
 
-def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confirmed=False, pi_which=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None, package_export_report=None):
+def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confirmed=False, pi_which=None, inventory_report=None, deadline_report=None, decision_report=None, video_selection_report=None, package_export_report=None, date_consistency_report=None):
     name = "final_package_consistent"
     try:
         report = _build_fp(
@@ -4261,6 +4292,7 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         decision_report=decision_report,
         video_selection_report=video_selection_report,
         package_export_report=package_export_report,
+        date_consistency_report=date_consistency_report,
     )
     if problems:
         return PreSubmissionCheck(name, False, "; ".join(problems)), report
@@ -4274,6 +4306,9 @@ def _check_final_package(root, deadline_now=None, pi_probe=None, pi_device_confi
         f"export_verify_verified={report.get('export_verify_verified')} "
         f"export_verify_copied_files={report.get('export_verify_copied_files')} "
         f"export_verify_total_bytes={report.get('export_verify_total_bytes')} "
+        f"date_consistent={report.get('date_consistent')} "
+        f"date_scanned_files={report.get('date_scanned_files')} "
+        f"date_problem_count={report.get('date_problem_count')} "
         f"deadline_status={report['deadline_status']} "
         f"fallback_status={report['fallback_status']} "
         f"selected_video={report.get('selected_video')} "
@@ -4837,6 +4872,7 @@ def run_pre_submission_checks(
         decision_report=decision_report,
         video_selection_report=vs_report,
         package_export_report=pkg_report,
+        date_consistency_report=dc_report,
     )
     checks.append(fp_check)
     checks.append(pkg_check)
