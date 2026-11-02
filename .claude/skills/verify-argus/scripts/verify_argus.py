@@ -5023,6 +5023,10 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
     deadline_remaining = None
     deadline_status_from = None
     result_dl = None
+    date_report_consistent = None
+    date_report_scanned_files = None
+    date_report_problem_count = None
+    result_dc = None
     video_tamper_detected = False
     selected_video_tamper_detected = False
     selection_reason_tamper_detected = False
@@ -5046,6 +5050,8 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                    "EXPORT_MISSING: []",
                    "EXPORT_VERIFY_VERIFIED: true",
                    "EXPORT_VERIFY_COPIED_FILES: 18",
+                   "DATE_CONSISTENT: true",
+                   "DATE_PROBLEM_COUNT: 0",
                    "DEADLINE_STATUS: before_deadline",
                    f"REMAINING_SECONDS: {FINAL_PACKAGE_REMAINING}",
                    "FALLBACK_STATUS: pending",
@@ -5131,6 +5137,14 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
         if blocked.get("submission_ready") is not False:
             problems.append(
                 f"submission_ready 기대 False, 실제 {blocked.get('submission_ready')}")
+        if blocked.get("date_consistent") is not True:
+            problems.append(f"date_consistent 기대 True, 실제 {blocked.get('date_consistent')}")
+        if not isinstance(blocked.get("date_scanned_files"), int) or isinstance(blocked.get("date_scanned_files"), bool) or blocked.get("date_scanned_files", 0) <= 0:
+            problems.append(f"date_scanned_files 양의 정수 기대, 실제 {blocked.get('date_scanned_files')}")
+        elif f"DATE_SCANNED_FILES: {blocked.get('date_scanned_files')}" not in result.stdout:
+            problems.append("final_package 텍스트에 DATE_SCANNED_FILES(날짜 감사 검사 파일 수) 없음")
+        if blocked.get("date_problem_count") != 0:
+            problems.append(f"date_problem_count 기대 0, 실제 {blocked.get('date_problem_count')}")
         joined = " ".join(str(x) for x in blocked.get("honesty", []))
         for marker in ("실제로 제출하지 않는다", "제출 완료를 뜻하지 않는다",
                        "Pi 실촬영 검증 전"):
@@ -5177,6 +5191,40 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                 problems.append(
                     f"final_package deadline_status가 deadline status와 다르다: {blocked.get('deadline_status')} != {deadline_status_from}")
 
+    result_dc = run_cli(["-m", "qa.date_consistency", "--json"])
+    ctx.note(f"python3 -m qa.date_consistency --json "
+             f"-> 종료코드 {result_dc.returncode} (최종 묶음과 독립 대조)")
+    if result_dc.returncode != 0:
+        problems.append(
+            f"date_consistency --json 종료코드 기대 0, 실제 {result_dc.returncode}: "
+            f"{result_dc.stderr[:200]}")
+    dc_report: dict = {}
+    try:
+        dc_report = json.loads(result_dc.stdout)
+    except json.JSONDecodeError as e:
+        problems.append(f"date_consistency --json 파싱 실패: {e}")
+    if dc_report:
+        date_report_consistent = dc_report.get("consistent")
+        date_report_scanned_files = dc_report.get("scanned_files")
+        _dc_problems = dc_report.get("problems")
+        date_report_problem_count = len(_dc_problems) if isinstance(_dc_problems, list) else None
+        if date_report_consistent is not True:
+            problems.append(f"date_consistency consistent 기대 True, 실제 {date_report_consistent}")
+        if not isinstance(date_report_scanned_files, int) or isinstance(date_report_scanned_files, bool) or date_report_scanned_files <= 0:
+            problems.append(f"date_consistency scanned_files 양의 int 기대, 실제 {date_report_scanned_files}")
+        if date_report_problem_count != 0:
+            problems.append(f"date_consistency problems 개수 기대 0, 실제 {date_report_problem_count}")
+        if blocked:
+            if blocked.get("date_consistent") != date_report_consistent:
+                problems.append(
+                    f"final_package date_consistent가 date_consistency consistent와 다르다: {blocked.get('date_consistent')} != {date_report_consistent}")
+            if blocked.get("date_scanned_files") != date_report_scanned_files:
+                problems.append(
+                    f"final_package date_scanned_files가 date_consistency scanned_files와 다르다: {blocked.get('date_scanned_files')} != {date_report_scanned_files}")
+            if blocked.get("date_problem_count") != date_report_problem_count:
+                problems.append(
+                    f"final_package date_problem_count가 date_consistency problems 개수와 다르다: {blocked.get('date_problem_count')} != {date_report_problem_count}")
+
     result_due = run_cli(["-m", "qa.final_package", "--now", FINAL_PACKAGE_NOW,
                           "--date", FINAL_PACKAGE_DUE_DATE, "--json"])
     ctx.note(f"python3 -m qa.final_package --now {FINAL_PACKAGE_NOW} "
@@ -5210,6 +5258,12 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
             problems.append(f"due selected_size가 폴백 영상 실측 크기와 다르다: {due.get('selected_size')} != {fallback_size}")
         if due.get("submission_ready") is not False:
             problems.append(f"due submission_ready 기대 False, 실제 {due.get('submission_ready')}")
+        if due.get("date_consistent") is not True:
+            problems.append(f"due date_consistent 기대 True, 실제 {due.get('date_consistent')}")
+        if due.get("date_scanned_files") != blocked.get("date_scanned_files"):
+            problems.append(f"due date_scanned_files가 blocked와 다르다: {due.get('date_scanned_files')} != {blocked.get('date_scanned_files')}")
+        if due.get("date_problem_count") != 0:
+            problems.append(f"due date_problem_count 기대 0, 실제 {due.get('date_problem_count')}")
 
     result_over = run_cli(["-m", "qa.final_package", "--now",
                            DEADLINE_OVERDUE_NOW, "--date", FINAL_PACKAGE_DATE,
@@ -5257,6 +5311,9 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
     built_export_verify_verified = None
     built_export_verify_copied_files = None
     built_export_verify_total_bytes = None
+    built_date_consistent = None
+    built_date_scanned_files = None
+    built_date_problem_count = None
     try:
         ev_blocked = evaluate_final_package(**base_kwargs)
         ev_ready = evaluate_final_package(**{**base_kwargs, "blockers": []})
@@ -5280,6 +5337,15 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
         built = build_final_package(now=FINAL_PACKAGE_NOW,
                                     today=FINAL_PACKAGE_DATE)
         built_export_total_bytes = built.get("export_total_bytes")
+        built_date_consistent = built.get("date_consistent")
+        built_date_scanned_files = built.get("date_scanned_files")
+        built_date_problem_count = built.get("date_problem_count")
+        if built_date_consistent is not True:
+            problems.append(f"build date_consistent 기대 True, 실제 {built_date_consistent}")
+        if built_date_scanned_files != blocked.get("date_scanned_files"):
+            problems.append(f"build date_scanned_files가 CLI blocked와 다르다: {built_date_scanned_files} != {blocked.get('date_scanned_files')}")
+        if built_date_problem_count != 0:
+            problems.append(f"build date_problem_count 기대 0, 실제 {built_date_problem_count}")
         if built.get("export_copied") != 18 or built.get("export_total") != 18 or built.get("export_missing") != []:
             problems.append(f"build export 이상: {built.get('export_copied')}/{built.get('export_total')}/{built.get('export_missing')}")
         if not isinstance(built_export_total_bytes, int) or built_export_total_bytes <= 0:
@@ -5336,6 +5402,10 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
     except Exception as e:
         problems.append(f"evaluate_final_package 실패: {type(e).__name__}: {e}")
 
+    date_consistent_tamper_detected = False
+    date_scanned_tamper_detected = False
+    date_problem_count_tamper_detected = False
+    date_none_tamper_detected = False
     status_tamper_detected = False
     inventory_tamper_detected = False
     submission_ready_tamper_detected = False
@@ -5370,6 +5440,17 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
         export_verify_none_tamper_detected = any(("export_verify_copied_files" in p or "export_verify_total_bytes" in p) for p in validate_final_package(t12))
         t8 = copy.deepcopy(base); t8["selected_video"] = None
         none_tamper_detected = any(("selection_reason" in p or "selected_size" in p) for p in validate_final_package(t8))
+        _scanned_ref = blocked.get("date_scanned_files")
+        if not isinstance(_scanned_ref, int) or isinstance(_scanned_ref, bool) or _scanned_ref <= 0:
+            _scanned_ref = 50
+        t13 = copy.deepcopy(base); t13["date_consistent"] = False
+        date_consistent_tamper_detected = any("date_consistent" in p for p in validate_final_package(t13))
+        t14 = copy.deepcopy(base); t14["date_consistent"] = True; t14["date_scanned_files"] = 0; t14["date_problem_count"] = 0
+        date_scanned_tamper_detected = any("date_scanned_files" in p for p in validate_final_package(t14))
+        t15 = copy.deepcopy(base); t15["date_consistent"] = True; t15["date_scanned_files"] = _scanned_ref; t15["date_problem_count"] = 1
+        date_problem_count_tamper_detected = any("date_problem_count" in p for p in validate_final_package(t15))
+        t16 = copy.deepcopy(base); t16["date_scanned_files"] = _scanned_ref
+        date_none_tamper_detected = any("date_scanned_files" in p for p in validate_final_package(t16))
         if not none_tamper_detected:
             problems.append("변조 탐지 실패: selected_video를 None으로 바꿔도 문제를 찾지 못했다")
     except Exception as e:
@@ -5398,6 +5479,16 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                                      and export_verify_none_tamper_detected)
     if not export_verify_tamper_detected:
         problems.append("변조 탐지 실패: export_verify_* 중 하나를 바꿔도 문제를 찾지 못했다")
+    date_tamper_detected = (date_consistent_tamper_detected
+                            and date_scanned_tamper_detected
+                            and date_problem_count_tamper_detected
+                            and date_none_tamper_detected)
+    ctx.note(f"최종 묶음 날짜 변조 탐지 -> date_consistent {date_consistent_tamper_detected}, "
+             f"date_scanned_files {date_scanned_tamper_detected}, "
+             f"date_problem_count {date_problem_count_tamper_detected}, "
+             f"date_none {date_none_tamper_detected}")
+    if not date_tamper_detected:
+        problems.append("변조 탐지 실패: date_consistent/date_scanned_files/date_problem_count 중 하나를 바꿔도 문제를 찾지 못했다")
 
     summary = {"feature": "final-package",
                "blocked_status": blocked.get("status"),
@@ -5452,11 +5543,26 @@ def drive_final_package(ctx: Ctx, evidence: Path) -> dict:
                "selected_video_tamper_detected": selected_video_tamper_detected,
                "selection_reason_tamper_detected": selection_reason_tamper_detected,
                "selected_size_tamper_detected": selected_size_tamper_detected,
+               "date_consistent": blocked.get("date_consistent"),
+               "date_scanned_files": blocked.get("date_scanned_files"),
+               "date_problem_count": blocked.get("date_problem_count"),
+               "built_date_consistent": built_date_consistent,
+               "built_date_scanned_files": built_date_scanned_files,
+               "built_date_problem_count": built_date_problem_count,
+               "date_report_consistent": date_report_consistent,
+               "date_report_scanned_files": date_report_scanned_files,
+               "date_report_problem_count": date_report_problem_count,
+               "date_tamper_detected": date_tamper_detected,
+               "date_consistent_tamper_detected": date_consistent_tamper_detected,
+               "date_scanned_tamper_detected": date_scanned_tamper_detected,
+               "date_problem_count_tamper_detected": date_problem_count_tamper_detected,
+               "date_none_tamper_detected": date_none_tamper_detected,
                "all_ok": not problems, "problems": problems}
     write_evidence(evidence, ctx.lines, summary,
                    {"final-package-blocked.json": result_j.stdout,
                     "final-package-overdue.json": result_over.stdout,
-                    "final-package-deadline.json": result_dl.stdout if result_dl is not None else ""})
+                    "final-package-deadline.json": result_dl.stdout if result_dl is not None else "",
+                    "final-package-date.json": result_dc.stdout if result_dc is not None else ""})
     return summary
 
 def drive_package_export(ctx: Ctx, evidence: Path) -> dict:

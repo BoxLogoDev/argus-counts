@@ -2546,7 +2546,9 @@ class HelperRunTests(unittest.TestCase):
         for marker in ("qa.final_package", "evaluate_final_package",
                        "build_final_package", "validate_final_package",
                        "drive_final_package", "final-package-blocked.json",
-                       "final-package-overdue.json", "2026-11-03",
+                       "final-package-overdue.json", "final-package-date.json",
+                       "final-package-date-evidence", "date_consistent",
+                       "date_tamper_detected", "2026-11-03",
                        "blocked", "ready_for_packaging", "incomplete",
                        "overdue", "pi_real_capture_pending",
                        "실제로 제출하지 않는다", "제출 완료를 뜻하지 않는다",
@@ -2754,6 +2756,63 @@ class HelperRunTests(unittest.TestCase):
                 (evidence / "final-package-blocked.json").read_text(
                     encoding="utf-8"))
             self.assertIs(blocked["submission_ready"], False)
+
+    def test_final_package_date_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-date"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["date_consistent"], True)
+            self.assertIsInstance(summary["date_scanned_files"], int)
+            self.assertGreater(summary["date_scanned_files"], 0)
+            self.assertEqual(summary["date_problem_count"], 0)
+            self.assertIs(summary["built_date_consistent"], True)
+            self.assertEqual(summary["built_date_scanned_files"],
+                             summary["date_scanned_files"])
+            self.assertEqual(summary["built_date_problem_count"], 0)
+            blocked = json.loads(
+                (evidence / "final-package-blocked.json").read_text(
+                    encoding="utf-8"))
+            self.assertIs(blocked["date_consistent"], True)
+            self.assertEqual(blocked["date_scanned_files"],
+                             summary["date_scanned_files"])
+
+    def test_final_package_date_cross_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-date-cross"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["date_report_consistent"], True)
+            self.assertEqual(summary["date_report_scanned_files"],
+                             summary["date_scanned_files"])
+            self.assertEqual(summary["date_report_problem_count"], 0)
+            date_report = json.loads(
+                (evidence / "final-package-date.json").read_text(
+                    encoding="utf-8"))
+            self.assertIs(date_report["consistent"], True)
+            self.assertEqual(date_report["scanned_files"],
+                             summary["date_scanned_files"])
+            self.assertEqual(date_report["problems"], [])
+
+    def test_final_package_date_tamper_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-final-package-date-tamper"
+            result = self._run_helper("--feature", "final-package",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertTrue(summary["date_tamper_detected"])
+            self.assertTrue(summary["date_consistent_tamper_detected"])
+            self.assertTrue(summary["date_scanned_tamper_detected"])
+            self.assertTrue(summary["date_problem_count_tamper_detected"])
+            self.assertTrue(summary["date_none_tamper_detected"])
 
     def test_final_package_video_selection_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
