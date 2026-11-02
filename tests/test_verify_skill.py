@@ -505,8 +505,8 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(summary["feature"], "pre-submission")
             self.assertTrue(summary["all_ok"])
             self.assertTrue(summary["mechanical_pass"])
-            self.assertEqual(summary["passed"], 30)
-            self.assertEqual(summary["total"], 30)
+            self.assertEqual(summary["passed"], 31)
+            self.assertEqual(summary["total"], 31)
             self.assertIn(summary["readiness_deadline_status"], ("before_deadline", "due_soon", "overdue"))
             self.assertEqual(summary["readiness_deadline_blockers"], ["pi_real_capture_pending"])
             self.assertEqual(summary["readiness_deadline_kst"], "2026-11-05T11:00:00+09:00")
@@ -599,7 +599,7 @@ class HelperRunTests(unittest.TestCase):
                  "pi_camera_command_missing"])
             names = [c["name"] for c in payload["checks"]]
             self.assertIn("video_selection_consistent", names)
-            self.assertEqual(payload["total"], 30)
+            self.assertEqual(payload["total"], 31)
 
     def test_pre_submission_video_selection_honesty_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3366,6 +3366,43 @@ class HelperRunTests(unittest.TestCase):
             self.assertIs(summary["readiness_sam_session_evidence_submission_ready"], False)
             self.assertFalse(summary["submission_ready"])
 
+    def test_pre_submission_records_sam_photo_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-spe"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["readiness_sam_photo_evidence_valid"], True)
+            self.assertEqual(summary["readiness_sam_photo_evidence_source"], "sam")
+            self.assertEqual(summary["readiness_sam_photo_evidence_capture_source"], "file")
+            self.assertEqual(
+                summary["readiness_sam_photo_evidence_distinct_image_count"], 6)
+
+    def test_pre_submission_sam_photo_evidence_session_and_tamper(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-spe2"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertEqual(summary["readiness_sam_photo_evidence_session_id"],
+                             "PRE-SUBMISSION-SAM-PHOTO-EVIDENCE")
+            self.assertIs(summary["readiness_sam_photo_evidence_tamper_detected"], True)
+
+    def test_pre_submission_sam_photo_evidence_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence = Path(tmp) / "run-pre-spe3"
+            result = self._run_helper("--feature", "pre-submission",
+                                      evidence=evidence)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = json.loads((evidence / "summary.json").read_text(
+                encoding="utf-8"))
+            self.assertIs(summary["readiness_sam_photo_evidence_submission_ready"], False)
+            self.assertFalse(summary["submission_ready"])
+
     def test_unknown_feature_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = self._run_helper("--feature", "nope", evidence=Path(tmp))
@@ -3413,7 +3450,7 @@ class HelperRunTests(unittest.TestCase):
             self.assertEqual(len(arch["selected_sha256"]), 64)
             names = [c["name"] for c in payload["checks"]]
             self.assertIn("package_archive_consistent", names)
-            self.assertEqual(payload["total"], 30)
+            self.assertEqual(payload["total"], 31)
 
     def test_pre_submission_package_archive_evidence_keeps_not_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
