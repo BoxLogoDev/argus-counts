@@ -3,12 +3,15 @@
 11/03 제출 패키지 마감을 앞두고, 제출물 인벤토리(qa.submission_inventory),
 제출 마감(qa.deadline), Pi 폴백 결정(qa.fallback_decision) 세 보고와
 패키지 내보내기(qa.package_export) 실측과 그 staging의 매니페스트
-재검증(verify_export_dir), 데모 영상 선택(qa.video_selection)
+재검증(verify_export_dir), 날짜 감사(qa.date_consistency) 교차 대조,
+데모 영상 선택(qa.video_selection)
 보고를 한곳에 모아 패키지 상태를
 판정한다. 내보내기 실측은 임시 staging 디렉터리에 실제로 복사하고
 복사본을 대조하는 방식으로만 구하며, 재검증은 같은 staging을
 매니페스트만 읽어 다시 대조하고 그 통과 여부와 복사 수·합계 바이트를
-보고에 함께 기록한다. 임시 staging은 보고 뒤 사라진다.
+보고에 함께 기록한다. 날짜 감사의 일관성 여부와 검사 파일 수,
+문제 개수도 같은 보고에 교차 대조용으로 함께 기록한다.
+임시 staging은 보고 뒤 사라진다.
 상태는 overdue(마감 경과), incomplete(제출물 누락),
 blocked(제출 블로커 잔존), ready_for_packaging(묶음 준비 완료) 중 하나다.
 
@@ -56,6 +59,9 @@ _REQUIRED_KEYS = (
     "export_verify_verified",
     "export_verify_copied_files",
     "export_verify_total_bytes",
+    "date_consistent",
+    "date_scanned_files",
+    "date_problem_count",
     "deadline_status",
     "remaining_seconds",
     "fallback_status",
@@ -111,6 +117,9 @@ def evaluate_final_package(
     export_verify_verified=None,
     export_verify_copied_files=None,
     export_verify_total_bytes=None,
+    date_consistent=None,
+    date_scanned_files=None,
+    date_problem_count=None,
     selected_video=None,
     selection_reason=None,
     selected_size=None,
@@ -145,6 +154,15 @@ def evaluate_final_package(
         "export_verify_total_bytes": (
             int(export_verify_total_bytes)
             if export_verify_total_bytes is not None else None
+        ),
+        "date_consistent": (
+            bool(date_consistent) if date_consistent is not None else None
+        ),
+        "date_scanned_files": (
+            int(date_scanned_files) if date_scanned_files is not None else None
+        ),
+        "date_problem_count": (
+            int(date_problem_count) if date_problem_count is not None else None
         ),
         "deadline_status": str(deadline_status),
         "remaining_seconds": int(remaining_seconds),
@@ -194,6 +212,7 @@ def build_final_package(
     """
     from qa.deadline import build_deadline
     from qa.fallback_decision import build_decision
+    from qa.date_consistency import build_report as build_date_report
     from qa.package_export import build_export, verify_export_dir
     from qa.video_selection import build_selection as build_video_selection
     from qa.pre_submission import BLOCKERS
@@ -212,6 +231,7 @@ def build_final_package(
         export = build_export(staging, source_root=root)
         verified_export, verify_problems = verify_export_dir(
             staging, source_root=root)
+    date_report = build_date_report(root)
     video = build_video_selection(
         root=root,
         today=today,
@@ -235,6 +255,9 @@ def build_final_package(
         export_verify_total_bytes=(
             verified_export.get("total_bytes")
             if isinstance(verified_export, dict) else None),
+        date_consistent=date_report["consistent"],
+        date_scanned_files=date_report["scanned_files"],
+        date_problem_count=len(date_report["problems"]),
         deadline_status=deadline["status"],
         remaining_seconds=deadline["remaining_seconds"],
         fallback_status=decision["status"],
@@ -333,6 +356,41 @@ def validate_final_package(report: dict) -> list[str]:
                 f"export_verify_total_bytes={verify_bytes!r} != "
                 f"export_total_bytes={report.get('export_total_bytes')!r}"
             )
+    date_consistent = report.get("date_consistent")
+    if date_consistent is None:
+        if report.get("date_scanned_files") is not None:
+            problems.append(
+                f"date_scanned_files={report.get('date_scanned_files')!r} "
+                "is not None while date_consistent is None"
+            )
+        if report.get("date_problem_count") is not None:
+            problems.append(
+                f"date_problem_count={report.get('date_problem_count')!r} "
+                "is not None while date_consistent is None"
+            )
+    else:
+        if date_consistent is not True:
+            problems.append(
+                f"date_consistent={date_consistent!r} is not True"
+            )
+        date_scanned = report.get("date_scanned_files")
+        if (
+            isinstance(date_scanned, bool)
+            or not isinstance(date_scanned, int)
+            or date_scanned <= 0
+        ):
+            problems.append(
+                f"date_scanned_files={date_scanned!r} is not a positive int"
+            )
+        date_problems = report.get("date_problem_count")
+        if (
+            isinstance(date_problems, bool)
+            or not isinstance(date_problems, int)
+            or date_problems != 0
+        ):
+            problems.append(
+                f"date_problem_count={date_problems!r} is not zero"
+            )
     expected_status = _package_status(
         inventory_present=report["inventory_present"],
         inventory_total=report["inventory_total"],
@@ -413,6 +471,9 @@ def format_text_report(report: dict) -> str:
         f"EXPORT_VERIFY_VERIFIED: {str(report.get('export_verify_verified')).lower()}",
         f"EXPORT_VERIFY_COPIED_FILES: {report.get('export_verify_copied_files')}",
         f"EXPORT_VERIFY_TOTAL_BYTES: {report.get('export_verify_total_bytes')}",
+        f"DATE_CONSISTENT: {str(report.get('date_consistent')).lower()}",
+        f"DATE_SCANNED_FILES: {report.get('date_scanned_files')}",
+        f"DATE_PROBLEM_COUNT: {report.get('date_problem_count')}",
         f"DEADLINE_STATUS: {report['deadline_status']}",
         f"REMAINING_SECONDS: {report['remaining_seconds']}",
         f"FALLBACK_STATUS: {report['fallback_status']}",

@@ -331,6 +331,78 @@ class FinalPackageTests(unittest.TestCase):
         self.assertEqual(r["export_verify_total_bytes"], r["export_total_bytes"])
         self.assertEqual(fp.validate_final_package(r), [])
 
+    def test_evaluate_without_date_fields_is_none(self):
+        r = _base()
+        self.assertIsNone(r["date_consistent"])
+        self.assertIsNone(r["date_scanned_files"])
+        self.assertIsNone(r["date_problem_count"])
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_date_ok_keeps_blocked_and_validates(self):
+        r = _base(
+            date_consistent=True,
+            date_scanned_files=50,
+            date_problem_count=0,
+        )
+        self.assertEqual(r["status"], "blocked")
+        self.assertIs(r["date_consistent"], True)
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_validate_detects_date_tamper(self):
+        r = _base(
+            date_consistent=True,
+            date_scanned_files=50,
+            date_problem_count=0,
+        )
+        bad = dict(r, date_consistent=False)
+        self.assertTrue(
+            any("date_consistent" in p for p in fp.validate_final_package(bad))
+        )
+        bad2 = dict(r, date_scanned_files=0)
+        self.assertTrue(
+            any(
+                "date_scanned_files" in p
+                for p in fp.validate_final_package(bad2)
+            )
+        )
+        bad3 = dict(r, date_problem_count=2)
+        self.assertTrue(
+            any(
+                "date_problem_count" in p
+                for p in fp.validate_final_package(bad3)
+            )
+        )
+        bad4 = dict(r, date_consistent=None)
+        self.assertTrue(
+            any("date_" in p for p in fp.validate_final_package(bad4))
+        )
+
+    def test_build_includes_date_evidence(self):
+        from qa.date_consistency import build_report
+
+        r = fp.build_final_package(
+            now="2026-11-02T20:50:00+09:00", today="2026-11-02"
+        )
+        dc = build_report()
+        self.assertIs(r["date_consistent"], True)
+        self.assertEqual(r["date_consistent"], dc["consistent"])
+        self.assertEqual(r["date_scanned_files"], dc["scanned_files"])
+        self.assertEqual(r["date_problem_count"], len(dc["problems"]))
+        self.assertEqual(r["date_problem_count"], 0)
+        self.assertEqual(fp.validate_final_package(r), [])
+
+    def test_cli_text_includes_date_lines(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = fp.main(
+                ["--now", "2026-11-02T20:50:00+09:00", "--date", "2026-11-02"]
+            )
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("DATE_CONSISTENT: true", out)
+        self.assertIn("DATE_SCANNED_FILES: 50", out)
+        self.assertIn("DATE_PROBLEM_COUNT: 0", out)
+
     def test_cli_text_includes_export_verify_lines(self):
         buf = io.StringIO()
         with redirect_stdout(buf):
